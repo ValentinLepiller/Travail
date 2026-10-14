@@ -1,5 +1,14 @@
 # T3 Code
 
+## Local MT harness
+
+This checkout is Valentin's MT Code derivative. Follow `SPECS.md`; preserve MT/T3 identity,
+licenses and existing Codex authentication. Use `node --run harness:start` after building, or
+`node --run harness:dev`, to keep MT state in this checkout's `.t3/harness`. Keep desktop control
+disabled until agent sessions are isolated. Do not publish, push, expose a public listener, or
+update the daily installation without explicit authorization. Record delivered slices and proof
+in the concise `IMPLEMENTATION.md` requested for this project.
+
 T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs and agents (Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity) and serves web, desktop, and mobile clients.
 
 You can think of T3 Code as an open source "bring-your-own-subscription" alternative to apps like Claude Desktop, Codex App, Cursor Glass and Conductor.

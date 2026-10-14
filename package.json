@@ -3,6 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "harness:prepare": "node scripts/harness.ts prepare",
+    "harness:dev": "node scripts/harness.ts dev",
+    "harness:start": "node scripts/harness.ts start",
     "prepare": "effect-tsgo patch && vp config --no-agent",
     "dev": "node scripts/dev-runner.ts dev",
     "dev:share": "node scripts/dev-runner.ts dev --share",
