@@ -46,20 +46,26 @@ const decodeFailure = Schema.decodeUnknownSync(Failure);
 const decodeThread = Schema.decodeUnknownSync(Thread);
 const decodeAccount = Schema.decodeUnknownSync(Account);
 const decodeRealtimeItem = Schema.decodeUnknownOption(RealtimeItem);
+const decodeRoutingTurn = Schema.decodeUnknownOption(
+  Schema.Struct({
+    threadId: Schema.String,
+    turn: Schema.Struct({ id: Schema.String, status: Schema.optionalKey(Schema.String) }),
+  }),
+);
 const digest = (text: string) => NodeCrypto.createHash("sha256").update(text).digest("hex");
 
 const CODEX_VOICE_INSTRUCTIONS =
-  "You are MT Code's voice routing bridge. For every user question or work request, call " +
-  "ask_selected_agent with the complete request and relevant spoken context. The selected agent " +
-  "owns reasoning, tools, files, and approvals. Never do its work yourself or use other tools. " +
-  "Return its result faithfully and concisely. Never claim work succeeded when the tool failed.";
+  "You are MT Code's conversational voice bridge. Handle greetings, clarification, work-status " +
+  "questions, and repeating a result already received directly. For new reasoning, factual answers, " +
+  "or work requests, call ask_selected_agent with the complete request and relevant spoken context. " +
+  "The selected agent owns reasoning, tools, files, and approvals. Never do its work yourself or " +
+  "use other tools. Briefly acknowledge a delegated request and remain conversational while the " +
+  "agent works. A status question does not resend the task; a changed instruction must reach the " +
+  "agent. Speak its final result faithfully and concisely when it arrives. Never claim work succeeded " +
+  "before receiving the result, and explain a tool failure honestly.";
 
-/**
- * How long to hold GPT-Live's ping before answering it. A quick agent reply
- * rides back on the tool call; anything slower gets an immediate "working on
- * it" so the call stays conversational, and the reply follows as context.
- */
-const ANSWER_INLINE_MS = 8_000;
+/** Keep synchronous replies inline without silencing a call while an agent works. */
+const ANSWER_INLINE_MS = 250;
 
 /** How long a fresh ping is treated as a repeat of the question just answered. */
 const REPEAT_PING_MS = 30_000;
@@ -95,6 +101,12 @@ export class CodexVoiceSession {
   private readonly handoffs = new Set<string>();
   private spokenSource: { readonly key: string; readonly prompt: string } | undefined;
   private utteranceId: string | undefined;
+  private answerSourceKey: string | undefined;
+  private routingTurnId: string | undefined;
+  private pendingHandoff: { readonly turnId: string | undefined } | undefined;
+  private queuedAnswer:
+    | { readonly text: string; readonly prompt: string; readonly revision: number }
+    | undefined;
   private deliveredRevision = 0;
   private latestHandoffKey: string | undefined;
   private notices: string[] = [];
@@ -145,6 +157,8 @@ export class CodexVoiceSession {
           this.pending.delete(message.id);
           if (message.error) request.reject(new Error(message.error.message));
           else request.resolve(message.result);
+        } else if (message.method === "turn/started" || message.method === "turn/completed") {
+          this.observeRoutingTurn(message.method, message.params);
         } else if (message.method === "thread/realtime/itemAdded") {
           this.observeRealtimeItem(message.params);
         } else if (message.method === "thread/realtime/sdp") {
@@ -182,16 +196,14 @@ export class CodexVoiceSession {
     const decoded = decodeRealtimeItem(params);
     if (Option.isNone(decoded)) return;
     const { item } = decoded.value;
-    // Native Codex turn IDs identify provider work, not spoken utterances.
-    // Use a source speech boundary when the installed runtime exposes one.
+    // Speech boundaries identify retries, not replacement work: conversation
+    // during a task must preserve its pending result until a new handoff supersedes it.
     if (item.type === "input_audio_buffer.speech_started" && item.item_id) {
       if (this.utteranceId === item.item_id) return;
-      this.invalidateAnswer();
       this.utteranceId = item.item_id;
       this.spokenSource = undefined;
     } else if (item.type === "turn.created" && item.turn?.role === "user") {
       if (this.utteranceId === item.turn.id) return;
-      this.invalidateAnswer();
       this.utteranceId = item.turn.id;
       this.spokenSource = undefined;
     } else if (item.type === "handoff_request") {
@@ -202,14 +214,44 @@ export class CodexVoiceSession {
       if (!prompt || prompt.length > 32_000) return;
       // The current transcript can advance before the history tail catches up.
       const key = digest(JSON.stringify({ users, prompt }));
-      if (this.spokenSource && this.spokenSource.key !== key) this.invalidateAnswer();
+      if (
+        this.spokenSource?.key !== key &&
+        this.answerSourceKey !== undefined &&
+        this.answerSourceKey !== key
+      ) {
+        // A handoff also routes conversation. Wait for its tool decision before replacing work.
+        this.pendingHandoff = { turnId: this.routingTurnId };
+        clearTimeout(this.speechTimer);
+      }
       this.spokenSource = { key, prompt };
     }
+  }
+
+  private observeRoutingTurn(method: string, params: unknown): void {
+    const decoded = decodeRoutingTurn(params);
+    if (Option.isNone(decoded) || decoded.value.threadId !== this.threadId) return;
+    const { turn } = decoded.value;
+    if (method === "turn/started") {
+      this.routingTurnId = turn.id;
+      if (this.pendingHandoff) this.pendingHandoff = { turnId: turn.id };
+      return;
+    }
+    if (this.routingTurnId === turn.id) this.routingTurnId = undefined;
+    if (this.pendingHandoff?.turnId !== turn.id) return;
+    this.pendingHandoff = undefined;
+    if (turn.status !== "completed") {
+      this.notices.push("Voice clarification did not complete. Check the task for its result.");
+      return;
+    }
+    const answer = this.queuedAnswer;
+    if (answer) this.deliver(answer.text, answer.prompt, answer.revision);
   }
 
   private invalidateAnswer(): void {
     ++this.revision;
     clearTimeout(this.speechTimer);
+    this.queuedAnswer = undefined;
+    this.pendingHandoff = undefined;
   }
 
   /** Waits for the latest instruction; the task service owns steering and queued delivery. */
@@ -245,12 +287,16 @@ export class CodexVoiceSession {
     // each waits on the same turn, so without this it would say it twice. A
     // different question that happens to get the same answer is still spoken.
     if (this.deliveredRevision === revision) return;
-    this.rememberAnswer(text, prompt, revision);
+    this.queuedAnswer = { text, prompt, revision };
+    if (this.pendingHandoff) return;
     // A beat first: pushing speech while GPT-Live is still finishing its own
     // line gets swallowed.
     clearTimeout(this.speechTimer);
     this.speechTimer = setTimeout(() => {
-      if (this.closed || !this.threadId || revision !== this.revision) return;
+      if (this.closed || !this.threadId || revision !== this.revision || this.pendingHandoff)
+        return;
+      this.queuedAnswer = undefined;
+      this.rememberAnswer(text, prompt, revision);
       void this.request("thread/realtime/appendSpeech", {
         threadId: this.threadId,
         text,
@@ -326,7 +372,9 @@ export class CodexVoiceSession {
         if (this.handoffs.size > 64) this.handoffs.delete(this.handoffs.values().next().value!);
       }
       const updating = this.delegation !== undefined;
-      const revision = ++this.revision;
+      this.invalidateAnswer();
+      const revision = this.revision;
+      this.answerSourceKey = this.spokenSource?.key;
       this.latestHandoffKey = handoffKey;
       clearTimeout(this.speechTimer);
       this.notices.push(
@@ -356,6 +404,13 @@ export class CodexVoiceSession {
         return;
       }
       if (answer !== waiting) {
+        if (this.pendingHandoff) {
+          reply(
+            "The selected agent's result will arrive separately after the current clarification.",
+          );
+          this.deliver(answer, askedPrompt, revision);
+          return;
+        }
         this.rememberAnswer(answer, askedPrompt, revision);
         reply(answer);
         return;
@@ -412,7 +467,7 @@ export class CodexVoiceSession {
               type: "function",
               name: "ask_selected_agent",
               description:
-                "Send the user's request to the selected model in the current MT Code task and await its answer.",
+                "Start or update work with the selected model in the current MT Code task. A pending acknowledgement means the final result will arrive separately.",
               inputSchema: {
                 type: "object",
                 properties: { prompt: { type: "string" } },
@@ -441,14 +496,11 @@ export class CodexVoiceSession {
             transport: { type: "webrtc", sdp },
             includeStartupContext: false,
             clientManagedHandoffs: false,
-            // Keep acknowledgements in the selected-task bridge. Native filler can
-            // finish speaking before the task result becomes available.
-            delegationAckFiller: false,
+            // Native acknowledgement keeps speech independent of the routing turn.
+            // The bridge still owns the exact result and its separate read-out.
+            delegationAckFiller: true,
             ...(voice ? { voice } : {}),
-            // Keep this plain. Telling it to speak while it waits makes it treat
-            // the call as fire-and-forget and never report what came back.
-            prompt:
-              "You are the voice for the user's selected MT Code agent. Delegate every question and work request to ask_selected_agent. Speak its result concisely. Never invent its answer or claim work before it finishes.",
+            prompt: CODEX_VOICE_INSTRUCTIONS,
           }),
           answer,
         ]);

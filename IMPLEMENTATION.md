@@ -6,7 +6,7 @@ Base [MT Code](https://github.com/munimtechnologies/mtcode) `63c035c5e5a0cfdcdd4
 
 - **Agents** : Codex natif avec abonnement ChatGPT, sous-agent, instructions/skills et projet racine. Authentification et installation Codex globales préservées ; le runtime possède aussi sa baseline dédiée.
 - **Coordinateur** : scénario réel entre deux projets ; lancement, résultat terminal, nouvelle consigne pendant travail, réessai idempotent et interruption effective.
-- **Voix** : WebRTC natif avec audio synthétique ; retour exact immédiat et tardif, nouvelle consigne prioritaire. Résultat conservé dans la conversation ; depuis un nouveau chat, le clic vocal crée la conversation sans message artificiel et conserve le brouillon. Dans ce mode, la voix API est désactivée avec une erreur explicite ; aucun repli payant. Valentin a confirmé sur téléphone le parcours nouveau chat→voix sans texte→délégation de `137×29`→réponse audio `3973`.
+- **Voix** : WebRTC natif avec audio synthétique ; retour exact immédiat et tardif, nouvelle consigne prioritaire. Accusé natif et conversation pendant le travail vérifiés sur un même flux RTC synthétique (seconde question sans relance, puis résultat exact). Résultat conservé dans la conversation ; depuis un nouveau chat, le clic vocal crée la conversation sans message artificiel et conserve le brouillon. Dans ce mode, la voix API est désactivée avec une erreur explicite ; aucun repli payant. Valentin a confirmé sur téléphone le parcours nouveau chat→voix sans texte→délégation→réponse audio.
 - **Bureaux** : sessions Linux isolées, deux agents simultanés, captures et saisies réelles ; dialogue humain, transfert/restitution et fermeture sélective vérifiés. Bureau personnel non piloté. Browser MT réel également vérifié.
 - **Connecteurs/contexte** : Gmail et Slack natifs indépendants du pont Desktop, lectures réelles ; accès borné à l’ancien historique et aux mémoires. Aucun envoi pour les tests. Outils documents/PDF existants réutilisés ; Teams/WhatsApp nécessitent leur accès propre.
 - **Récurrences** : scheduler MT persistant, fuseau Paris, preuves de rattrapage et récupération sur serveur isolé sans client.
@@ -28,7 +28,7 @@ node --run harness:start
 
 ## Validation restante
 
-Build final et gate compilé validés ; HTTPS partagé et passage UI intégrés validés (nouvelle tâche, deux bureaux, transfert/restitution et fermeture). Sur téléphone, le parcours vocal de base est confirmé par Valentin. Restent non testés : latence mesurée, interruption audio, reconnexion, changement de réseau, arrière-plan et écran verrouillé. Conserver Codex Desktop comme repli.
+Build final et gate compilé validés ; HTTPS partagé et passage UI intégrés validés (nouvelle tâche, deux bureaux, transfert/restitution et fermeture). Sur téléphone, le parcours vocal de base est confirmé par Valentin ; la fluidité après le correctif reste à confirmer. Une sonde par version a observé l’accusé à 0,976 s après handoff, contre 13,015 s avant activation de l’accusé natif ; ce n’est pas une statistique de performance ni une mesure téléphone. Restent non testés : latence téléphone, interruption audio, reconnexion, changement de réseau, arrière-plan et écran verrouillé. Conserver Codex Desktop comme repli.
 
 Typechecks sans erreur de type ; code non nul du checker reproduit sur des warnings de directives préexistants dans trois fichiers amont inchangés.
 

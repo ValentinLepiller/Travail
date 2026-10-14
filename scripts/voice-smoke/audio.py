@@ -29,6 +29,7 @@ def prepare(source, destination):
     with wave.open(destination, "wb") as audio:
         audio.setparams(params)
         audio.writeframes(frames)
+    return {"sourceDurationMs": round(params.nframes / params.framerate * 1000)}
 
 
 def decode(source, destination, start_ms, end_ms):
@@ -47,6 +48,8 @@ def decode(source, destination, start_ms, end_ms):
     window = bytearray()
     errors = []
     non_dtx = 0
+    first_audible_at_ms = None
+    audible_duration_ms = 0
     seen = set()
     first_timestamp = packets[0]["timestamp"] if packets else 0
     try:
@@ -64,6 +67,13 @@ def decode(source, destination, start_ms, end_ms):
             if start_ms <= packet["receivedAtMs"] <= end_ms:
                 window.extend(frames)
                 non_dtx += len(payload) > 3
+                packet_samples = array.array("h", frames)
+                packet_peak = max(map(abs, packet_samples), default=0)
+                packet_rms = math.sqrt(sum(x*x for x in packet_samples) / max(1, len(packet_samples)))
+                if len(payload) > 3 and packet_peak > 32 and packet_rms > 2:
+                    if first_audible_at_ms is None:
+                        first_audible_at_ms = packet["receivedAtMs"]
+                    audible_duration_ms += size / 48
     finally:
         lib.opus_decoder_destroy(decoder)
     with wave.open(destination, "wb") as audio:
@@ -80,6 +90,8 @@ def decode(source, destination, start_ms, end_ms):
         "decodedSeconds": decoded_frames / 48000,
         "responseSeconds": len(window) / 192000,
         "windowNonDtxPackets": non_dtx,
+        "firstAudibleReceivedAtMs": first_audible_at_ms,
+        "audibleDurationMs": round(audible_duration_ms),
         "windowPeak": max(map(abs, samples), default=0),
         "windowRms": round(math.sqrt(sum(x * x for x in samples) / max(1, len(samples))), 2),
     }
@@ -88,7 +100,7 @@ def decode(source, destination, start_ms, end_ms):
 if __name__ == "__main__":
     try:
         if sys.argv[1] == "prepare":
-            prepare(sys.argv[2], sys.argv[3])
+            print(json.dumps(prepare(sys.argv[2], sys.argv[3])))
         elif sys.argv[1] == "decode":
             print(json.dumps(decode(sys.argv[2], sys.argv[3], float(sys.argv[4]), float(sys.argv[5]))))
         else:

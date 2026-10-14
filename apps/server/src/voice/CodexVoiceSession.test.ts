@@ -5,6 +5,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeReadline from "node:readline";
 import { afterEach, expect, it } from "@effect/vitest";
+import { vi } from "vite-plus/test";
 import { CodexVoiceSession, type CodexVoiceOptions } from "./CodexVoiceSession.ts";
 
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -146,6 +147,39 @@ it("waits for SDP and returns the selected agent's actual quick answer to the na
   expect(test.speech).toEqual([]);
 });
 
+it("acknowledges a pending task after a short beat, then delivers its exact result separately", async () => {
+  const started = Promise.withResolvers<void>();
+  const answer = Promise.withResolvers<string>();
+  const test = await fixture(() => {
+    started.resolve();
+    return answer.promise;
+  });
+  await test.session.start("offer-sdp");
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    let acknowledged = false;
+    const acknowledgement = test.request("pending", "Do the work", "native-1").then((text) => {
+      acknowledged = true;
+      return text;
+    });
+    await started.promise;
+    await vi.advanceTimersByTimeAsync(249);
+    expect(acknowledged).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await acknowledgement).toContain("agent is working");
+    expect(test.speech).toEqual([]);
+    expect(test.session.takeNotices().some((notice) => notice.startsWith("Agent result:"))).toBe(
+      false,
+    );
+  } finally {
+    vi.useRealTimers();
+  }
+  const speech = test.speechStarted();
+  answer.resolve("The exact selected-agent result.");
+  expect(await speech).toBe("The exact selected-agent result.");
+  expect(test.speech).toEqual(["The exact selected-agent result."]);
+});
+
 it("deduplicates paraphrased native retries using the same spoken source", async () => {
   const asked: string[] = [];
   const test = await fixture(async (prompt) => {
@@ -235,6 +269,112 @@ it("delivers an update during work and ignores the older late answer", async () 
   expect(asked).toEqual(["First", "Updated"]);
   expect(test.session.takeNotices()).not.toContain("Agent result: Obsolete result.");
   expect(test.speech).toEqual(["Updated result."]);
+});
+
+it("preserves a pending task result across conversational speech without another handoff", async () => {
+  const answer = Promise.withResolvers<string>();
+  let requests = 0;
+  const test = await fixture(
+    () => {
+      requests++;
+      return answer.promise;
+    },
+    { speakInlineMs: 0 },
+  );
+  await test.session.start("offer-sdp");
+  test.utterance("work");
+  test.handoff("Do the work");
+  await test.request("call-work", "Do the work", "native-1");
+  test.utterance("status-question");
+  test.notify("thread/realtime/itemAdded", {
+    item: { type: "turn.created", turn: { id: "conversation", role: "user" } },
+  });
+  // This transport barrier ensures the conversation was observed before work finishes.
+  await test.request("barrier", "", "native-1");
+  const speech = test.speechStarted();
+  answer.resolve("Completed task result.");
+  expect(await speech).toBe("Completed task result.");
+  expect(requests).toBe(1);
+});
+
+it("keeps a work result when a status handoff finishes without asking the agent again", async () => {
+  const answer = Promise.withResolvers<string>();
+  const test = await fixture(() => answer.promise, { speakInlineMs: 0 });
+  await test.session.start("offer-sdp");
+  test.handoff("Do the work");
+  await test.request("work", "Do the work", "native-1");
+  test.utterance("status");
+  test.handoff("Are you still working?");
+  test.notify("turn/started", { threadId: "test-thread", turn: { id: "status-turn" } });
+  test.notify("turn/completed", {
+    threadId: "test-thread",
+    turn: { id: "status-turn", status: "completed" },
+  });
+  await test.request("barrier-before-result", "", "native-1");
+  const speech = test.speechStarted();
+  answer.resolve("The completed work result.");
+  expect(await speech).toBe("The completed work result.");
+  expect(test.session.takeNotices()).toContain("Agent result: The completed work result.");
+});
+
+it("holds an old result until a changed source is classified after a speech boundary", async () => {
+  const answer = Promise.withResolvers<string>();
+  const test = await fixture(() => answer.promise);
+  await test.session.start("offer-sdp");
+  test.utterance("work");
+  test.handoff("First work");
+  const oldReply = test.request("first", "First work", "native-1");
+  test.utterance("correction");
+  test.handoff("Corrected work");
+  await test.request("barrier", "", "native-1");
+  answer.resolve("Obsolete result");
+  expect(await oldReply).toContain("clarification");
+  expect(test.speech).toEqual([]);
+});
+
+it("releases a result held during a status handoff only when its routing turn completes", async () => {
+  const answer = Promise.withResolvers<string>();
+  const test = await fixture(() => answer.promise, { speakInlineMs: 0 });
+  await test.session.start("offer-sdp");
+  test.handoff("Do the work");
+  await test.request("work", "Do the work", "native-1");
+  test.handoff("Are you still there?");
+  test.notify("turn/started", { threadId: "test-thread", turn: { id: "status" } });
+  await test.request("before-result", "", "native-1");
+  answer.resolve("Held work result.");
+  await answer.promise;
+  await test.request("after-result", "", "native-1");
+  expect(test.speech).toEqual([]);
+  const speech = test.speechStarted();
+  test.notify("turn/completed", {
+    threadId: "test-thread",
+    turn: { id: "status", status: "completed" },
+  });
+  expect(await speech).toBe("Held work result.");
+});
+
+it("drops a held result when routing actually calls the agent with a corrected instruction", async () => {
+  const first = Promise.withResolvers<string>();
+  const test = await fixture(
+    (prompt) => (prompt === "First work" ? first.promise : Promise.resolve("Corrected result.")),
+    { speakInlineMs: 0 },
+  );
+  await test.session.start("offer-sdp");
+  test.handoff("First work");
+  await test.request("first", "First work", "native-1");
+  test.handoff("Corrected work");
+  test.notify("turn/started", { threadId: "test-thread", turn: { id: "correction" } });
+  await test.request("barrier", "", "native-1");
+  first.resolve("Obsolete held result.");
+  await first.promise;
+  expect(await test.request("corrected", "Corrected work", "correction")).toBe("Corrected result.");
+  test.notify("turn/completed", {
+    threadId: "test-thread",
+    turn: { id: "correction", status: "completed" },
+  });
+  await test.request("after-correction", "", "native-1");
+  expect(test.speech).toEqual([]);
+  expect(test.session.takeNotices()).not.toContain("Agent result: Obsolete held result.");
 });
 
 it("does not return a stale inline result after a new instruction", async () => {

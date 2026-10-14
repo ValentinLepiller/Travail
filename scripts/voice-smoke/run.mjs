@@ -4,10 +4,12 @@ import * as NodeDgram from "node:dgram";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeModule from "node:module";
 import * as NodeOS from "node:os";
+import * as NodeReadline from "node:readline";
 import * as NodePath from "node:path";
 import * as NodeUtil from "node:util";
 import * as NodeURL from "node:url";
 import { assessResult, findResultTurn } from "./result.mjs";
+import { assessConversation } from "./conversation.mjs";
 
 const folder = NodePath.dirname(NodeURL.fileURLToPath(import.meta.url));
 const root = NodePath.resolve(folder, "../..");
@@ -23,8 +25,8 @@ const { values } = NodeUtil.parseArgs({
     "werift-path": { type: "string" },
   },
 });
-if (!["all", "immediate", "late"].includes(values.scenario)) {
-  throw new Error("--scenario must be all, immediate, or late");
+if (!["all", "immediate", "late", "conversation"].includes(values.scenario)) {
+  throw new Error("--scenario must be all, immediate, late, or conversation");
 }
 const environment = { ...process.env };
 environment.CODEX_HOME = NodePath.resolve(values.home);
@@ -46,22 +48,52 @@ const python = (args) =>
   });
 
 async function smoke(scenario, dependencies, scratch, output) {
+  const conversational = scenario === "conversation";
   const { RTCPeerConnection, MediaStreamTrack, RtpPacket, CodexVoiceSession } = dependencies;
   const marker = `${["violet", "amber", "cobalt", "indigo"][NodeCrypto.randomInt(4)]} ${["seventeen", "twenty seven", "thirty nine", "forty two"][NodeCrypto.randomInt(4)]}`;
   const now = () => Math.round(performance.now() - began);
   const began = performance.now();
-  const deadline = began + 70000;
+  const deadline = began + (conversational ? 90000 : 70000);
   const turns = new Map();
   const packets = [];
   const eventTypes = {};
   const callbacks = [];
+  const timeline = [];
+  const trace = (event, fields = {}) => {
+    if (timeline.length < 100) timeline.push({ atMs: now(), event, ...fields });
+  };
+  const safeText = (value) =>
+    String(value ?? "")
+      .replace(/Bearer\s+\S+|sk-[\w-]+|[\w.+-]+@[\w.-]+/gi, "[redacted]")
+      .slice(0, 400);
   let resolvedAtMs;
+  let firstDelegationAtMs;
+  let inputStartedAtMs;
+  let secondInputStartedAtMs;
+  let secondInputEndAtMs;
+  let releaseAnswer;
+  let rejectAnswer;
+  const heldAnswer = conversational
+    ? new Promise((resolve, reject) => {
+        releaseAnswer = resolve;
+        rejectAnswer = reject;
+      })
+    : undefined;
+  const conversation = { ack: undefined, exchange: undefined, prematureMarker: false };
+  const voiceModel = { id: null, source: "not_exposed_by_native_session" };
+  let inputSequence = 0;
+  let inputTimestamp = 0;
+  let checkingConversation = false;
+  let lastCheckPackets = 0;
   let protocolError = false;
+  let packetLimitReached = false;
   let encoderError = false;
+  let decoderError = false;
   let failureCode;
   let connected = false;
   let channelOpened = false;
   let encoder;
+  const stoppedEncoders = new WeakSet();
   let pulse;
   const changed = () => pulse?.();
   const waitFor = async (predicate) => {
@@ -92,7 +124,13 @@ async function smoke(scenario, dependencies, scratch, output) {
   });
   udp.on("message", (buffer) => {
     try {
-      track.writeRtp(RtpPacket.deSerialize(buffer));
+      const packet = RtpPacket.deSerialize(buffer);
+      if (conversational) {
+        packet.header.sequenceNumber = inputSequence++ % 65536;
+        packet.header.timestamp = inputTimestamp;
+        inputTimestamp = (inputTimestamp + 960) >>> 0;
+      }
+      track.writeRtp(packet);
     } catch {
       encoderError = true;
       changed();
@@ -111,7 +149,19 @@ async function smoke(scenario, dependencies, scratch, output) {
       const item = JSON.parse(String(event.data));
       const type = /^[a-z_.]+$/.test(item.type ?? "") ? item.type : "unknown";
       eventTypes[type] = (eventTypes[type] ?? 0) + 1;
-      if (type === "error") protocolError = true;
+      if (type === "error") {
+        protocolError = true;
+        trace("provider_error", {
+          code: safeText(item.error?.code),
+          message: safeText(item.error?.message),
+        });
+      }
+      if (type === "delegation.created" || type === "delegation.context.appended") trace(type);
+      if (type === "delegation.created") firstDelegationAtMs ??= now();
+      if (typeof item.session?.model === "string") {
+        voiceModel.id = item.session.model;
+        voiceModel.source = type;
+      }
       if (["turn.created", "turn.done"].includes(type) && item.turn) {
         const previous = turns.get(item.turn.id);
         turns.set(item.turn.id, {
@@ -125,6 +175,12 @@ async function smoke(scenario, dependencies, scratch, output) {
         const turn = turns.get(item.turn_id);
         if (turn) turn.text += item.delta;
       }
+      if (conversational && resolvedAtMs === undefined) {
+        for (const turn of turns.values())
+          if (turn.role === "assistant" && turn.text.toLowerCase().includes(marker))
+            conversation.prematureMarker = true;
+      }
+      checkConversation();
       changed();
     } catch {
       protocolError = true;
@@ -134,8 +190,9 @@ async function smoke(scenario, dependencies, scratch, output) {
   pc.onTrack.subscribe((received) => {
     if (received.kind !== "audio") return;
     received.onReceiveRtp.subscribe((packet) => {
-      if (packets.length >= 4000) {
-        protocolError = true;
+      if (packets.length >= (conversational ? 6000 : 4000)) {
+        if (!packetLimitReached) trace("probe_packet_limit");
+        packetLimitReached = true;
         changed();
         return;
       }
@@ -144,6 +201,7 @@ async function smoke(scenario, dependencies, scratch, output) {
         payload: packet.payload.toString("base64"),
         receivedAtMs: now(),
       });
+      checkConversation();
       changed();
     });
   });
@@ -154,6 +212,15 @@ async function smoke(scenario, dependencies, scratch, output) {
     env: environment,
     askAgent: async (_prompt, signal) => {
       callbacks.push({ startedAtMs: now(), delayMs: scenario === "late" ? 12000 : 0 });
+      trace("callback_started", { count: callbacks.length });
+      if (conversational) {
+        signal.addEventListener(
+          "abort",
+          () => rejectAnswer(new Error("Synthetic work cancelled")),
+          { once: true },
+        );
+        await heldAnswer;
+      }
       if (scenario === "late")
         await new Promise((done, reject) => {
           const cancel = () => {
@@ -167,10 +234,168 @@ async function smoke(scenario, dependencies, scratch, output) {
           signal.addEventListener("abort", cancel, { once: true });
         });
       resolvedAtMs = now();
+      trace("callback_resolved");
       changed();
       return `The synthetic confirmation code is ${marker}. No task was executed.`;
     },
   });
+  // Observe the real adapter without changing its protocol, flags, or arguments.
+  const nativeLines = NodeReadline.createInterface({ input: session.child.stdout });
+  nativeLines.on("line", (line) => {
+    try {
+      const message = JSON.parse(line);
+      if (["turn/started", "turn/completed"].includes(message.method)) trace(message.method);
+      if (message.method === "thread/realtime/itemAdded") {
+        const item = message.params?.item;
+        if (item?.type === "handoff_request") trace("native_handoff");
+      }
+      if (message.method === "thread/realtime/error") {
+        trace("native_provider_error", { message: safeText(message.params?.message) });
+      }
+    } catch {
+      /* The adapter owns protocol decoding. */
+    }
+  });
+  const originalDeliver = session.deliver.bind(session);
+  session.deliver = (text, prompt, revision) => {
+    trace("deliver_attempt", {
+      revision,
+      currentRevision: session.revision,
+      closed: session.closed,
+      threadPresent: !!session.threadId,
+      markerPresent: text.toLowerCase().includes(marker),
+    });
+    return originalDeliver(text, prompt, revision);
+  };
+  const originalRequest = session.request.bind(session);
+  session.request = async (method, params) => {
+    if (method !== "thread/realtime/appendSpeech") return originalRequest(method, params);
+    trace("appendSpeech_requested", { markerPresent: params.text.toLowerCase().includes(marker) });
+    try {
+      const result = await originalRequest(method, params);
+      trace("appendSpeech_accepted");
+      return result;
+    } catch (error) {
+      trace("appendSpeech_error", { message: safeText(error.message) });
+      throw error;
+    }
+  };
+  function startEncoder(file) {
+    if (encoder) {
+      stoppedEncoders.add(encoder);
+      encoder.kill();
+    }
+    encoder = NodeChildProcess.spawn(
+      "ffmpeg",
+      [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-re",
+        "-i",
+        file,
+        "-c:a",
+        "libopus",
+        "-ar",
+        "48000",
+        "-ac",
+        "2",
+        "-payload_type",
+        "96",
+        "-f",
+        "rtp",
+        `rtp://127.0.0.1:${udp.address().port}?pkt_size=1200`,
+      ],
+      { stdio: "ignore", env: environment },
+    );
+    const child = encoder;
+    encoder.on("error", () => {
+      encoderError = true;
+      changed();
+    });
+    encoder.on("exit", (code, signal) => {
+      if (!stoppedEncoders.has(child) && code && !signal) {
+        encoderError = true;
+        changed();
+      }
+    });
+  }
+  function checkConversation() {
+    if (
+      !conversational ||
+      checkingConversation ||
+      firstDelegationAtMs === undefined ||
+      resolvedAtMs !== undefined ||
+      !callbacks.length
+    )
+      return;
+    const startAtMs = conversation.ack ? secondInputEndAtMs : firstDelegationAtMs;
+    if (startAtMs === undefined || now() < startAtMs) return;
+    const turn = [...turns.entries()].find(
+      ([id, t]) =>
+        t.role === "assistant" &&
+        t.text.trim() &&
+        t.startedAtMs >= (conversation.ack ? secondInputStartedAtMs : firstDelegationAtMs) &&
+        id !== conversation.ack?.turnId,
+    );
+    if (!turn) return;
+    const audioStartAtMs = Math.max(startAtMs, turn[1].startedAtMs);
+    const eligible = packets.filter(
+      (p) => p.receivedAtMs >= audioStartAtMs && Buffer.from(p.payload, "base64").length > 3,
+    );
+    if (eligible.length < 10 || eligible.length < lastCheckPackets + 10) return;
+    lastCheckPackets = eligible.length;
+    checkingConversation = true;
+    void (async () => {
+      const label = conversation.ack ? "exchange" : "ack";
+      const packetFile = NodePath.join(scratch, `${label}-packets.json`);
+      await NodeFSP.writeFile(packetFile, JSON.stringify(packets));
+      const decoded = python([
+        "decode",
+        packetFile,
+        NodePath.join(output, `${scenario}-${label}.wav`),
+        String(audioStartAtMs),
+        String(now()),
+      ]);
+      const pcm = decoded.status === 0 ? JSON.parse(decoded.stdout) : undefined;
+      if (!pcm || pcm.windowPeak <= 32 || pcm.windowRms <= 2 || pcm.windowNonDtxPackets < 5) return;
+      const record = {
+        turnId: turn[0],
+        verifiedAtMs: now(),
+        backendPendingAtVerification: resolvedAtMs === undefined,
+        textSha256: hash(turn[1].text),
+        pcm,
+      };
+      if (!conversation.ack) {
+        conversation.ack = record;
+        trace("ack_audio_verified");
+        secondInputStartedAtMs = now();
+        secondInputEndAtMs = secondInputStartedAtMs + dependencies.statusDurationMs;
+        lastCheckPackets = 0;
+        trace("second_input_started");
+        startEncoder(NodePath.join(scratch, "status-input.wav"));
+      } else {
+        const transcribed = [...turns.values()].some(
+          (t) =>
+            t.role === "user" &&
+            t.startedAtMs >= secondInputStartedAtMs &&
+            /still (there|working)/i.test(t.text),
+        );
+        if (!transcribed) return;
+        conversation.exchange = { ...record, transcribed };
+        trace("second_response_audio_verified");
+        releaseAnswer();
+      }
+    })()
+      .catch(() => {
+        decoderError = true;
+        trace("probe_decoder_error");
+      })
+      .finally(() => {
+        checkingConversation = false;
+        changed();
+      });
+  }
   const lease = setInterval(() => {
     if (session.renew()) {
       protocolError = true;
@@ -203,42 +428,11 @@ async function smoke(scenario, dependencies, scratch, output) {
     );
     if (channel.readyState === "open") {
       phase = "speech";
-      encoder = NodeChildProcess.spawn(
-        "ffmpeg",
-        [
-          "-hide_banner",
-          "-loglevel",
-          "error",
-          "-re",
-          "-i",
-          NodePath.join(scratch, "input.wav"),
-          "-c:a",
-          "libopus",
-          "-ar",
-          "48000",
-          "-ac",
-          "2",
-          "-payload_type",
-          "96",
-          "-f",
-          "rtp",
-          `rtp://127.0.0.1:${udp.address().port}?pkt_size=1200`,
-        ],
-        { stdio: "ignore", env: environment },
-      );
-      encoder.on("error", () => {
-        encoderError = true;
-        changed();
-      });
-      encoder.on("exit", (code, signal) => {
-        if (code && !signal) {
-          encoderError = true;
-          changed();
-        }
-      });
+      inputStartedAtMs = now();
+      startEncoder(NodePath.join(scratch, "input.wav"));
       await waitFor(() => {
         matchedTurn = findResultTurn([...turns.values()], marker, resolvedAtMs);
-        return !!matchedTurn || protocolError || encoderError;
+        return !!matchedTurn || protocolError || encoderError || decoderError || packetLimitReached;
       });
     }
   } catch (error) {
@@ -251,9 +445,13 @@ async function smoke(scenario, dependencies, scratch, output) {
     clearTimeout(timeout);
     clearInterval(lease);
     abort.signal.removeEventListener("abort", stop);
-    encoder?.kill();
+    if (encoder) {
+      stoppedEncoders.add(encoder);
+      encoder.kill();
+    }
     udp.close();
     session.close();
+    nativeLines.close();
     await pc.close();
   }
   await NodeFSP.writeFile(
@@ -277,9 +475,30 @@ async function smoke(scenario, dependencies, scratch, output) {
     protocolError,
     encoderError,
   });
+  if (decoderError) {
+    assessment.passed = false;
+    assessment.failures.push("probe_decoder_failed");
+  }
+  if (abort.signal.aborted) {
+    assessment.passed = false;
+    assessment.failures.push("smoke_interrupted");
+  }
+  if (packetLimitReached) {
+    assessment.passed = false;
+    assessment.failures.push("probe_packet_limit_reached");
+  }
   if (failureCode) {
     assessment.passed = false;
     assessment.failures.push(failureCode);
+  }
+  if (conversational) {
+    const extra = assessConversation({
+      callbackCount: callbacks.length,
+      resolvedAtMs,
+      ...conversation,
+    });
+    assessment.failures.push(...extra.failures);
+    assessment.passed &&= extra.passed;
   }
   return {
     scenario,
@@ -289,7 +508,36 @@ async function smoke(scenario, dependencies, scratch, output) {
     callbacks,
     resolvedAtMs,
     eventTypes,
+    timeline,
+    notices: session.takeNotices().slice(-20).map(safeText),
     pcm,
+    voiceModel,
+    ...(conversational
+      ? {
+          conversation,
+          timing: {
+            origin: "scenario_start_monotonic",
+            inputStartedAtMs,
+            firstDelegationAtMs,
+            callbackStartedAtMs: callbacks[0]?.startedAtMs,
+            secondInputStartedAtMs,
+            secondInputEndAtMs,
+            backendResolvedAtMs: resolvedAtMs,
+            handoffToFirstAckPcmMs: conversation.ack
+              ? conversation.ack.pcm.firstAudibleReceivedAtMs - firstDelegationAtMs
+              : null,
+            callbackToFirstAckPcmMs: conversation.ack
+              ? conversation.ack.pcm.firstAudibleReceivedAtMs - callbacks[0].startedAtMs
+              : null,
+            handoffToAckVerifiedMs: conversation.ack
+              ? conversation.ack.verifiedAtMs - firstDelegationAtMs
+              : null,
+            callbackToAckVerifiedMs: conversation.ack
+              ? conversation.ack.verifiedAtMs - callbacks[0].startedAtMs
+              : null,
+          },
+        }
+      : {}),
     completedMarkerResponse: matchedTurn
       ? {
           transcriptSha256: hash(matchedTurn.text),
@@ -300,6 +548,7 @@ async function smoke(scenario, dependencies, scratch, output) {
       : null,
     elapsedMs: now(),
     cleanupRequested: true,
+    interrupted: abort.signal.aborted,
   };
 }
 
@@ -329,6 +578,14 @@ try {
     throw new Error("codex_unavailable");
   summary.codexVersion = version.stdout.trim();
   summary.authHome = environment.CODEX_HOME;
+  await NodeFSP.mkdir(NodePath.join(scratch, "codex"), { mode: 0o700 });
+  await NodeFSP.copyFile(
+    NodePath.join(environment.CODEX_HOME, "auth.json"),
+    NodePath.join(scratch, "codex/auth.json"),
+  );
+  await NodeFSP.chmod(NodePath.join(scratch, "codex/auth.json"), 0o600);
+  environment.CODEX_HOME = NodePath.join(scratch, "codex");
+  summary.privateNativeHome = true;
   summary.sourceSha256 = hash(
     await NodeFSP.readFile(NodePath.join(root, "apps/server/src/voice/CodexVoiceSession.ts")),
   );
@@ -351,12 +608,26 @@ try {
     throw new Error("werift_unavailable");
   }
   const { CodexVoiceSession } = await import("../../apps/server/src/voice/CodexVoiceSession.ts");
-  for (const scenario of values.scenario === "all" ? ["immediate", "late"] : [values.scenario]) {
-    summary.scenarios.push(await smoke(scenario, { ...rtc, CodexVoiceSession }, scratch, output));
+  let statusDurationMs;
+  if (values.scenario === "conversation" || values.scenario === "all") {
+    const status = python([
+      "prepare",
+      NodePath.join(folder, "status.wav"),
+      NodePath.join(scratch, "status-input.wav"),
+    ]);
+    if (status.status !== 0) throw new Error("status_fixture_unavailable");
+    statusDurationMs = JSON.parse(status.stdout).sourceDurationMs;
+  }
+  for (const scenario of values.scenario === "all"
+    ? ["immediate", "late", "conversation"]
+    : [values.scenario]) {
+    summary.scenarios.push(
+      await smoke(scenario, { ...rtc, CodexVoiceSession, statusDurationMs }, scratch, output),
+    );
     if (abort.signal.aborted) break;
   }
   summary.passed =
-    summary.scenarios.length === (values.scenario === "all" ? 2 : 1) &&
+    summary.scenarios.length === (values.scenario === "all" ? 3 : 1) &&
     summary.scenarios.every((scenario) => scenario.passed);
   summary.sourceUnchanged =
     summary.sourceSha256 ===
