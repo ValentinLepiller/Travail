@@ -30,7 +30,7 @@ import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProjectionMaintenance from "./ProjectionMaintenance.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
-import * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
+import * as ProviderContinuationAdmission from "./ProviderContinuationAdmission.ts";
 import * as ProviderContinuationService from "./ProviderContinuationService.ts";
 import * as ThreadTitleRegenerationService from "./ThreadTitleRegenerationService.ts";
 import * as ProviderEventIngestor from "./ProviderEventIngestor.ts";
@@ -215,7 +215,7 @@ const layerOrchestratorProvided = Orchestrator.layer.pipe(
       layerProviderAdapterRegistryProvided,
       // Same layer reference as the continuation worker and the adapter
       // infrastructure so layer memoization yields one shared request queue.
-      ProviderContinuationRequests.layer,
+      ProviderContinuationAdmission.layerRequests,
       layerProviderEventIngestorProvided,
       layerRuntimePolicyProvided,
       layerProviderSessionManagerProvided,
@@ -285,7 +285,7 @@ const layerScheduledTaskProvided = ScheduledTaskService.layer.pipe(
 const layerProviderContinuationWorkerProvided = ProviderContinuationService.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
-      ProviderContinuationRequests.layer,
+      ProviderContinuationAdmission.layerRequests,
       layerThreadManagementProvided,
       IdAllocator.layer,
     ),

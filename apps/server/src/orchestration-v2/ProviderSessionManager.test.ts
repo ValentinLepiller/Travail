@@ -2765,12 +2765,14 @@ it.effect("ProviderSessionManagerV2 defers idle release while background work is
         runtimePolicy,
       });
 
+      assert.equal(yield* manager.pendingBackgroundWork, 1);
       yield* TestClock.adjust("3 seconds");
       yield* Effect.yieldNow;
       assert.isTrue(Option.isSome(yield* manager.get(providerSessionId)));
       assert.equal((yield* Ref.get(state)).closeCount, 0);
 
       yield* Ref.set(pendingWork, false);
+      assert.equal(yield* manager.pendingBackgroundWork, 0);
       yield* TestClock.adjust("1 second");
       yield* Effect.yieldNow;
       assert.isTrue(Option.isNone(yield* manager.get(providerSessionId)));

@@ -72,6 +72,12 @@ import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as ComputerViewBroker from "./desktopControl/ComputerViewBroker.ts";
 import * as ComputerTaskBroker from "./mcp/ComputerTaskBroker.ts";
 import * as DeviceService from "./device/DeviceService.ts";
+import * as AgentDesktops from "./agentDesktops/AgentDesktops.ts";
+import * as AgentDesktopHttp from "./agentDesktops/AgentDesktopHttp.ts";
+import * as RuntimeAdmission from "./maintenance/RuntimeAdmission.ts";
+import * as HttpAdmission from "./maintenance/HttpAdmission.ts";
+import * as MaintenanceHttp from "./maintenance/MaintenanceHttp.ts";
+import * as MaintenanceActivity from "./maintenance/MaintenanceActivity.ts";
 import * as DeviceHubProxy from "./device/DeviceHubProxy.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
@@ -713,7 +719,17 @@ const layerRuntimeCoreDependencies = layerRuntimeCoreDependenciesBase.pipe(
   ),
 );
 
-const layerRuntimeDependencies = layerRuntimeCoreDependencies.pipe(
+const layerRuntimeDependenciesBase = layerRuntimeCoreDependencies.pipe(
+  // HTTP takeover and MCP input share one control revision and lease registry.
+  Layer.provideMerge(
+    Layer.unwrap(
+      Effect.gen(function* () {
+        const config = yield* ServerConfig.ServerConfig;
+        const path = yield* Path.Path;
+        return AgentDesktops.layer({ rootDirectory: path.join(config.stateDir, "agent-desktops") });
+      }),
+    ),
+  ),
   // Misc.
   // Usage reads provider history through the ProviderHost, which needs the
   // background policy below it.
@@ -727,6 +743,11 @@ const layerRuntimeDependencies = layerRuntimeCoreDependencies.pipe(
   Layer.provideMerge(DirectEndpoints.layer),
   Layer.provideMerge(ServerLifecycleEvents.layer),
   Layer.provide(NetService.layer),
+  Layer.provideMerge(RuntimeAdmission.layer),
+);
+
+const layerRuntimeDependencies = MaintenanceActivity.layer.pipe(
+  Layer.provideMerge(layerRuntimeDependenciesBase),
 );
 
 const layerCommandReadiness = HttpRouter.middleware(
@@ -758,6 +779,10 @@ const layerMakeRoutes = Layer.mergeAll(
     ServerHttp.layerAssetRoute,
     ServerHttp.layerAttachmentUploadRoute,
     DeviceHubProxy.layer,
+    AgentDesktopHttp.layer,
+    MaintenanceHttp.layer,
+    HttpAdmission.layer,
+    Layer.effectDiscard(RuntimeAdmission.registerHook("rpc")),
     ServerBrowserStream.routeLayer,
     ServerHttp.layerStaticAndDevRoute,
     Ws.layer,

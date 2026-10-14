@@ -31,6 +31,21 @@ describe("scheduled task schedule calculation", () => {
     expect(next ? DateTime.formatIso(DateTime.toUtc(next)) : null).toBe("2026-07-01T16:01:00.000Z");
   });
 
+  it.each([
+    ["2026-03-28T03:00:00Z", "02:30", "2026-03-29T01:30:00.000Z"],
+    ["2026-03-29T01:30:00Z", "02:30", "2026-03-30T00:30:00.000Z"],
+    ["2026-10-24T03:00:00Z", "02:30", "2026-10-25T00:30:00.000Z"],
+    ["2026-10-25T00:30:00Z", "02:30", "2026-10-26T01:30:00.000Z"],
+    ["2026-03-28T04:00:00Z", "04:00", "2026-03-29T02:00:00.000Z"],
+    ["2026-10-24T04:00:00Z", "04:00", "2026-10-25T03:00:00.000Z"],
+  ])("honors Europe/Paris DST from %s at %s", (from, timeOfDay, expected) => {
+    const next = nextScheduledRunAt(
+      { type: "fixed_time", timeOfDay },
+      DateTime.makeZonedUnsafe(from, { timeZone: "Europe/Paris" }),
+    );
+    expect(next ? DateTime.formatIso(DateTime.toUtc(next)) : null).toBe(expected);
+  });
+
   it("skips to the next matching fixed-time weekday", () => {
     const next = nextScheduledRunAt(
       { type: "fixed_time", timeOfDay: "09:00", weekdays: [1, 2, 3, 4, 5] },

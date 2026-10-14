@@ -1678,6 +1678,7 @@ export interface ChatComposerProps {
   onRemoveEditingQueuedAttachment: (attachmentId: string) => void;
 
   // Callbacks
+  onPrepareVoiceThread: () => Promise<ScopedThreadRef>;
   onCompactContext: () => void;
   onSend: (
     e?: { preventDefault: () => void },
@@ -1804,6 +1805,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onPageScrollKeyDown,
     onPageScrollKeyUp,
     onPageScrollRelease,
+    onPrepareVoiceThread,
     onCompactContext,
     onSend,
     onResume,
@@ -1843,6 +1845,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         composerDraftTarget,
         composerRef,
         title: activeThread?.title ?? "New task",
+        prepareThread: onPrepareVoiceThread,
       }),
     [
       activeThread?.title,
@@ -1851,6 +1854,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       environmentId,
       routeThreadRef,
       voiceSession.registerComposer,
+      onPrepareVoiceThread,
     ],
   );
 

@@ -31,9 +31,13 @@ import {
   EnvironmentAuthorizationError,
   RpcScopeAuthorization,
   WS_METHODS,
+  CodexVoiceSessionInput,
+  OrchestrationV2Command,
   WsRpcGroup,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+import * as RuntimeAdmission from "../maintenance/RuntimeAdmission.ts";
 import * as Schema from "effect/Schema";
 import * as Layer from "effect/Layer";
 import type * as RpcGroup from "effect/rpc/RpcGroup";
@@ -278,8 +282,14 @@ const SettingsUpdate = Schema.Struct({
   providerInstanceMutation: Schema.optionalKey(ProviderInstanceMutation),
 });
 
+const decodeSettingsUpdate = Schema.decodeUnknownSync(SettingsUpdate);
+const decodeProjectTransfer = Schema.decodeUnknownSync(ProjectTransferInput);
+const decodeAssetUrl = Schema.decodeUnknownSync(AssetCreateUrlInput);
+const decodeVoiceInput = Schema.decodeUnknownSync(CodexVoiceSessionInput);
+const decodeCommand = Schema.decodeUnknownSync(OrchestrationV2Command);
+
 const requiredScopesForSettingsUpdate = (payload: unknown) => {
-  const input = Schema.decodeUnknownSync(SettingsUpdate)(payload);
+  const input = decodeSettingsUpdate(payload);
   const scopes = requiredScopesForServerSettingsPatch(input.patch);
   if (input.providerInstanceMutation === undefined) return scopes;
   // An atomic provider mutation carries an empty patch unless it also changes settings.
@@ -295,7 +305,7 @@ const requiredScopesForSettingsUpdate = (payload: unknown) => {
 const requiredScopesForProjectTransfer = (
   payload: unknown,
 ): ReadonlyArray<AuthEnvironmentScope> => {
-  const { operation } = Schema.decodeUnknownSync(ProjectTransferInput)(payload);
+  const { operation } = decodeProjectTransfer(payload);
   switch (operation) {
     case "prepare":
     case "read":
@@ -318,7 +328,7 @@ const requiredScopesForRpcCall = (
     return [AuthEnvironmentMaintainScope, AuthDiagnosticsReadScope];
   }
   if (method === WS_METHODS.assetsCreateUrl) {
-    const { resource } = Schema.decodeUnknownSync(AssetCreateUrlInput)(payload);
+    const { resource } = decodeAssetUrl(payload);
     return [
       resource._tag === "workspace-file" ||
       resource._tag === "media-file" ||
@@ -337,13 +347,59 @@ const requiredScopesForRpcCall = (
   return [requiredScopeForRpcMethod(method)];
 };
 
-/** Authorizes every RPC on one connection against that connection's session scopes. */
+/** Accepted work can be observed, cancelled and finalized during maintenance. */
+const drainingMethods = new Set<string>([
+  ORCHESTRATION_V2_WS_METHODS.stopWorkflow,
+  WS_METHODS.terminalClose,
+  WS_METHODS.previewClose,
+  WS_METHODS.deviceClose,
+  WS_METHODS.deviceShutdown,
+  WS_METHODS.worktreeSetupCancel,
+  WS_METHODS.providerInstallCancel,
+  WS_METHODS.secretsAnswerRequest,
+  WS_METHODS.scheduledTasksListWebhookDeliveries,
+  WS_METHODS.scheduledTasksGetWebhookDelivery,
+  WS_METHODS.providerAuthStart,
+  WS_METHODS.providerAuthComplete,
+  WS_METHODS.providerAuthRespond,
+  WS_METHODS.providerAuthCancel,
+  WS_METHODS.providerAuthSubscribe,
+  WS_METHODS.codexAuthCallbackSubscribe,
+  WS_METHODS.chatGptHandoffSubscribe,
+  WS_METHODS.serverSubmitProviderLoginCode,
+  WS_METHODS.sourceControlResolveSshPasswordPrompt,
+]);
+
+export const requiresRpcAdmission = (method: string, payload: unknown): boolean => {
+  if (drainingMethods.has(method)) return false;
+  if (method === WS_METHODS.voiceCodexSession) {
+    return decodeVoiceInput(payload).action === "start";
+  }
+  if (method === ORCHESTRATION_V2_WS_METHODS.dispatchCommand) {
+    const command = decodeCommand(payload);
+    return RuntimeAdmission.requiresAdmission(
+      command.type === "message.dispatch" ? { ...command, createdBy: "user" } : command,
+    );
+  }
+  return requiredScopesForRpcCall(method, payload).some((scope) => !scope.endsWith(":read"));
+};
+
+/** Authorizes every RPC before admitting a mutation, including its preparation. */
 export const layer = (scopes: ReadonlyArray<AuthEnvironmentScope>) =>
-  Layer.succeed(RpcScopeAuthorization)((effect, { rpc, payload }) => {
-    const requiredScopes = requiredScopesForRpcCall(rpc._tag, payload);
-    const requiredScope = requiredScopes.find((scope) => !scopes.includes(scope));
-    return requiredScope === undefined ? effect : Effect.fail(rpcAuthorizationError(requiredScope));
-  });
+  Layer.effect(
+    RpcScopeAuthorization,
+    Effect.gen(function* () {
+      const admission = yield* Effect.serviceOption(RuntimeAdmission.RuntimeAdmission);
+      return (effect, { rpc, payload }) => {
+        const requiredScopes = requiredScopesForRpcCall(rpc._tag, payload);
+        const requiredScope = requiredScopes.find((scope) => !scopes.includes(scope));
+        if (requiredScope !== undefined) return Effect.fail(rpcAuthorizationError(requiredScope));
+        return Option.isSome(admission) && requiresRpcAdmission(rpc._tag, payload)
+          ? admission.value.admit(effect)
+          : effect;
+      };
+    }),
+  );
 
 /** Retrying can install or restart tools even though ordinary listing is readable. */
 export const requiredScopeForDeviceList = (input: DeviceListInput): AuthEnvironmentScope =>

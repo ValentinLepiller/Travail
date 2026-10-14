@@ -33,6 +33,10 @@ export function createOrchestrationEnvironmentAtoms<R, E>(
         idleTtlMs: 0,
       }),
     },
+    launchThread: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:orchestration:launch-thread",
+      tag: ORCHESTRATION_V2_WS_METHODS.launchThread,
+    }),
     turnDiff: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:orchestration:turn-diff",
       tag: ORCHESTRATION_V2_WS_METHODS.getTurnDiff,

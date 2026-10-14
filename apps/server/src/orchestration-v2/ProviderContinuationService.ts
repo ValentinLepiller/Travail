@@ -7,6 +7,7 @@ import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import { isUndeliveredMailboxSteer } from "./NotificationMailbox.ts";
+import * as ProviderContinuationAdmission from "./ProviderContinuationAdmission.ts";
 
 const CONTINUATION_MESSAGE_TEXT = "Background task completed.";
 
@@ -61,6 +62,7 @@ export const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const ids = yield* IdAllocator.IdAllocatorV2;
     const requests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
+    const reservations = yield* ProviderContinuationAdmission.ContinuationReservations;
     const threads = yield* ThreadManagementService.ThreadManagementService;
     const retryAttempts = yield* Ref.make(new Map<string, number>());
 
@@ -269,6 +271,7 @@ export const layer = Layer.effectDiscard(
     yield* requests.take.pipe(
       Effect.flatMap((request) =>
         dispatchContinuation(request).pipe(
+          Effect.tap(() => reservations.finish(request)),
           Effect.catchCause((cause) =>
             Effect.gen(function* () {
               yield* Effect.logWarning("orchestration-v2.provider-continuation.dispatch-failed", {
@@ -296,6 +299,7 @@ export const layer = Layer.effectDiscard(
                     yield* requests.offer(request);
                   } else {
                     yield* clearRetryAttempt(retryKey);
+                    yield* reservations.finish(request);
                   }
                 }).pipe(
                   Effect.catchCause((retryCause) =>
@@ -307,6 +311,8 @@ export const layer = Layer.effectDiscard(
                   ),
                   Effect.forkScoped,
                 );
+              } else {
+                yield* reservations.finish(request);
               }
             }),
           ),

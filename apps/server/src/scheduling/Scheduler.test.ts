@@ -3,6 +3,8 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Queue from "effect/Queue";
+import * as Layer from "effect/Layer";
+import * as RuntimeAdmission from "../maintenance/RuntimeAdmission.ts";
 import * as Ref from "effect/Ref";
 import * as TestClock from "effect/testing/TestClock";
 
@@ -106,5 +108,71 @@ it.effect("holds due work and the clock until startup recovery activates the ser
       Effect.provideService(ServerActivation.ServerActivation, Deferred.await(activation)),
     );
     assert.isAtLeast(yield* Ref.get(runs), 1);
+  }),
+);
+
+it.effect("defers due work during maintenance and resumes after release", () =>
+  Effect.gen(function* () {
+    const gate = yield* RuntimeAdmission.make;
+    yield* Effect.forEach(RuntimeAdmission.REQUIRED_HOOKS, (hook) => gate.registerHook(hook));
+    const runs = yield* Ref.make(0);
+    const receipts = yield* Queue.unbounded<void>();
+    yield* Effect.gen(function* () {
+      const scheduler = yield* Scheduler.Scheduler;
+      yield* gate.quiesce("update", () =>
+        Effect.succeed({ activeWork: 0, activeVoice: 0, activeDesktops: 0 }),
+      );
+      yield* scheduler.register(
+        "due",
+        Ref.update(runs, (n) => n + 1).pipe(
+          Effect.andThen(Queue.offer(receipts, undefined)),
+          Effect.asVoid,
+        ),
+      );
+      yield* TestClock.adjust("10 seconds");
+      assert.equal(yield* Ref.get(runs), 0);
+      yield* gate.release("update");
+      yield* TestClock.adjust("5 seconds");
+      yield* Queue.take(receipts);
+      assert.equal(yield* Ref.get(runs), 1);
+    }).pipe(
+      Effect.provide(
+        Scheduler.layer.pipe(Layer.provide(Layer.succeed(RuntimeAdmission.RuntimeAdmission, gate))),
+      ),
+    );
+  }),
+);
+
+it.effect("refuses maintenance without interrupting an admitted due-work source", () =>
+  Effect.gen(function* () {
+    const gate = yield* RuntimeAdmission.make;
+    yield* Effect.forEach(RuntimeAdmission.REQUIRED_HOOKS, (hook) => gate.registerHook(hook));
+    const started = yield* Deferred.make<void>();
+    const finish = yield* Deferred.make<void>();
+    const interrupted = yield* Ref.make(false);
+    yield* Effect.gen(function* () {
+      const scheduler = yield* Scheduler.Scheduler;
+      yield* scheduler.register(
+        "long",
+        Deferred.succeed(started, undefined).pipe(
+          Effect.andThen(Deferred.await(finish)),
+          Effect.onInterrupt(() => Ref.set(interrupted, true)),
+        ),
+      );
+      yield* Deferred.await(started);
+      const error = yield* gate
+        .quiesce("update", () =>
+          Effect.succeed({ activeWork: 0, activeVoice: 0, activeDesktops: 0 }),
+        )
+        .pipe(Effect.flip);
+      assert.equal(error.code, "busy");
+      assert.equal(yield* Ref.get(interrupted), false);
+      assert.equal((yield* gate.snapshot).operationId, null);
+      yield* Deferred.succeed(finish, undefined);
+    }).pipe(
+      Effect.provide(
+        Scheduler.layer.pipe(Layer.provide(Layer.succeed(RuntimeAdmission.RuntimeAdmission, gate))),
+      ),
+    );
   }),
 );

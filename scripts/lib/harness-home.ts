@@ -25,6 +25,7 @@ export async function prepareHarnessHome(home: string): Promise<void> {
               config: {
                 setupMode: "existing",
                 binaryPath: "codex",
+                homePath: NodePath.join(home, "codex"),
                 launchArgs: HARNESS_CODEX_LAUNCH_ARGS,
               },
             },

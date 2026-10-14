@@ -65,6 +65,7 @@ import {
   type EnvironmentId,
   type MessageId,
   type ModelSelection,
+  type OrchestrationV2ThreadLaunchInput,
   type ProjectScript,
   type ProjectId,
   type ProviderApprovalDecision,
@@ -444,6 +445,7 @@ import {
   useThreadRefs,
   useThreadVisibleTurnItems,
   waitForThreadShell,
+  readThreadShell,
 } from "../state/entities";
 import { environmentShell } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
@@ -593,6 +595,9 @@ import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 import { RightPanelSheet } from "./RightPanelSheet";
 import { previewEnvironment } from "../state/preview";
 import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
+import { orchestrationEnvironment } from "../state/orchestration";
+import { createVoiceThreadPreparation } from "./voice/prepareVoiceThread";
+import { waitForAtomValue } from "../state/waitForAtomValue";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { fileAttachmentCapabilityBlockReason } from "./chat/composerAttachmentFiles";
 import { assetEnvironment } from "../state/assets";
@@ -1639,6 +1644,10 @@ export default function ChatView(props: ChatViewProps) {
   const writeTerminal = useAtomCommand(terminalEnvironment.write, "terminal write");
   const closeTerminalMutation = useAtomCommand(terminalEnvironment.close, "terminal close");
   const createThread = useOrchestrationCommand(threadEnvironment.create, { reportFailure: false });
+  const launchVoiceThread = useAtomCommand(orchestrationEnvironment.launchThread, {
+    reportFailure: false,
+  });
+  const prepareVoiceDraft = useMemo(createVoiceThreadPreparation, []);
   const deleteThread = useOrchestrationCommand(threadEnvironment.delete, { reportFailure: false });
   const updateThreadMetadata = useOrchestrationCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
@@ -10835,6 +10844,105 @@ export default function ChatView(props: ChatViewProps) {
     return false;
   }
 
+  const onPrepareVoiceThread = useCallback(async (): Promise<ScopedThreadRef> => {
+    if (!isLocalDraftThread) return routeThreadRef;
+    if (!canOperateThread || !activeThread || !activeProject || activeEnvironmentUnavailable) {
+      throw new Error("Select an available project before starting voice.");
+    }
+    if (envMode === "worktree" && !activeThread.worktreePath && !activeThreadBranch) {
+      throw new Error("Select a base branch before starting voice in a new worktree.");
+    }
+    const context = composerRef.current?.getSendContext();
+    if (!context?.providerAvailable)
+      throw new Error("Select an available model before starting voice.");
+    let workspaceStrategy: OrchestrationV2ThreadLaunchInput["workspaceStrategy"] = {
+      type: "root",
+      ...(activeThreadBranch ? { branch: activeThreadBranch } : {}),
+    };
+    if (activeThread.worktreePath) {
+      workspaceStrategy = {
+        type: "existing_worktree",
+        worktreePath: activeThread.worktreePath,
+        ...(activeThreadBranch ? { branch: activeThreadBranch } : {}),
+      };
+    } else if (envMode === "worktree" && activeThreadBranch) {
+      workspaceStrategy = { type: "worktree", baseRef: activeThreadBranch, startFromOrigin };
+    }
+    return prepareVoiceDraft({
+      ref: routeThreadRef,
+      input: {
+        commandId: CommandId.make(`voice-create:${routeThreadKey}`),
+        threadId: routeThreadRef.threadId,
+        projectId: activeProject.id,
+        title: activeThread.title || "New task",
+        modelSelection: context.selectedModelSelection,
+        runtimeMode,
+        interactionMode: context.interactionMode,
+        workspaceStrategy,
+      },
+      exists: () => readThreadShell(routeThreadRef) !== null,
+      create: async (input) => {
+        const result = await createThread({ environmentId, input });
+        if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+      },
+      launch: async (input) => {
+        setWorktreeSetupRef({ ...routeThreadRef, ownerKey: worktreeSetupOwnerKey });
+        const result = await launchVoiceThread({ environmentId, input });
+        if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+      },
+      waitForWorkspace: async () => {
+        const atom = vcsEnvironment.worktreeSetup({ environmentId, input: { threadId } });
+        const ready = await waitForAtomValue({
+          registry: appAtomRegistry,
+          atom,
+          timeoutMs: 300_000,
+          predicate: (result) =>
+            result._tag === "Failure" ||
+            (result._tag === "Success" &&
+              result.value !== null &&
+              result.value.phase !== "running"),
+        });
+        const result = appAtomRegistry.get(atom);
+        if (result._tag === "Failure") throw Cause.squash(result.cause);
+        if (!ready || result._tag !== "Success" || result.value?.phase !== "done") {
+          throw new Error(
+            "Workspace preparation did not complete. Open the conversation to review its setup before starting voice.",
+          );
+        }
+      },
+      waitForShell: () => waitForThreadShell(routeThreadRef),
+      promote: () => markPromotedDraftThreadByRef(routeThreadRef),
+      navigate: async () => {
+        if (currentRouteThreadKeyRef.current === routeThreadKey) {
+          await navigate({
+            to: "/$environmentId/$threadId",
+            params: buildThreadRouteParams(routeThreadRef),
+          });
+        }
+      },
+    });
+  }, [
+    isLocalDraftThread,
+    routeThreadRef,
+    canOperateThread,
+    activeThread,
+    activeProject,
+    activeEnvironmentUnavailable,
+    composerRef,
+    prepareVoiceDraft,
+    routeThreadKey,
+    runtimeMode,
+    activeThreadBranch,
+    envMode,
+    startFromOrigin,
+    createThread,
+    environmentId,
+    launchVoiceThread,
+    worktreeSetupOwnerKey,
+    threadId,
+    navigate,
+  ]);
+
   const onImplementPlanInNewThread = useCallback(async () => {
     if (
       !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope) ||
@@ -12277,6 +12385,7 @@ export default function ChatView(props: ChatViewProps) {
                               onPageScrollKeyDown={onComposerPageScrollKeyDown}
                               onPageScrollKeyUp={onComposerPageScrollKeyUp}
                               onPageScrollRelease={onComposerPageScrollRelease}
+                              onPrepareVoiceThread={onPrepareVoiceThread}
                               onCompactContext={onComposerCompactContext}
                               onSend={onComposerSend}
                               onResume={onComposerResume}

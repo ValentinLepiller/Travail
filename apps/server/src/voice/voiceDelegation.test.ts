@@ -150,19 +150,22 @@ it.effect("surfaces a failed turn instead of speaking a made-up answer", () =>
   }),
 );
 
-it.effect("refuses to queue a second request while the agent is still working", () =>
+it.effect("delivers a new spoken instruction while the selected agent is working", () =>
   Effect.gen(function* () {
     const sent: Array<ThreadManagementSendInput> = [];
-    const failure = yield* delegateVoiceRequest(
+    const answer = yield* delegateVoiceRequest(
       makeThreads({
         shell: makeShell({ activeRunId: RunId.make("run-busy") }),
         onSend: (send) => sent.push(send),
+        messages: [assistant("Updated instruction applied.")],
       }),
       THREAD_ID,
-      "Anything",
-    ).pipe(Effect.flip);
-    expect(failure.message).toContain("already working");
-    expect(sent).toHaveLength(0);
+      "Use the updated instruction",
+    );
+    expect(answer).toBe("Updated instruction applied.");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.mode).toBe("auto");
+    expect(sent[0]?.text).toBe("Use the updated instruction");
   }),
 );
 
@@ -182,5 +185,51 @@ it.effect("refuses to speak into an archived or missing task", () =>
       "Anything",
     ).pipe(Effect.flip);
     expect(archived.message).toContain("active MT Code task");
+  }),
+);
+
+it.effect("reuses durable dispatch identity when one voice request is retried", () =>
+  Effect.gen(function* () {
+    const sent: Array<ThreadManagementSendInput> = [];
+    const threads = makeThreads({
+      shell: makeShell(),
+      messages: [assistant("Confirmed")],
+      onSend: (send) => sent.push(send),
+    });
+    expect(
+      yield* delegateVoiceRequest(threads, THREAD_ID, "Confirm", "voice-session:utterance-1"),
+    ).toBe("Confirmed");
+    expect(
+      yield* delegateVoiceRequest(threads, THREAD_ID, "Confirm again", "voice-session:utterance-1"),
+    ).toBe("Confirmed");
+    expect(sent[0]?.commandId).toBe(sent[1]?.commandId);
+    expect(sent[0]?.messageId).toBe(sent[1]?.messageId);
+  }),
+);
+
+it.effect("sends identical words as separate work when the voice request identities differ", () =>
+  Effect.gen(function* () {
+    const sent: Array<ThreadManagementSendInput> = [];
+    const threads = makeThreads({
+      shell: makeShell(),
+      messages: [assistant("Confirmed")],
+      onSend: (send) => sent.push(send),
+    });
+    yield* delegateVoiceRequest(threads, THREAD_ID, "Confirm", "voice-session:utterance-1");
+    yield* delegateVoiceRequest(threads, THREAD_ID, "Confirm", "voice-session:utterance-2");
+    expect(sent[0]?.commandId).not.toBe(sent[1]?.commandId);
+    expect(sent[0]?.messageId).not.toBe(sent[1]?.messageId);
+  }),
+);
+
+it.effect("leaves a timed-out task working and directs the user to its result", () =>
+  Effect.gen(function* () {
+    const failure = yield* delegateVoiceRequest(
+      makeThreads({ shell: makeShell(), timedOut: true }),
+      THREAD_ID,
+      "Work on this request",
+    ).pipe(Effect.flip);
+    expect(failure.message).toContain("still working");
+    expect(failure.message).toContain("Check the task");
   }),
 );

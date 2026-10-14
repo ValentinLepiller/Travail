@@ -136,6 +136,7 @@ import {
 import { planThreadDeletion } from "./ThreadDeletion.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ServerSettings from "../serverSettings.ts";
+import * as RuntimeAdmission from "../maintenance/RuntimeAdmission.ts";
 
 export class OrchestratorDispatchError extends Schema.TaggedError<OrchestratorDispatchError>()(
   "OrchestratorDispatchError",
@@ -806,6 +807,8 @@ function lastDeliveredRunForProviderThread(
 }
 
 const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(function* () {
+  const admission = yield* Effect.serviceOption(RuntimeAdmission.RuntimeAdmission);
+  if (Option.isSome(admission)) yield* admission.value.registerHook("orchestration");
   const checkpointService = yield* CheckpointServiceV2;
   const commandPolicy = yield* CommandPolicyV2;
   const contextHandoffService = yield* ContextHandoffServiceV2;
@@ -11052,149 +11055,170 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       } satisfies OrchestratorV2DispatchResult;
     }
 
-    // A limited sender checked these modes before dispatching; the thread's
-    // user may have raised them since, and only here can they not change.
-    const limit = yield* DispatchModeLimit;
-    if (limit !== undefined) {
-      // A fork or merge-back source is not under this lock: its dispatch
-      // checks the copy it reads instead.
-      const threadId = commandThreadId(command);
-      const shell = yield* projectionStore
-        .getThreadShell(threadId)
-        .pipe(Effect.mapError((cause) => new OrchestratorProjectionError({ threadId, cause })));
-      if (shell !== null) yield* refuseAboveDispatchModeLimit(command, threadId, shell);
-    }
+    const execute = Effect.gen(function* () {
+      // A limited sender checked these modes before dispatching; the thread's
+      // user may have raised them since, and only here can they not change.
+      const limit = yield* DispatchModeLimit;
+      if (limit !== undefined) {
+        // A fork or merge-back source is not under this lock: its dispatch
+        // checks the copy it reads instead.
+        const threadId = commandThreadId(command);
+        const shell = yield* projectionStore
+          .getThreadShell(threadId)
+          .pipe(Effect.mapError((cause) => new OrchestratorProjectionError({ threadId, cause })));
+        if (shell !== null) yield* refuseAboveDispatchModeLimit(command, threadId, shell);
+      }
 
-    const plan = yield* dispatchOnce(command).pipe(
-      Effect.flatMap((planned) =>
-        // A settle that finds the provider already ended everything, or a
-        // stop that finds nothing running, has nothing to record. That is
-        // its expected outcome, not a failure.
-        planned.events.length > 0 ||
-        command.type === "thread.background-work.settle" ||
-        command.type === "thread.stop" ||
-        command.type === "subagent.stop"
-          ? Effect.succeed(planned)
-          : Effect.fail(
+      const plan = yield* dispatchOnce(command).pipe(
+        Effect.flatMap((planned) =>
+          // A settle that finds the provider already ended everything, or a
+          // stop that finds nothing running, has nothing to record. That is
+          // its expected outcome, not a failure.
+          planned.events.length > 0 ||
+          command.type === "thread.background-work.settle" ||
+          command.type === "thread.stop" ||
+          command.type === "subagent.stop"
+            ? Effect.succeed(planned)
+            : Effect.fail(
+                new OrchestratorDispatchError({
+                  commandId: command.commandId,
+                  commandType: command.type,
+                  cause: "Command produced no domain events.",
+                }),
+              ),
+        ),
+        Effect.catch((cause) =>
+          Effect.gen(function* () {
+            // Refused like the check above: nothing recorded, so the same command
+            // can go through once the thread's user lowers it again.
+            if (cause._tag === "OrchestratorThreadAboveModeLimitError") return yield* cause;
+            const rejectedAt = yield* DateTime.now;
+            const receipt = yield* eventSink
+              .commitRejectedCommand({
+                commandId: command.commandId,
+                threadId: commandThreadId(command),
+                commandType: command.type,
+                rejectedAt,
+                error: cause instanceof Error ? cause.message : String(cause),
+              })
+              .pipe(
+                Effect.mapError(
+                  (receiptCause) =>
+                    new OrchestratorDispatchError({
+                      commandId: command.commandId,
+                      commandType: command.type,
+                      cause: receiptCause,
+                    }),
+                ),
+              );
+            if (
+              command.type === "queued-run.edit" &&
+              receipt.status === "rejected" &&
+              cause._tag === "OrchestratorDispatchError"
+            ) {
+              return yield* new OrchestratorCommandRejectedError({
+                commandId: cause.commandId,
+                commandType: cause.commandType,
+                cause: cause.cause,
+              });
+            }
+            return yield* cause;
+          }),
+        ),
+      );
+
+      if (plan.events.length === 0) {
+        // A settle that ended nothing still records its receipt: a replayed Stop
+        // effect then finds it instead of settling work that appeared since.
+        const resultSequence = yield* Effect.gen(function* () {
+          const sequence = yield* eventSink.latestSequence({ threadId: commandThreadId(command) });
+          yield* commandReceipts.insertIfAbsent({
+            commandId: command.commandId,
+            threadId: commandThreadId(command),
+            commandType: command.type,
+            acceptedAt: yield* DateTime.now,
+            resultSequence: sequence,
+            status: "accepted",
+            error: null,
+          });
+          return sequence;
+        }).pipe(
+          Effect.mapError(
+            (cause) =>
               new OrchestratorDispatchError({
                 commandId: command.commandId,
                 commandType: command.type,
-                cause: "Command produced no domain events.",
+                cause,
               }),
-            ),
-      ),
-      Effect.catch((cause) =>
-        Effect.gen(function* () {
-          // Refused like the check above: nothing recorded, so the same command
-          // can go through once the thread's user lowers it again.
-          if (cause._tag === "OrchestratorThreadAboveModeLimitError") return yield* cause;
-          const rejectedAt = yield* DateTime.now;
-          const receipt = yield* eventSink
-            .commitRejectedCommand({
-              commandId: command.commandId,
-              threadId: commandThreadId(command),
-              commandType: command.type,
-              rejectedAt,
-              error: cause instanceof Error ? cause.message : String(cause),
-            })
-            .pipe(
-              Effect.mapError(
-                (receiptCause) =>
-                  new OrchestratorDispatchError({
-                    commandId: command.commandId,
-                    commandType: command.type,
-                    cause: receiptCause,
-                  }),
-              ),
-            );
-          if (
-            command.type === "queued-run.edit" &&
-            receipt.status === "rejected" &&
-            cause._tag === "OrchestratorDispatchError"
-          ) {
-            return yield* new OrchestratorCommandRejectedError({
-              commandId: cause.commandId,
-              commandType: cause.commandType,
-              cause: cause.cause,
-            });
-          }
-          return yield* cause;
-        }),
-      ),
-    );
-
-    if (plan.events.length === 0) {
-      // A settle that ended nothing still records its receipt: a replayed Stop
-      // effect then finds it instead of settling work that appeared since.
-      const resultSequence = yield* Effect.gen(function* () {
-        const sequence = yield* eventSink.latestSequence({ threadId: commandThreadId(command) });
-        yield* commandReceipts.insertIfAbsent({
+          ),
+        );
+        return {
+          sequence: resultSequence,
+          storedEvents: [],
+        } satisfies OrchestratorV2DispatchResult;
+      }
+      const acceptedAt = plan.events.at(-1)?.occurredAt ?? (yield* DateTime.now);
+      const committed = yield* eventSink
+        .commitCommand({
           commandId: command.commandId,
           threadId: commandThreadId(command),
           commandType: command.type,
-          acceptedAt: yield* DateTime.now,
-          resultSequence: sequence,
-          status: "accepted",
-          error: null,
+          acceptedAt,
+          events: plan.events,
+          effects: plan.effects,
+          ...(plan.cancelUnsettledEffects === undefined
+            ? {}
+            : { cancelUnsettledEffects: plan.cancelUnsettledEffects }),
+        })
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new OrchestratorDispatchError({
+                commandId: command.commandId,
+                commandType: command.type,
+                cause,
+              }),
+          ),
+        );
+
+      if (committed.receipt.status === "rejected") {
+        return yield* new OrchestratorCommandPreviouslyRejectedError({
+          commandId: command.commandId,
+          commandType: command.type,
+          detail: committed.receipt.error ?? "Previously rejected.",
         });
-        return sequence;
-      }).pipe(
-        Effect.mapError(
-          (cause) =>
-            new OrchestratorDispatchError({
-              commandId: command.commandId,
-              commandType: command.type,
-              cause,
-            }),
-        ),
-      );
-      return { sequence: resultSequence, storedEvents: [] } satisfies OrchestratorV2DispatchResult;
-    }
-    const acceptedAt = plan.events.at(-1)?.occurredAt ?? (yield* DateTime.now);
-    const committed = yield* eventSink
-      .commitCommand({
-        commandId: command.commandId,
-        threadId: commandThreadId(command),
-        commandType: command.type,
-        acceptedAt,
-        events: plan.events,
-        effects: plan.effects,
-        ...(plan.cancelUnsettledEffects === undefined
-          ? {}
-          : { cancelUnsettledEffects: plan.cancelUnsettledEffects }),
-      })
-      .pipe(
-        Effect.mapError(
-          (cause) =>
-            new OrchestratorDispatchError({
-              commandId: command.commandId,
-              commandType: command.type,
-              cause,
-            }),
-        ),
-      );
+      }
+      if (command.type === "queue.resume") {
+        yield* mapDispatchError(command)(startNextQueuedRun(command.threadId));
+      }
+      if (command.type === "notification.delivery.accept") {
+        yield* mapDispatchError(command)(offerDelegatedCompletionDeliveries(command.threadId));
+      }
+      if (command.type === "delegated_task.wake-policy") {
+        yield* mapDispatchError(command)(
+          offerDelegatedCompletionDeliveries(command.parentThreadId),
+        );
+      }
 
-    if (committed.receipt.status === "rejected") {
-      return yield* new OrchestratorCommandPreviouslyRejectedError({
-        commandId: command.commandId,
-        commandType: command.type,
-        detail: committed.receipt.error ?? "Previously rejected.",
-      });
-    }
-    if (command.type === "queue.resume") {
-      yield* mapDispatchError(command)(startNextQueuedRun(command.threadId));
-    }
-    if (command.type === "notification.delivery.accept") {
-      yield* mapDispatchError(command)(offerDelegatedCompletionDeliveries(command.threadId));
-    }
-    if (command.type === "delegated_task.wake-policy") {
-      yield* mapDispatchError(command)(offerDelegatedCompletionDeliveries(command.parentThreadId));
-    }
-
-    return {
-      sequence: committed.receipt.resultSequence,
-      storedEvents: committed.storedEvents,
-    } satisfies OrchestratorV2DispatchResult;
+      return {
+        sequence: committed.receipt.resultSequence,
+        storedEvents: committed.storedEvents,
+      } satisfies OrchestratorV2DispatchResult;
+    });
+    return yield* RuntimeAdmission.requiresAdmission(command) && Option.isSome(admission)
+      ? admission.value.admit(execute).pipe(
+          Effect.catchTags({
+            RuntimeAdmissionError: (cause) =>
+              Effect.fail(
+                new OrchestratorCommandRejectedError({
+                  commandId: command.commandId,
+                  commandType: command.type,
+                  cause: cause.message,
+                }),
+              ),
+          }),
+        )
+      : execute;
   });
 
   const dispatchWithReceipt = (command: OrchestrationV2ServerCommand) =>

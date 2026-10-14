@@ -23,19 +23,23 @@ const handlers = {
       return yield* service.delegateTask(scope, input);
     }),
   ),
-  task_status: McpToolAccess.actsAsCaller(({ taskId }) =>
-    Effect.gen(function* () {
-      const scope = yield* McpInvocationContext.McpInvocationContext;
-      const service = yield* OrchestratorMcpService.OrchestratorMcpService;
-      return yield* service.taskStatus(scope, taskId);
-    }),
+  task_status: McpToolAccess.actsAsCaller(
+    ({ taskId }) =>
+      Effect.gen(function* () {
+        const scope = yield* McpInvocationContext.McpInvocationContext;
+        const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+        return yield* service.taskStatus(scope, taskId);
+      }),
+    "drain",
   ),
-  task_cancel: McpToolAccess.actsAsCaller((input) =>
-    Effect.gen(function* () {
-      const scope = yield* McpInvocationContext.McpInvocationContext;
-      const service = yield* OrchestratorMcpService.OrchestratorMcpService;
-      return yield* service.cancelTask(scope, input);
-    }),
+  task_cancel: McpToolAccess.actsAsCaller(
+    (input) =>
+      Effect.gen(function* () {
+        const scope = yield* McpInvocationContext.McpInvocationContext;
+        const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+        return yield* service.cancelTask(scope, input);
+      }),
+    "drain",
   ),
   t3_workflow_stop: McpToolAccess.writesThreads(
     (input) => [input.threadId],
@@ -56,6 +60,7 @@ const handlers = {
           ),
         );
       }),
+    "drain",
   ),
   schedule_task: McpToolAccess.startsThreads(
     // A scheduled task runs with the caller's own modes.
@@ -152,6 +157,7 @@ const handlers = {
         const service = yield* OrchestratorMcpService.OrchestratorMcpService;
         return yield* service.interruptThread(scope, input);
       }),
+    "drain",
   ),
 } satisfies McpToolAccess.Handlers<typeof OrchestratorToolkit.tools>;
 

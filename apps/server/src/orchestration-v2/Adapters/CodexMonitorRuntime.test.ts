@@ -171,6 +171,10 @@ it.effect("reports exit and launch failure through the wake", () =>
       assert.include(harness.offers[0]!.detail ?? "", "Watcher exited with code 1.");
       yield* harness.settle;
       assert.isFalse(yield* harness.monitors.hasRunningMonitors);
+      // The process ended, but its undelivered result still prevents shutdown.
+      assert.isTrue(yield* harness.monitors.hasPendingWork);
+      yield* harness.offers[0]!.dispatchIfCurrent!(Effect.void);
+      assert.isFalse(yield* harness.monitors.hasPendingWork);
     }),
   ),
 );

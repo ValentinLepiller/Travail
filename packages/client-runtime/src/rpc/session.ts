@@ -1,9 +1,4 @@
-import {
-  type ServerConfig,
-  type ServerConfigStreamEvent,
-  WsSubscribeServerConfigRpc,
-  WS_METHODS,
-} from "@t3tools/contracts";
+import { type ServerConfig, type ServerConfigStreamEvent, WS_METHODS } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
@@ -18,7 +13,6 @@ import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
-import type * as Rpc from "effect/rpc/Rpc";
 import * as RpcClient from "effect/rpc/RpcClient";
 import * as RpcClientError from "effect/rpc/RpcClientError";
 import * as RpcSerialization from "effect/rpc/RpcSerialization";
@@ -76,7 +70,7 @@ type InitialConfigError = Effect.Error<
 >;
 type ProbeError = Effect.Error<ReturnType<WsRpcProtocolClient[typeof WS_METHODS.serverProbe]>>;
 type ServerConfigSubscriptionError =
-  | Rpc.ErrorExit<typeof WsSubscribeServerConfigRpc>
+  | Stream.Error<ReturnType<WsRpcProtocolClient[typeof WS_METHODS.subscribeServerConfig]>>
   | RpcClientError.RpcClientError;
 type ServerConfigSubscription = Stream.Stream<
   ServerConfigStreamEvent,
@@ -136,6 +130,7 @@ function mapSessionRpcError(
       });
     case "KeybindingsConfigParseError":
     case "ServerSettingsError":
+    case "RuntimeAdmissionError":
       return new ConnectionTransientErrorClass({
         reason: "remote-unavailable",
         detail: error.message,

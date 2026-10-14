@@ -2,11 +2,14 @@ import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 
 import { forkParked } from "../serverActivation.ts";
+import * as RuntimeAdmission from "../maintenance/RuntimeAdmission.ts";
 
 /** Sources load due work from their durable state; registration owns its execution lifetime. */
 export class Scheduler extends Context.Service<
@@ -19,7 +22,11 @@ export class Scheduler extends Context.Service<
   }
 >()("t3/scheduling/Scheduler") {}
 
+const isAdmissionError = Schema.is(RuntimeAdmission.RuntimeAdmissionError);
+
 const make = Effect.gen(function* () {
+  const admission = yield* Effect.serviceOption(RuntimeAdmission.RuntimeAdmission);
+  if (Option.isSome(admission)) yield* admission.value.registerHook("scheduler");
   const sources = yield* Ref.make(new Map<symbol, Effect.Effect<void>>());
   const register: Scheduler["Service"]["register"] = Effect.fn("Scheduler.register")(function* <
     E,
@@ -28,7 +35,10 @@ const make = Effect.gen(function* () {
     const scope = yield* Effect.scope;
     const context = yield* Effect.context<R>();
     const permit = yield* Semaphore.make(1);
-    const run = runDueWork.pipe(
+    const admitted = Option.isSome(admission)
+      ? admission.value.admit(runDueWork).pipe(Effect.catchIf(isAdmissionError, () => Effect.void))
+      : runDueWork;
+    const run = admitted.pipe(
       Effect.provideContext(context),
       Effect.catchCause((cause) =>
         Cause.hasInterruptsOnly(cause)

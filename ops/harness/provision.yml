@@ -1,0 +1,24 @@
+---
+- name: Keep the dedicated harness user service running after logout
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    harness_enable_linger: false
+    harness_user: valentin
+    harness_linger_become: false
+  tasks:
+    - name: Require explicit provisioning activation
+      ansible.builtin.assert:
+        that: harness_enable_linger | bool
+        fail_msg: "Prepared only. Pass -e harness_enable_linger=true to enable linger."
+    - name: Read current linger setting
+      ansible.builtin.command: "loginctl show-user {{ harness_user }} -p Linger --value"
+      register: linger
+      changed_when: false
+      check_mode: false
+    - name: Enable linger for the harness user
+      become: "{{ harness_linger_become | bool }}"
+      ansible.builtin.command: "loginctl --no-ask-password enable-linger {{ harness_user }}"
+      when: linger.stdout != 'yes'
+      changed_when: true

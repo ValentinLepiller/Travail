@@ -1,0 +1,8 @@
+{
+  "origin": "http://127.0.0.1:3773",
+  "environmentId": "<environmentId from the local MT descriptor>",
+  "proxyPort": 3874,
+  "mode": "quick",
+  "directory": "/home/valentin/Documents/ChatGPT/harness/.t3/harness-remote",
+  "sharedOriginApproved": false
+}

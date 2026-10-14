@@ -1,5 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off
-import { randomUUID } from "node:crypto";
+import * as NodeCrypto from "node:crypto";
 import { CommandId, MessageId, VoiceApiError, type ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
@@ -34,6 +34,7 @@ export const delegateVoiceRequest = (
   threads: VoiceDelegationThreads,
   threadId: ThreadId,
   prompt: string,
+  requestId?: string,
 ) =>
   Effect.gen(function* () {
     const shell = yield* threads
@@ -42,25 +43,33 @@ export const delegateVoiceRequest = (
     if (shell === null || shell.archivedAt !== null) {
       return yield* unavailable("Open an existing, active MT Code task before starting voice.");
     }
-    if (shell.activeRunId !== null) {
-      return yield* unavailable(
-        "The selected agent is already working. Wait for its answer before sending another voice request.",
-      );
-    }
-    // No model selection: the task's own selection decides who answers — never the voice layer.
+    // Auto delivery steers active work or durably queues the instruction until it is steerable.
+    // The task's own model selection decides who answers — never the voice layer.
+    const identity =
+      requestId === undefined
+        ? NodeCrypto.randomUUID()
+        : NodeCrypto.createHash("sha256")
+            .update(threadId)
+            .update("\0")
+            .update(requestId)
+            .digest("hex");
     const sent = yield* threads
       .sendToThread({
         projectId: shell.projectId,
-        commandId: CommandId.make(`voice:${randomUUID()}`),
+        commandId: CommandId.make(`voice:${identity}`),
         threadId,
-        messageId: MessageId.make(randomUUID()),
+        messageId: MessageId.make(`voice:${identity}`),
         text: prompt,
         attachments: [],
         mode: "auto",
         createdBy: "user",
         creationSource: "web",
       })
-      .pipe(Effect.mapError((error) => unavailable(describe(error))));
+      .pipe(
+        Effect.mapError((error) => unavailable(describe(error))),
+        // Finishing a call may interrupt its wait, but not a dispatch already committing.
+        Effect.uninterruptible,
+      );
     const waited = yield* threads
       .waitForThread({
         projectId: shell.projectId,

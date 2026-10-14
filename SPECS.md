@@ -31,6 +31,7 @@ Le projet sera maintenu dans un dépôt Git. Ce document décrit les attentes ; 
 - Combiner cet accès avec la conversation vocale : micro et son sur l’appareil distant, agents et fichiers sur la machine hôte.
 - Garder les agents au travail lorsque le client se déconnecte, tant que l’hôte reste disponible.
 - Prévoir un accès authentifié, révocable et chiffré.
+- Choix retenu : Quick Tunnel Cloudflare gratuit, démarré avec l’hôte, authentification MT ; aucun domaine, URL changeante acceptée pour démarrer.
 - Le navigateur mobile est acceptable pour une première version ; une application mobile dédiée n’est pas imposée.
 
 ### Computer Use sans gêner Valentin

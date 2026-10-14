@@ -17,6 +17,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as AgentDesktops from "../agentDesktops/AgentDesktops.ts";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { McpSchema, McpServer, Tool, Toolkit } from "effect/ai";
@@ -1061,6 +1062,7 @@ it.effect("HTTP tool discovery only advertises monitors to monitoring credential
         PreviewAutomationBroker.layer,
         MonitorSession.layer,
         Layer.mock(DeviceService.DeviceService)({}),
+        Layer.mock(AgentDesktops.AgentDesktops)({}),
         Layer.mock(PreviewBrowser.PreviewBrowser)({}),
         // Every toolkit's dependencies; discovery never calls them.
         Layer.mock(ThreadManagementService.ThreadManagementService)({}),

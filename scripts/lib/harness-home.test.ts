@@ -36,7 +36,7 @@ it("boots a valid native Codex environment with desktop control disabled", async
   );
   const codex = decodeCodexSettings(settings.providerInstances[codexInstanceId]?.config);
   expect(codex.setupMode).toBe("existing");
-  expect(codex.homePath).toBe("");
+  expect(codex.homePath).toBe(NodePath.join(home, "codex"));
   expect(settings.desktopControl.enabled).toBe(false);
   expect(settings.enableProviderUpdateChecks).toBe(false);
 });

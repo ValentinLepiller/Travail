@@ -6,7 +6,7 @@ import * as CursorAgentSdk from "@t3tools/provider-cursor/server/CursorAgentSdk"
 import * as CursorSdk from "@t3tools/provider-cursor/server/CursorSdk";
 import * as CursorKeychain from "@t3tools/provider-cursor/server/CursorKeychain";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
-import * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
+import * as ProviderContinuationAdmission from "../orchestration-v2/ProviderContinuationAdmission.ts";
 
 export type ProviderOrchestrationAdapterInfrastructure =
   | ClaudeAdapterV2.ClaudeAgentSdkQueryRunner
@@ -28,5 +28,5 @@ export const layer = Layer.mergeAll(
   CursorAgentSdk.layer.pipe(Layer.provideMerge(CursorSdk.layer)),
   CursorKeychain.layer,
   IdAllocator.layer,
-  ProviderContinuationRequests.layer,
+  ProviderContinuationAdmission.layerRequests,
 );

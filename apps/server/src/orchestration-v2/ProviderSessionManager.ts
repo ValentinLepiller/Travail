@@ -151,6 +151,8 @@ export type ProviderSessionManagerV2Error = typeof ProviderSessionManagerV2Error
 
 export interface ProviderSessionManagerV2Shape {
   readonly shutdown: Effect.Effect<void>;
+  /** Live provider-owned work that can outlast its root turn. */
+  readonly pendingBackgroundWork: Effect.Effect<number>;
   readonly open: (input: {
     readonly threadId: ThreadId;
     readonly providerSessionId: ProviderSessionId;
@@ -2036,6 +2038,16 @@ export const layerWithOptions = (
 
       return ProviderSessionManagerV2.of({
         shutdown,
+        pendingBackgroundWork: Ref.get(sessions).pipe(
+          Effect.flatMap((current) =>
+            Effect.forEach(current.values(), (entry) =>
+              (entry.runtime.hasPendingBackgroundWork ?? Effect.succeed(false)).pipe(
+                Effect.map((pending) => (pending ? 1 : 0)),
+              ),
+            ),
+          ),
+          Effect.map((counts) => counts.reduce<number>((sum, count) => sum + count, 0)),
+        ),
         open: (input) =>
           sessionOpen.withLock(
             input.providerSessionId,

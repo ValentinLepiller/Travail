@@ -18,6 +18,9 @@ import { OrchestratorMcpFailure, PreviewAutomationError } from "@t3tools/contrac
 import packageJson from "../../package.json" with { type: "json" };
 import * as ServerConfig from "../config.ts";
 import * as DeviceService from "../device/DeviceService.ts";
+import * as AgentDesktops from "../agentDesktops/AgentDesktops.ts";
+import * as AgentDesktopMcp from "../agentDesktops/AgentDesktopMcp.ts";
+import * as RuntimeAdmission from "../maintenance/RuntimeAdmission.ts";
 import * as HtmlRender from "../htmlRender/HtmlRender.ts";
 import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
@@ -739,6 +742,28 @@ const registerDeviceScreenshot = Effect.fn("McpHttpServer.registerDeviceScreensh
   );
 });
 
+const registerAgentDesktopCapture = Effect.fn("McpHttpServer.registerAgentDesktopCapture")(
+  function* () {
+    const desktops = yield* AgentDesktops.AgentDesktops;
+    const threads = yield* ThreadManagementService.ThreadManagementService;
+    const built = yield* AgentDesktopMcp.AgentDesktopCaptureToolkit;
+    yield* registerImageTool(
+      AgentDesktopMcp.AgentDesktopToolkit.tools.agent_desktop_capture,
+      (payload) =>
+        built
+          .handle("agent_desktop_capture", payload)
+          .pipe(Stream.unwrap, Stream.run(Sink.last()), Effect.flatMap(Effect.fromOption)),
+      (effect) =>
+        effect.pipe(
+          Effect.provideService(AgentDesktops.AgentDesktops, desktops),
+          Effect.provideService(ThreadManagementService.ThreadManagementService, threads),
+        ),
+      "capture",
+      "Agent desktop capture failed.",
+    );
+  },
+);
+
 const isOrchestratorMcpFailure = Schema.is(OrchestratorMcpFailure);
 
 const registerHtmlPreview = Effect.fn("McpHttpServer.registerHtmlPreview")(function* () {
@@ -863,6 +888,11 @@ export const layerDeviceToolkit = Layer.mergeAll(
   layerDeviceScreenshotRegistration,
 );
 
+export const layerAgentDesktopToolkit = Layer.mergeAll(
+  toolkitRegistration(AgentDesktopMcp.AgentDesktopStandardToolkit, AgentDesktopMcp.layerStandard),
+  imageToolRegistration(registerAgentDesktopCapture(), AgentDesktopMcp.layerCapture),
+);
+
 // MT Code: fork-only toolkits register through the same access-checked path.
 export const ComputerToolkitRegistrationLive = toolkitRegistration(
   ComputerToolkit,
@@ -883,6 +913,7 @@ export const layerMcpTransport = McpServer.layerHttp({
 }).pipe(Layer.provide(layerMcpAuthMiddleware));
 
 export const layer = Layer.mergeAll(
+  Layer.effectDiscard(RuntimeAdmission.registerHook("mcp")),
   layerPreviewToolkit,
   ComputerToolkitRegistrationLive,
   layerOrchestratorToolkit,
@@ -894,6 +925,7 @@ export const layer = Layer.mergeAll(
   layerWorktreeToolkitRegistration,
   layerPullRequestsToolkit,
   layerDeviceToolkit,
+  layerAgentDesktopToolkit,
   MonitorToolkitRegistrationLive,
   layerHtmlToolkit,
 ).pipe(Layer.provideMerge(layerMcpTransport));

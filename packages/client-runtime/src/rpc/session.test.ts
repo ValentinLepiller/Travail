@@ -349,6 +349,42 @@ describe("RpcSessionFactory", () => {
     }),
   );
 
+  it.effect(
+    "treats maintenance admission as a temporary failure without requiring reauthentication",
+    () =>
+      Effect.gen(function* () {
+        const { factory, sockets } = yield* makeFactory();
+        const session = yield* factory.connect(PREPARED);
+        const ready = yield* Effect.forkChild(session.ready.pipe(Effect.flip));
+        const socket = yield* awaitSocket(sockets);
+        socket.open();
+        const request = yield* awaitRequest(socket);
+        socket.serverMessage(
+          encodeJson({
+            _tag: "Exit",
+            requestId: request.id,
+            exit: {
+              _tag: "Failure",
+              cause: [
+                {
+                  _tag: "Fail",
+                  error: {
+                    _tag: "RuntimeAdmissionError",
+                    code: "maintenance_active",
+                    detail: "Maintenance in progress",
+                  },
+                },
+              ],
+            },
+          }),
+        );
+        const error = yield* Fiber.join(ready);
+        expect(error).toBeInstanceOf(ConnectionTransientError);
+        expect(error).toMatchObject({ reason: "remote-unavailable" });
+        expect(error).not.toBeInstanceOf(ConnectionBlockedError);
+      }),
+  );
+
   it.effect("closes the websocket when the session scope is released", () =>
     Effect.gen(function* () {
       const { factory, sockets } = yield* makeFactory();

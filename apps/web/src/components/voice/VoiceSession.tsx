@@ -37,6 +37,7 @@ export interface VoiceComposerRegistration {
   readonly environmentId: EnvironmentId;
   readonly threadRef: ScopedThreadRef;
   readonly composerDraftTarget: ScopedThreadRef | DraftId;
+  readonly prepareThread?: () => Promise<ScopedThreadRef>;
   readonly composerRef: RefObject<ChatComposerHandle | null>;
   readonly title: string;
 }
@@ -401,6 +402,7 @@ export function VoiceSessionProvider({ children }: { readonly children: ReactNod
   const currentComposerRef = useRef<VoiceComposerRegistration | null>(null);
   const lastComposerRef = useRef<VoiceComposerRegistration | null>(null);
   const originComposerRef = useRef<VoiceComposerRegistration | null>(null);
+  const startAttemptRef = useRef(0);
   const connectionRef = useRef<OpenAIRealtimeConnection | CodexVoiceConnection | null>(null);
   const activeRef = useRef(false);
   const toolQueueRef = useRef<VoiceEvent[]>([]);
@@ -698,6 +700,7 @@ export function VoiceSessionProvider({ children }: { readonly children: ReactNod
   }, [appendTrace, executeTool]);
 
   const end = useCallback(() => {
+    startAttemptRef.current += 1;
     activeRef.current = false;
     if (toolTimerRef.current) clearTimeout(toolTimerRef.current);
     toolTimerRef.current = null;
@@ -734,15 +737,7 @@ export function VoiceSessionProvider({ children }: { readonly children: ReactNod
       return;
     }
     activeRef.current = true;
-    originComposerRef.current = registration;
-    const traceSessionId = useVoiceTraceStore.getState().startSession({
-      title: registration.title,
-      environmentId: registration.environmentId,
-      threadId: registration.threadRef.threadId,
-    });
-    traceSessionIdRef.current = traceSessionId;
-    setDisplayTraceSessionId(traceSessionId);
-    appendTrace({ kind: "system", title: "Session starting" });
+    const attempt = ++startAttemptRef.current;
     setStatus("connecting");
     setPanelOpen(true);
     setErrorText(null);
@@ -754,6 +749,18 @@ export function VoiceSessionProvider({ children }: { readonly children: ReactNod
     sessionReadyRef.current = false;
 
     void (async () => {
+      const threadRef = (await registration.prepareThread?.()) ?? registration.threadRef;
+      if (!activeRef.current || startAttemptRef.current !== attempt) return;
+      const prepared = { ...registration, threadRef, composerDraftTarget: threadRef };
+      originComposerRef.current = prepared;
+      const traceSessionId = useVoiceTraceStore.getState().startSession({
+        title: prepared.title,
+        environmentId: prepared.environmentId,
+        threadId: prepared.threadRef.threadId,
+      });
+      traceSessionIdRef.current = traceSessionId;
+      setDisplayTraceSessionId(traceSessionId);
+      appendTrace({ kind: "system", title: "Session starting" });
       const voiceSettings = useVoiceSettingsStore.getState();
       const accountVoice = voiceSettings.provider === "codex-account";
       let access: { clientSecret: string; realtimeUrl: string } | undefined;
@@ -765,7 +772,7 @@ export function VoiceSessionProvider({ children }: { readonly children: ReactNod
         if (accessResult._tag === "Failure") throw squashAtomCommandFailure(accessResult);
         access = accessResult.value;
       }
-      if (!activeRef.current) return;
+      if (!activeRef.current || startAttemptRef.current !== attempt) return;
       const connection = accountVoice
         ? new CodexVoiceConnection(async (input) => {
             const result = await codexVoiceSession({
@@ -778,11 +785,12 @@ export function VoiceSessionProvider({ children }: { readonly children: ReactNod
         : new OpenAIRealtimeConnection();
       connectionRef.current = connection;
       const latestAssistantMessage =
-        [...(readThreadDetail(registration.threadRef)?.projection.messages ?? [])]
+        [...(readThreadDetail(prepared.threadRef)?.projection.messages ?? [])]
           .toReversed()
           .find((message) => message.role === "assistant" && !message.streaming)?.text ?? null;
 
       const handleEvent = (rawEvent: unknown) => {
+        if (startAttemptRef.current !== attempt) return;
         const event = rawEvent as VoiceEvent;
         switch (event.type) {
           case "session.started":
@@ -987,7 +995,7 @@ export function VoiceSessionProvider({ children }: { readonly children: ReactNod
         connection instanceof CodexVoiceConnection
           ? await connection.connect({
               ...callbacks,
-              threadId: registration.threadRef.threadId,
+              threadId: prepared.threadRef.threadId,
               ...(voiceSettings.codexVoice ? { voice: voiceSettings.codexVoice } : {}),
             })
           : await connection.connect({ ...callbacks, ...access });
@@ -1013,6 +1021,7 @@ export function VoiceSessionProvider({ children }: { readonly children: ReactNod
         details: stringifyTraceDetails(diagnostics),
       });
     })().catch((error: unknown) => {
+      if (startAttemptRef.current !== attempt) return;
       connectionRef.current?.close();
       connectionRef.current = null;
       activeRef.current = false;

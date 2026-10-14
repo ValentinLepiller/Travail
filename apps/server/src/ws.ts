@@ -191,6 +191,8 @@ import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 import * as ServerSettings from "./serverSettings.ts";
 import * as VoiceSessionService from "./voice/VoiceSessionService.ts";
 import { CodexVoiceSession } from "./voice/CodexVoiceSession.ts";
+import * as RuntimeAdmission from "./maintenance/RuntimeAdmission.ts";
+import * as MaintenanceActivity from "./maintenance/MaintenanceActivity.ts";
 import { resolveCodexVoiceCommand } from "./voice/codexVoiceCommand.ts";
 import { delegateVoiceRequest } from "./voice/voiceDelegation.ts";
 import * as StorageCleanup from "./storageCleanup.ts";
@@ -2558,37 +2560,60 @@ const layerWsRpc = (
           const spawnCommand = yield* resolveSpawnCommand(codex.value.command, codex.value.args, {
             env: codex.value.env,
           });
-          // One voice session per server: the microphone and GPT-Live call are singular.
-          for (const session of codexVoiceSessions.values()) session.close();
-          codexVoiceSessions.clear();
-          const session = new CodexVoiceSession({
-            command: spawnCommand.command,
-            args: spawnCommand.args,
-            shell: spawnCommand.shell,
-            env: codex.value.env,
-            cwd: config.cwd,
-            askAgent: (prompt, signal) =>
-              Effect.runPromise(delegateVoiceRequest(threadManagement, input.threadId, prompt), {
-                signal,
-              }),
-          });
-          codexVoiceSessions.set(session.id, session);
-          const sdp = yield* Effect.tryPromise({
-            try: () => session.start(input.sdp, input.voice),
-            catch: (error) =>
-              new VoiceApiError({
-                reason: "upstream_unavailable",
-                message: error instanceof Error ? error.message : "Codex voice failed.",
-              }),
-          }).pipe(
-            Effect.onError(() =>
-              Effect.sync(() => {
-                session.close();
-                codexVoiceSessions.delete(session.id);
-              }),
-            ),
+          return yield* Effect.uninterruptibleMask((restore) =>
+            Effect.gen(function* () {
+              // Reserve the whole call before replacing an old one or spawning Codex.
+              // A refused maintenance admission must never interrupt an existing call.
+              const releaseVoice = yield* RuntimeAdmission.reserve("voice");
+              // One voice session per server: the microphone and GPT-Live call are singular.
+              for (const session of codexVoiceSessions.values()) session.close();
+              codexVoiceSessions.clear();
+              const session = yield* Effect.try({
+                try: () =>
+                  new CodexVoiceSession({
+                    command: spawnCommand.command,
+                    args: spawnCommand.args,
+                    shell: spawnCommand.shell,
+                    env: codex.value.env,
+                    cwd: config.cwd,
+                    onClosed: () => {
+                      codexVoiceSessions.delete(session.id);
+                      Effect.runSync(releaseVoice);
+                    },
+                    askAgent: (prompt, signal, requestId) =>
+                      Effect.runPromise(
+                        delegateVoiceRequest(threadManagement, input.threadId, prompt, requestId),
+                        { signal },
+                      ),
+                  }),
+                catch: (cause) =>
+                  new VoiceApiError({
+                    reason: "upstream_unavailable",
+                    message:
+                      cause instanceof Error ? cause.message : "Codex voice could not start.",
+                  }),
+              }).pipe(Effect.onError(() => releaseVoice));
+              codexVoiceSessions.set(session.id, session);
+              const sdp = yield* restore(
+                Effect.tryPromise({
+                  try: () => session.start(input.sdp, input.voice),
+                  catch: (error) =>
+                    new VoiceApiError({
+                      reason: "upstream_unavailable",
+                      message: error instanceof Error ? error.message : "Codex voice failed.",
+                    }),
+                }),
+              ).pipe(
+                Effect.onError(() =>
+                  Effect.sync(() => {
+                    session.close();
+                    codexVoiceSessions.delete(session.id);
+                  }),
+                ),
+              );
+              return { sessionId: session.id, sdp };
+            }),
           );
-          return { sessionId: session.id, sdp };
         }).pipe(
           Effect.mapError(
             (error) =>
@@ -2598,7 +2623,8 @@ const layerWsRpc = (
               }),
           ),
         ),
-      [WS_METHODS.voiceCreateSession]: ({ model }) => voiceSessionService.createSession(model),
+      [WS_METHODS.voiceCreateSession]: ({ model }) =>
+        MaintenanceActivity.allowExternalVoice(voiceSessionService.createSession(model)),
       [WS_METHODS.voiceGetParallelCredentialStatus]: (_input) =>
         voiceSessionService.getParallelCredentialStatus,
       [WS_METHODS.voiceSetParallelCredential]: ({ apiKey }) =>
@@ -3630,6 +3656,7 @@ export const WS_RPC_SERVER_OPTIONS = {
 
 export const layer = Layer.unwrap(
   Effect.gen(function* () {
+    yield* RuntimeAdmission.registerHook("voice");
     const previewAutomationBroker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
     const serverBrowser = yield* ServerBrowser.ServerBrowser;
     const computerTaskBroker = yield* ComputerTaskBroker.ComputerTaskBroker;

@@ -13,7 +13,7 @@
  * Stop terminates the thread's monitors and suppresses wakes until the user's
  * next message.
  */
-import { randomUUID } from "node:crypto";
+import * as NodeCrypto from "node:crypto";
 
 import type { ProviderDriverKind, ProviderThreadId, ThreadId } from "@t3tools/contracts";
 import type * as CodexSchema from "effect-codex-app-server/schema";
@@ -105,6 +105,7 @@ export interface CodexMonitorRuntime {
   /** Stop: cancel pending wakes and terminate the thread's monitors. */
   readonly stopThread: (providerThreadId: ProviderThreadId) => Effect.Effect<void>;
   readonly hasRunningMonitors: Effect.Effect<boolean>;
+  readonly hasPendingWork: Effect.Effect<boolean>;
   readonly start: (
     threadId: ThreadId,
     command: ReadonlyArray<string>,
@@ -237,7 +238,7 @@ export const makeCodexMonitorRuntime = (input: {
         if (closed || state === undefined || state.suppressed || !(yield* available)) {
           return yield* new MonitorSession.MonitorStoppedError({});
         }
-        const monitorId = randomUUID();
+        const monitorId = NodeCrypto.randomUUID();
         const description = command.join(" ");
         descriptions.set(monitorId, description);
         state.tasks.register(monitorId, monitorId, description);
@@ -420,6 +421,13 @@ export const makeCodexMonitorRuntime = (input: {
           state.tasks.stop();
         }),
       hasRunningMonitors: Effect.sync(() => commands.size > 0),
+      hasPendingWork: Effect.sync(
+        () =>
+          commands.size > 0 ||
+          [...threads.values()].some(
+            (state) => state.offer !== undefined && !state.offer.dispatched,
+          ),
+      ),
       start,
       unsubscribe,
     } satisfies CodexMonitorRuntime;

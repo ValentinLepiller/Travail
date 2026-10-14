@@ -4919,7 +4919,6 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             }
 
             if (payload.item.type === "commandExecution") {
-              const turnDrained = yield* clearRunningCommandItem(payload.turnId, payload.item.id);
               const artifacts = yield* buildCommandExecutionArtifacts(context, payload.item);
               yield* emitProviderEvent({
                 type: "node.updated",
@@ -4976,10 +4975,10 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                     });
                   }
                 }
-                if (turnDrained) {
-                  yield* releaseSettledTurnIfIdle(payload.turnId);
-                }
               }
+              // Keep provider-owned work visible until its wake owns a queue reservation.
+              const turnDrained = yield* clearRunningCommandItem(payload.turnId, payload.item.id);
+              if (settled && turnDrained) yield* releaseSettledTurnIfIdle(payload.turnId);
               return;
             }
 
@@ -6580,7 +6579,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           // against a long-delayed resume. Codex emits no resume-expected
           // signal to pin on.
           hasPendingBackgroundWork: Effect.gen(function* () {
-            if (yield* monitors.hasRunningMonitors) {
+            if (yield* monitors.hasPendingWork) {
               return true;
             }
             for (const items of (yield* Ref.get(runningCommandItemsByTurn)).values()) {

@@ -4,6 +4,7 @@ import {
   type RuntimeMode,
   type ThreadId,
 } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 import * as Effect from "effect/Effect";
 import * as Ref from "effect/Ref";
 import * as Struct from "effect/Struct";
@@ -15,6 +16,7 @@ import {
   DispatchModeLimit,
   type DispatchModeRefusal,
 } from "../orchestration-v2/DispatchModeLimit.ts";
+import * as RuntimeAdmission from "../maintenance/RuntimeAdmission.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import { resolveInteractionMode, resolveRuntimeMode } from "./OrchestratorMcpService.ts";
 import {
@@ -132,6 +134,19 @@ const requireThreadCaller = McpInvocationContext.McpInvocationContext.pipe(
   Effect.flatMap((scope) => McpInvocationContext.requireThreadScope(scope, "This tool")),
 );
 
+const isAdmissionError = Schema.is(RuntimeAdmission.RuntimeAdmissionError);
+
+const admitChange = <A, E, R>(
+  effect: Effect.Effect<A, E, R>,
+): Effect.Effect<A, E | OrchestratorMcpFailure, R> =>
+  RuntimeAdmission.admit(effect).pipe(
+    Effect.mapError((error) =>
+      isAdmissionError(error)
+        ? new OrchestratorMcpFailure({ code: "orchestration_error", message: error.message })
+        : error,
+    ),
+  );
+
 /** Changes nothing, so every caller may call it. */
 export const reads = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
   declare((params: P) => handle(params));
@@ -145,17 +160,26 @@ export const readsAsCaller = <P, A, E, R>(handle: (params: P) => Effect.Effect<A
  * worktree) while that thread's run is live. Only an agent running inside a
  * T3 thread has one.
  */
-export const actsAsCaller = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
+export const actsAsCaller = <P, A, E, R>(
+  handle: (params: P) => Effect.Effect<A, E, R>,
+  admission: "new-work" | "drain" = "new-work",
+) =>
   declare((params: P) =>
     requireThreadCaller.pipe(
       Effect.flatMap(() => writingCaller),
       Effect.flatMap(() => handle(params)),
+      (effect) => (admission === "drain" ? effect : admitChange(effect)),
     ),
   );
 
 /** Changes something that belongs to no thread, such as a pending upload or a scheduled task. */
 export const writes = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
-  declare((params: P) => orchestratingCaller.pipe(Effect.flatMap(() => handle(params))));
+  declare((params: P) =>
+    orchestratingCaller.pipe(
+      Effect.flatMap(() => handle(params)),
+      admitChange,
+    ),
+  );
 
 /**
  * Changes something that belongs to no thread under a capability of the tool's own, such as
@@ -163,7 +187,12 @@ export const writes = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>
  * handler checks its capability, as the capability toolkits do.
  */
 export const writesWithCapability = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
-  declare((params: P) => writingCaller.pipe(Effect.flatMap(() => handle(params))));
+  declare((params: P) =>
+    writingCaller.pipe(
+      Effect.flatMap(() => handle(params)),
+      admitChange,
+    ),
+  );
 
 /**
  * Changes the threads `threads` names. An omitted id is the caller's own
@@ -174,6 +203,7 @@ export const writesWithCapability = <P, A, E, R>(handle: (params: P) => Effect.E
 export const writesThreads = <P, A, E, R>(
   threads: (params: P) => ReadonlyArray<ThreadId | undefined>,
   handle: (params: P) => Effect.Effect<A, E, R>,
+  admission: "new-work" | "drain" = "new-work",
 ) =>
   declare((params: P) =>
     Effect.gen(function* () {
@@ -201,7 +231,7 @@ export const writesThreads = <P, A, E, R>(
           ),
         ),
       );
-    }),
+    }).pipe((effect) => (admission === "drain" ? effect : admitChange(effect))),
   );
 
 /** How an agent hears that a thread it targets was raised above its modes mid-call. */
@@ -240,7 +270,7 @@ export const startsThreads = <P, A, E, R>(
         ),
       };
       return yield* handle(params, started);
-    }),
+    }).pipe(admitChange),
   );
 
 const fullAccessRequired =
@@ -260,7 +290,12 @@ export const writesEnvironment = <P, A, E, R>(
   const check = orchestratingCaller.pipe(
     Effect.tap((caller) => assertFullAccess(caller, fullAccessRequired)),
   );
-  return declare((params: P) => check.pipe(Effect.flatMap(() => handle(params, check))));
+  return declare((params: P) =>
+    check.pipe(
+      Effect.flatMap(() => handle(params, check)),
+      admitChange,
+    ),
+  );
 };
 
 /** What a declaration's own check needs. */

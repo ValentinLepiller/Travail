@@ -1,5 +1,6 @@
 import {
   AuthOrchestrationOperateScope,
+  AuthTerminalReadScope,
   type EnvironmentId,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -9,7 +10,7 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { ChevronDownIcon, MonitorIcon } from "lucide-react";
+import { ChevronDownIcon, MonitorIcon, PanelsTopLeftIcon } from "lucide-react";
 import {
   memo,
   useCallback,
@@ -26,7 +27,6 @@ import { toastManager } from "../ui/toast";
 import { useThreadActionMenu } from "~/hooks/useThreadActionMenu";
 import { readLocalApi } from "~/localApi";
 import { threadEnvironment } from "../../state/threads";
-import { useAtomCommand } from "../../state/use-atom-command";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
 import { ProjectFavicon } from "../ProjectFavicon";
@@ -46,6 +46,7 @@ import { useRemoteOpenState, type RemoteOpenMode } from "../../remoteOpen";
 import { useEnvironment } from "../../state/environments";
 import { primaryServerKeybindingsAtom } from "../../state/server";
 import { useClientSettings, useTabsEnabled } from "~/hooks/useSettings";
+import { AgentDesktopDialog } from "../computers/AgentDesktopDialog";
 import { ComputerViewDialog } from "../computers/ComputerViewDialog";
 import { Button } from "../ui/button";
 import { WorkspaceTabs } from "./WorkspaceTabs";
@@ -137,6 +138,11 @@ export const ChatHeader = memo(function ChatHeader({
     threadMachine: remoteOpenState.mode,
   });
   const [computerViewOpen, setComputerViewOpen] = useState(false);
+  const [agentDesktopOpen, setAgentDesktopOpen] = useState(false);
+  const canViewAgentDesktops = useEnvironmentScope(
+    activeThreadEnvironmentId,
+    AuthTerminalReadScope,
+  );
   useEffect(() => {
     if (!supportsComputerView) return undefined;
     return onToggleComputerView(() => setComputerViewOpen((open) => !open));
@@ -515,6 +521,32 @@ export const ChatHeader = memo(function ChatHeader({
             )}
           </WorkspaceBreadcrumbItem>
         </WorkspaceBreadcrumb>
+      )}
+      {isServerThread && canViewAgentDesktops && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Voir les bureaux privés des agents de cette tâche"
+                onClick={() => setAgentDesktopOpen(true)}
+              />
+            }
+          >
+            <PanelsTopLeftIcon className="size-4" />
+          </TooltipTrigger>
+          <TooltipPopup side="bottom">Bureaux des agents</TooltipPopup>
+        </Tooltip>
+      )}
+      {agentDesktopOpen && isServerThread && canViewAgentDesktops && (
+        <AgentDesktopDialog
+          key={`${activeThreadEnvironmentId}:${activeThreadId}`}
+          environmentId={activeThreadEnvironmentId}
+          threadId={activeThreadId}
+          threadTitle={activeThreadTitle}
+          onClose={() => setAgentDesktopOpen(false)}
+        />
       )}
       {supportsComputerView && (
         <Tooltip>

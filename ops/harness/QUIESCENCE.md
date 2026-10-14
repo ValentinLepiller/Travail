@@ -1,0 +1,12 @@
+# Admission avant arrêt
+
+Le serveur partage une admission entre orchestration, transports, scheduler, voix et bureaux. Le contrôleur doit l’acquérir avant tout arrêt ; un simple probe ou un contrôle SQL après arrêt ne suffit pas.
+
+- `POST /api/harness/maintenance/quiesce` ; bearer MT, scope `environment:maintain` ; JSON `{version:1,operationId:string}`.
+- Réponse 200 uniquement `{version:1,operationId,quiesced:true,activeWork:0,activeVoice:0,activeDesktops:0}`. Acquisition idempotente pour cette operationId, autre propriétaire → 423. Voix, bureau actif (humain inclus), run/queue/outbox ou mutation admise encore en vol → 409/423, **admission rendue**, aucune interruption.
+- Fermer atomiquement l’admission des nouvelles activités user/MCP/RPC/HTTP et scheduler. Tout point qui crée une tâche, message, provider turn, appel vocal, bureau/acquisition/input doit partager cette admission. Drainer seulement les mutations déjà admises et les finalisations nécessaires ; ne pas empêcher callbacks/fin de provider ni fermer un appel/bureau pour atteindre zéro. Refuser les nouvelles mutations clairement ; conserver les lectures.
+- Réutiliser services MT, `ServerRuntimeStartup`/command gate, `EffectWorker.drain`, source scheduler unique et compteurs scoped de voix/bureaux ; pas de scan PID. L’implémentation doit avoir des tests de concurrence contre une requête/scheduler au moment de l’acquisition.
+- **TTL : aucun déverrouillage automatique**, jusqu’à release ou fin du processus serveur. Le serveur refuse et rend l’admission si une activité est encore présente. Le contrôleur persiste operationId dans le journal `quiescing` **avant** requête. Crash du contrôleur : recovery release explicite/idempotente, sans stop.
+- `POST /api/harness/maintenance/release` ; même auth ; `{version:1,operationId}` → `{version:1,operationId,released:true}` y compris absence de cette acquisition. Auth (ticket/token/révocation) et ces deux routes restent disponibles pendant quiescence. Pas de libération d’un lease étranger.
+
+Le contrôleur vérifie ce contrat avant `systemctl stop`. Sans preuve de quiescence, la promotion est refusée avant stop. Après arrêt, snapshot et nouveau host : le protocole natif `prepared/committed` bloque les roots + tous les HTTP jusqu’à activation. Après décision durable d’activation, jamais de stop/rollback automatique : replay sans interruption, succès seulement sur `ready` authentifié matching update id.

@@ -77,3 +77,7 @@ export * from "./projectTransfer.ts";
 export * from "./externalTerminal.ts";
 export * from "./secretRequest.ts";
 export * from "./clientRpcPermissions.ts";
+
+export * from "./agentDesktops.ts";
+
+export * from "./maintenance.ts";
