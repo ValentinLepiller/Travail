@@ -1,8 +1,10 @@
-# Harness personnalisé basé sur MT Code
+# Travail — harness personnalisé basé sur MT Code
 
 ## Objectif
 
 Créer notre propre version de MT Code pour remplacer progressivement Codex Desktop / ChatGPT Community dans les usages quotidiens de Valentin. Conserver les capacités utiles, avec une interface personnalisable et des équivalents lorsque les intégrations de ChatGPT ne sont pas transférables.
+
+Le nom de l’application est **Travail**. Une application Electron Linux avec un lanceur doit retrouver le serveur et les conversations existants ; fermer sa fenêtre ne doit pas arrêter les agents. Les crédits et licences MT/T3 sont conservés.
 
 Le projet sera maintenu dans un dépôt Git. Ce document décrit les attentes ; il ne confirme pas que les fonctions ont déjà été implémentées ou testées.
 

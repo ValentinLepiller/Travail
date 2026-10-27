@@ -1,5 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
+import { importHarnessConnection } from "./DesktopHarnessConnection.ts";
 import { ConnectionCatalogDocument } from "@t3tools/client-runtime/platform";
 import { EnvironmentId, type PersistedSavedEnvironmentRecord } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -441,5 +442,78 @@ describe("DesktopConnectionCatalogStore", () => {
       yield* Ref.set(failDecrypt, false);
       assert.deepStrictEqual(yield* store.get, Option.some('{"schemaVersion":1,"targets":[]}'));
     }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+  );
+});
+
+describe("Travail service connection", () => {
+  const fixture = (token: string) => ({
+    _tag: "BearerConnectionRegistration",
+    target: {
+      _tag: "BearerConnectionTarget",
+      connectionId: "travail:harness",
+      environmentId: "harness",
+      label: "Travail",
+    },
+    profile: {
+      _tag: "BearerConnectionProfile",
+      connectionId: "travail:harness",
+      environmentId: "harness",
+      label: "Travail",
+      httpBaseUrl: "http://127.0.0.1:3773",
+      wsBaseUrl: "ws://127.0.0.1:3773",
+    },
+    credential: { _tag: "BearerConnectionCredential", token },
+  });
+
+  it.effect("imports and rotates the credential without dropping unrelated connections", () =>
+    withStore(
+      Effect.gen(function* () {
+        const store = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore;
+        const fs = yield* FileSystem.FileSystem;
+        const environment = yield* DesktopEnvironment.DesktopEnvironment;
+        const file = environment.path.join(environment.stateDir, "harness-connection.private.json");
+        yield* store.set(
+          JSON.stringify({
+            schemaVersion: 1,
+            targets: [{ _tag: "RelayConnectionTarget", environmentId: "other", label: "Other" }],
+            profiles: [],
+            credentials: [],
+            remoteDpopTokens: [],
+            disabledEnvironmentIds: ["other"],
+          }),
+        );
+        for (const token of ["first", "rotated"]) {
+          yield* fs.writeFileString(file, JSON.stringify(fixture(token)));
+          yield* importHarnessConnection;
+          assert.isFalse(yield* fs.exists(file));
+          const catalog = yield* decodeConnectionCatalog(Option.getOrThrow(yield* store.get));
+          assert.equal(catalog.targets.length, 2);
+          assert.deepEqual(catalog.disabledEnvironmentIds, [EnvironmentId.make("other")]);
+          assert.equal(catalog.credentials.length, 1);
+          assert.equal(catalog.credentials[0]?.credential.token, token);
+        }
+        yield* importHarnessConnection;
+        assert.equal(
+          (yield* decodeConnectionCatalog(Option.getOrThrow(yield* store.get))).targets.length,
+          2,
+        );
+      }),
+    ),
+  );
+
+  it.effect("does not discard the handoff when the keyring is unavailable", () =>
+    withStore(
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const environment = yield* DesktopEnvironment.DesktopEnvironment;
+        const file = environment.path.join(environment.stateDir, "harness-connection.private.json");
+        yield* fs.makeDirectory(environment.stateDir, { recursive: true });
+        yield* fs.writeFileString(file, JSON.stringify(fixture("private")));
+        const result = yield* Effect.result(importHarnessConnection);
+        assert.equal(result._tag, "Failure");
+        assert.isTrue(yield* fs.exists(file));
+      }),
+      false,
+    ),
   );
 });

@@ -111,19 +111,21 @@ export const make = Effect.gen(function* () {
             // Icon installation is optional; registration retries after readiness.
           }
         }
-        NodeFS.writeFileSync(
-          NodePath.posix.join(applicationsDir, linux.linuxDesktopEntryName),
-          renderUrlHandlerDesktopEntry({
-            displayName: resolveDesktopAppBranding({
-              isDevelopment: linux.isDevelopment,
-              appVersion: Electron.app.getVersion(),
-            }).displayName,
-            execTarget: process.env.APPIMAGE?.trim() || process.execPath,
-            scheme: ElectronProtocol.getDesktopScheme(linux.isDevelopment),
-            ...(iconPath === undefined ? {} : { iconPath }),
-          }),
-          "utf8",
-        );
+        // Travail has a persistent installer-owned launcher, not an AppImage URL-only entry.
+        if (linux.linuxDesktopEntryName !== "travail.desktop")
+          NodeFS.writeFileSync(
+            NodePath.posix.join(applicationsDir, linux.linuxDesktopEntryName),
+            renderUrlHandlerDesktopEntry({
+              displayName: resolveDesktopAppBranding({
+                isDevelopment: linux.isDevelopment,
+                appVersion: Electron.app.getVersion(),
+              }).displayName,
+              execTarget: process.env.APPIMAGE?.trim() || process.execPath,
+              scheme: ElectronProtocol.getDesktopScheme(linux.isDevelopment),
+              ...(iconPath === undefined ? {} : { iconPath }),
+            }),
+            "utf8",
+          );
       } catch {
         // The URL handler retries with the full environment and logs failures.
       }

@@ -16,6 +16,7 @@ import * as ElectronSafeStorage from "../electron/ElectronSafeStorage.ts";
 import { installDesktopIpcHandlers } from "../ipc/DesktopIpcHandlers.ts";
 import * as ComputerHistoryManager from "../computerHistory/ComputerHistoryManager.ts";
 import { ensureChromeNativeHostRegistered } from "../computerUse/nativeHost.ts";
+import { importHarnessConnection } from "./DesktopHarnessConnection.ts";
 import * as DesktopAppActivation from "./DesktopAppActivation.ts";
 import * as DesktopAppIdentity from "./DesktopAppIdentity.ts";
 import * as DesktopClerk from "./DesktopClerk.ts";
@@ -373,6 +374,9 @@ const startup = Effect.gen(function* () {
     Effect.catchCause((cause) => fatalStartupCause("whenReady", cause)),
   );
   yield* logStartupInfo("app ready");
+  if (environment.branding.baseName === "Travail") {
+    yield* importHarnessConnection;
+  }
   if (environment.platform === "linux") {
     const selectedBackend = yield* safeStorage.selectedStorageBackend;
     yield* logStartupInfo("safe storage ready", {

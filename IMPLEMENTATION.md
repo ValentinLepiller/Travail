@@ -1,4 +1,4 @@
-# MT Harness — 14 octobre 2026
+# Travail — harness MT personnalisé
 
 Base [MT Code](https://github.com/munimtechnologies/mtcode) `63c035c5e5a0cfdcdd4dbabe798cc9efe06f9b93`, serveur/desktop `0.0.56`. Historique et licences conservés ; remote MT pour fetch, push désactivé. Conventions Effect/SQLite/React existantes conservées.
 
@@ -11,6 +11,12 @@ Base [MT Code](https://github.com/munimtechnologies/mtcode) `63c035c5e5a0cfdcdd4
 - **Connecteurs/contexte** : Gmail et Slack natifs indépendants du pont Desktop, lectures réelles ; accès borné à l’ancien historique et aux mémoires. Aucun envoi pour les tests. Outils documents/PDF existants réutilisés ; Teams/WhatsApp nécessitent leur accès propre.
 - **Récurrences** : scheduler MT persistant, fuseau Paris, preuves de rattrapage et récupération sur serveur isolé sans client.
 - **HTTPS** : Quick Tunnel Cloudflare gratuit, URL variable acceptée ; auth/appairage/révocation MT, HTTP/WS TLS vérifiés sur environnement isolé.
+
+## Application Electron
+
+Installée le 27 octobre : **Travail** dans le menu Linux, ou `travail` dans un terminal. Recompiler/réinstaller : `node --run harness:desktop:install`. Client Electron MT complet, profil séparé, connexion automatique au serveur existant ; fermer la fenêtre laisse le service actif. Le dossier du dépôt et ses dépendances sont nécessaires à cette installation locale. Nom web également changé ; crédits/licences MT/T3 conservés.
+
+Vérifiés : fenêtre dans un affichage isolé, conversations existantes, connexion ChatGPT rétablie, lanceur visible, service conservé après arrêt du client ; tests ciblés et typecheck desktop sans erreur de type (suggestions amont). Preuves : `.logs/harness/desktop-travail/`. La voix n’a pas été retestée sur téléphone.
 
 ## Maintenance et lancement
 

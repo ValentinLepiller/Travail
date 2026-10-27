@@ -158,6 +158,15 @@ const emptyRecording = (): RecordedRegistration => ({
 });
 
 describe("DesktopLinuxUrlHandler", () => {
+  it.effect("preserves Travail's installer-owned visible launcher", () => {
+    const recorded = emptyRecording();
+    return Effect.gen(function* () {
+      yield* runRegister(recorded, { environment: { linuxDesktopEntryName: "travail.desktop" } });
+      assert.deepEqual(recorded.files, []);
+      assert.deepEqual(recorded.commands, []);
+    });
+  });
+
   it("renders a scheme-handler desktop entry with freedesktop Exec quoting", () => {
     const entry = DesktopLinuxUrlHandler.renderUrlHandlerDesktopEntry({
       displayName: "T3 Code (Nightly)",

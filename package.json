@@ -6,6 +6,8 @@
     "harness:prepare": "node scripts/harness.ts prepare",
     "harness:dev": "node scripts/harness.ts dev",
     "harness:start": "node scripts/harness.ts start",
+    "harness:desktop": "node scripts/harness-desktop.ts",
+    "harness:desktop:install": "node scripts/harness-desktop.ts install",
     "harness:runtime": "node scripts/harness-runtime.ts",
     "prepare": "effect-tsgo patch && vp config --no-agent",
     "dev": "node scripts/dev-runner.ts dev",

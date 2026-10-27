@@ -40,7 +40,7 @@ export function resolveThreadDeepLinkScheme(input: {
   readonly baseName: string;
   readonly isDevelopment: boolean;
 }): string {
-  const scheme = input.baseName === "MT Code" ? "mtcode" : "t3code";
+  const scheme = { "MT Code": "mtcode", Travail: "travail" }[input.baseName] ?? "t3code";
   return input.isDevelopment ? `${scheme}-dev` : scheme;
 }
 
