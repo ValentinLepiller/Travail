@@ -170,3 +170,57 @@ it("preserves null sparse payload and rejects HTML attachments as a substitute f
       .payload,
   ).toEqual(mime);
 });
+
+const accountStatus = (ids: string[]) => ({
+  data: [
+    {
+      name: "codex_apps",
+      tools: {
+        "gmail.search_email_ids": {
+          inputSchema: {
+            required: ["link_id"],
+            properties: {
+              link_id: {
+                description: `Accounts:\n${JSON.stringify(
+                  ids.map((link_id) => ({ link_id })),
+                  null,
+                  2,
+                )}`,
+              },
+            },
+          },
+        },
+      },
+    },
+  ],
+});
+
+it("uses the sole published account and keeps explicit account selection", async () => {
+  const rpc = vi
+    .fn()
+    .mockResolvedValueOnce(accountStatus(["account-a"]))
+    .mockResolvedValue({ isError: false });
+  await callConnector(rpc, "thread", { operation: "gmail.search", arguments: {} });
+  expect(rpc).toHaveBeenLastCalledWith(
+    "mcpServer/tool/call",
+    expect.objectContaining({ arguments: { max_results: 5, link_id: "account-a" } }),
+  );
+  rpc.mockClear();
+  await callConnector(rpc, "thread", {
+    operation: "gmail.search",
+    arguments: { link_id: "account-b" },
+  });
+  expect(rpc).toHaveBeenCalledTimes(1);
+  expect(rpc).toHaveBeenLastCalledWith(
+    "mcpServer/tool/call",
+    expect.objectContaining({ arguments: { max_results: 5, link_id: "account-b" } }),
+  );
+});
+
+it("requires account selection when multiple accounts are published", async () => {
+  const rpc = vi.fn().mockResolvedValue(accountStatus(["account-a", "account-b"]));
+  await expect(
+    callConnector(rpc, "thread", { operation: "gmail.search", arguments: {} }),
+  ).rejects.toThrow("Choose the account");
+  expect(rpc).toHaveBeenCalledTimes(1);
+});

@@ -1,7 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off globalConsole:off - Agent-facing command line adapter.
 import * as NodeUtil from "node:util";
 import { openNativeApps, installedApps, connectorThread } from "./native.ts";
-import { callConnector } from "./adapter.ts";
+import { callConnector, connectorAccounts } from "./adapter.ts";
 
 const { values, positionals } = NodeUtil.parseArgs({
   allowPositionals: true,
@@ -11,9 +11,15 @@ const client = await openNativeApps();
 try {
   if (positionals[0] === "status") {
     const apps = await installedApps(client.rpc);
+    const threadId = await connectorThread(client.rpc);
+    const accounts = {
+      gmail: (await connectorAccounts(client.rpc, threadId, "gmail.search_email_ids")).accounts,
+      slack: (await connectorAccounts(client.rpc, threadId, "slack.slack_search_public")).accounts,
+    };
     console.log(
       JSON.stringify(
         {
+          accounts,
           transport: "native Codex app-server; Desktop environment removed except CODEX_HOME",
           apps,
           teams: {

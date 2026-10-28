@@ -1,4 +1,5 @@
 "use client";
+import { ListTodoIcon } from "lucide-react";
 
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
@@ -2300,6 +2301,17 @@ function OpenCommandPaletteDialog(props: {
       },
     });
   }
+
+  actionItems.push({
+    kind: "action",
+    value: "action:tasks",
+    searchTerms: ["tasks", "tâches", "todo", "liste", "agent"],
+    title: "Ouvrir les tâches",
+    icon: <ListTodoIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/tasks" });
+    },
+  });
 
   actionItems.push({
     kind: "action",

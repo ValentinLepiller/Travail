@@ -1,3 +1,4 @@
+import { WorkTask, WorkTaskError, WorkTaskSaveInput, WorkTaskDeleteInput } from "./workTask.ts";
 import {
   OrchestrationV2SearchThreadError,
   OrchestrationV2SearchThreadInput,
@@ -581,6 +582,9 @@ export const WS_METHODS = {
   serverRefreshUsageRates: "server.refreshUsageRates",
 
   // Scheduled tasks
+  workTasksSubscribe: "workTasks.subscribe",
+  workTasksSave: "workTasks.save",
+  workTasksDelete: "workTasks.delete",
   scheduledTasksList: "scheduledTasks.list",
   scheduledTasksSubscribe: "scheduledTasks.subscribe",
   scheduledTasksUpsert: "scheduledTasks.upsert",
@@ -2092,6 +2096,23 @@ const WsSubscribeServerLifecycleRpc = Rpc.make(WS_METHODS.subscribeServerLifecyc
   stream: true,
 });
 
+const WsWorkTasksSubscribeRpc = Rpc.make(WS_METHODS.workTasksSubscribe, {
+  payload: Schema.Struct({}),
+  success: Schema.Array(WorkTask),
+  error: Schema.Union([WorkTaskError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+const WsWorkTasksSaveRpc = Rpc.make(WS_METHODS.workTasksSave, {
+  payload: WorkTaskSaveInput,
+  success: WorkTask,
+  error: Schema.Union([WorkTaskError, EnvironmentAuthorizationError]),
+});
+const WsWorkTasksDeleteRpc = Rpc.make(WS_METHODS.workTasksDelete, {
+  payload: WorkTaskDeleteInput,
+  success: Schema.Void,
+  error: Schema.Union([WorkTaskError, EnvironmentAuthorizationError]),
+});
+
 const WsScheduledTasksListRpc = Rpc.make(WS_METHODS.scheduledTasksList, {
   payload: ScheduledTaskListInput,
   success: ScheduledTaskListResult,
@@ -2253,6 +2274,9 @@ export const WsRpcGroupFirst = RpcGroup.make(
   WsServerGetUsageSummaryRpc,
   WsServerRefreshUsageRatesRpc,
   WsServerSignalProcessRpc,
+  WsWorkTasksSubscribeRpc,
+  WsWorkTasksSaveRpc,
+  WsWorkTasksDeleteRpc,
   WsScheduledTasksListRpc,
   WsScheduledTasksSubscribeRpc,
   WsScheduledTasksUpsertRpc,

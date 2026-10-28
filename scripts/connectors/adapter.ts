@@ -112,6 +112,46 @@ export function prepareCall(request: unknown, allowWrite = false) {
   return { tool: operations[operation as keyof typeof operations], arguments: args };
 }
 
+/** Account choices published by Codex alongside the tool schema. */
+export async function connectorAccounts(
+  rpc: (method: string, params: unknown) => Promise<unknown>,
+  threadId: string,
+  tool: string,
+) {
+  const status = record(
+    await rpc("mcpServerStatus/list", { threadId, serverName: "codex_apps", limit: 1 }),
+  );
+  const servers = Array.isArray(status.data) ? status.data : [];
+  const server = servers.map(record).find((entry) => entry.name === "codex_apps");
+  const descriptor = record(record(server?.tools ?? {})[tool] ?? {});
+  const schema = record(descriptor.inputSchema ?? {});
+  const property = record(record(schema.properties ?? {}).link_id ?? {});
+  const required = Array.isArray(schema.required) && schema.required.includes("link_id");
+  const description = typeof property.description === "string" ? property.description : "";
+  const start = description.indexOf("[");
+  let entries: unknown = [];
+  if (start >= 0) {
+    try {
+      entries = JSON.parse(description.slice(start));
+    } catch {
+      /* An unknown schema format must not select an account. */
+    }
+  }
+  const accounts = (Array.isArray(entries) ? entries : []).map(record).flatMap((entry) =>
+    typeof entry.link_id === "string" && entry.link_id.trim()
+      ? [
+          {
+            linkId: entry.link_id,
+            label: String(
+              entry.profile_email ?? entry.profile_name ?? entry.link_name ?? entry.link_id,
+            ),
+          },
+        ]
+      : [],
+  );
+  return { required, accounts };
+}
+
 export async function callConnector(
   rpc: (method: string, params: unknown) => Promise<unknown>,
   threadId: string,
@@ -119,6 +159,17 @@ export async function callConnector(
   allowWrite = false,
 ) {
   const call = prepareCall(request, allowWrite);
+  if (call.arguments.link_id === undefined) {
+    const { required, accounts } = await connectorAccounts(rpc, threadId, call.tool);
+    if (required) {
+      const account = accounts.length === 1 ? accounts[0] : undefined;
+      if (!account)
+        throw new Error(
+          "Choose the account using arguments.link_id; list accounts with connector CLI status.",
+        );
+      call.arguments.link_id = account.linkId;
+    }
+  }
   const result = record(
     await rpc("mcpServer/tool/call", { threadId, server: "codex_apps", ...call }),
   );

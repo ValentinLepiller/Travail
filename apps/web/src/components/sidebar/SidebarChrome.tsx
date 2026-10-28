@@ -1,4 +1,4 @@
-import { ArrowLeftIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
+import { ArrowLeftIcon, ChartNoAxesColumnIcon, SettingsIcon, ListTodoIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
@@ -265,6 +265,19 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
             label="Settings"
             onClick={handleSettingsClick}
           />
+          {isMobile && (
+            <SidebarMenuItem className="min-w-0 flex-1">
+              <SidebarMenuButton
+                onClick={() => {
+                  closeMobileSidebar();
+                  void navigate({ to: "/tasks" });
+                }}
+              >
+                <ListTodoIcon />
+                <span>Tâches</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
           {pullRequestsSupported ? (
             <SidebarUtilityItem
               icon={<PullRequestGlyph.pullRequest />}

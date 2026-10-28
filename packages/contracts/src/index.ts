@@ -81,3 +81,5 @@ export * from "./clientRpcPermissions.ts";
 export * from "./agentDesktops.ts";
 
 export * from "./maintenance.ts";
+
+export * from "./workTask.ts";

@@ -41,3 +41,11 @@ Build final et gate compilé validés ; HTTPS partagé et passage UI intégrés 
 Typechecks sans erreur de type ; code non nul du checker reproduit sur des warnings de directives préexistants dans trois fichiers amont inchangés.
 
 Tests ciblés, lint, captures et traces : `.logs/harness/`. Ne pas diffuser les logs bruts contenant des codes d’appairage. `$simplify` appliqué aux changements ; aucune vérification repo-wide.
+
+## Liste de tâches — première version locale
+
+Vue `/tasks` (navigation verticale à gauche avec libellés sur grand écran, menu mobile et palette) : création, notes, projet, échéance, statuts manuels, filtres, édition, suppression et réouverture. Attribution à une conversation existante avec lien direct vers l’agent ; aucun lancement automatique. SQLite côté hôte, mises à jour diffusées aux clients, conflits d’édition détectés. Surface web/desktop et navigateur mobile ; interface native mobile et création depuis le chat restent à raccorder.
+
+Preuves : 37 tests ciblés (service, autorisations serveur/client), typage web/serveur et lint ciblé. Serveur de développement isolé dans `.t3/harness` ; installation quotidienne inchangée. Pas de vérification par navigateur automatisé.
+
+Connecteurs : comptes détectés depuis les schémas Codex, sélection explicite en cas de comptes multiples ; sonde Gmail/Slack en lecture réussie, 19 tests ciblés. Promotion en attente : contrôle de délégation limité par HTTP 429 ; nouvelle tentative différée, puis attente de l’inactivité du serveur.

@@ -101,6 +101,7 @@ import Migration0068 from "./Migrations/059_McpAppModelContext.ts";
 import Migration0069 from "./Migrations/060_ThreadSnapshotWindowIndexes.ts";
 // Upstream 061 (PR review guides); registered as the next free fork id.
 import Migration0070 from "./Migrations/061_PullRequestReviewGuides.ts";
+import Migration0071 from "./Migrations/072_WorkTasks.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -186,6 +187,7 @@ export const migrationEntries = [
   [69, "ThreadSnapshotWindowIndexes", Migration0069],
   // Upstream 061 (PR review guides); registered as the next free fork id.
   [70, "PullRequestReviewGuides", Migration0070],
+  [71, "WorkTasks", Migration0071],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

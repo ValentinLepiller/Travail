@@ -1,3 +1,4 @@
+import * as WorkTasks from "./workTasks/WorkTaskService.ts";
 import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Orchestrator from "./orchestration-v2/Orchestrator.ts";
@@ -1270,6 +1271,7 @@ const layerWsRpc = (
     const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
     const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
     const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
+    const workTasks = yield* WorkTasks.WorkTaskService;
     const secretRequests = yield* SecretRequests.SecretRequests;
     const pullRequests = yield* PullRequestService.PullRequestService;
     const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
@@ -2119,6 +2121,9 @@ const layerWsRpc = (
             Effect.andThen(subscribeOrchestrationV2Thread(input)),
           ),
         ),
+      [WS_METHODS.workTasksSubscribe]: () => workTasks.subscribe(),
+      [WS_METHODS.workTasksSave]: (input) => workTasks.save(input),
+      [WS_METHODS.workTasksDelete]: (input) => workTasks.delete(input),
       [WS_METHODS.scheduledTasksList]: (_input) =>
         scheduledTasks.list().pipe(Effect.map(withVisibleWebhookUrls)),
       [WS_METHODS.scheduledTasksSubscribe]: (_input) =>

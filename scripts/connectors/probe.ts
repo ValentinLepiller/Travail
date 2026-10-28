@@ -1,7 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off globalConsole:off - Metadata-only live proof; no sensitive payload logging.
 import * as NodeFSP from "node:fs/promises";
 import { openNativeApps, record, installedApps, connectorThread } from "./native.ts";
-import { callConnector, connectorData } from "./adapter.ts";
+import { callConnector, connectorData, connectorAccounts } from "./adapter.ts";
 
 const client = await openNativeApps();
 const proof: Record<string, unknown> = {
@@ -31,16 +31,20 @@ try {
       tool,
     ),
   );
+  const gmailAccounts = await connectorAccounts(client.rpc, threadId, "gmail.search_email_ids");
+  const gmailLink = gmailAccounts.accounts[0]?.linkId;
+  if (gmailAccounts.required && !gmailLink) throw new Error("No Gmail account published by Codex");
+  const gmailAccount = gmailLink ? { link_id: gmailLink } : {};
   const search = await callConnector(client.rpc, threadId, {
     operation: "gmail.search",
-    arguments: { query: "newer_than:7d -in:spam -in:trash", max_results: 1 },
+    arguments: { ...gmailAccount, query: "newer_than:7d -in:spam -in:trash", max_results: 1 },
   });
   const ids = connectorData(search).message_ids;
   proof.gmailSearch = { success: true, results: Array.isArray(ids) ? ids.length : 0 };
   if (Array.isArray(ids) && typeof ids[0] === "string") {
     const read = await callConnector(client.rpc, threadId, {
       operation: "gmail.read",
-      arguments: { message_id: ids[0], format: "minimal" },
+      arguments: { ...gmailAccount, message_id: ids[0], format: "minimal" },
     });
     proof.gmailRead = {
       success: true,
