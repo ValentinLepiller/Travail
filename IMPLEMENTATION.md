@@ -18,6 +18,8 @@ Installée le 27 octobre : **Travail** dans le menu Linux, ou `travail` dans un 
 
 Vérifiés : fenêtre dans un affichage isolé, conversations existantes, connexion ChatGPT rétablie, lanceur visible, service conservé après arrêt du client ; tests ciblés et typecheck desktop sans erreur de type (suggestions amont). Preuves : `.logs/harness/desktop-travail/`. La voix n’a pas été retestée sur téléphone.
 
+Barre latérale : projets visibles par défaut, raccourci de création de chat par projet et menu œil à cases multiples. Le choix est conservé sur cet appareil ; l’ancien filtre à projet unique est abandonné. Tests ciblés : 178 réussis.
+
 ## Maintenance et lancement
 
 Gate commun pour nouvelles mutations RPC/HTTP/MCP, dispatch, scheduler, voix et bureaux ; lectures et annulations disponibles. Refus si travail, appel, bureau, PTY ouvert, continuation pending ou activité native en arrière-plan. Le transfert source→file ne perd pas une offre pendant fermeture. Le service hôte est activé et sain, avec home Codex privé. Sur le bundle final, sept contrôles du gate passent : refus anonymes et droits insuffisants, quiescence idle, nouveaux lancements bloqués, lecture maintenue, idempotence et libération. Tunnel HTTPS partagé actif et health vérifié.

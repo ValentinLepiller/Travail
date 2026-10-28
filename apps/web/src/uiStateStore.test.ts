@@ -13,7 +13,7 @@ import {
   resolveProjectExpanded,
   setDefaultAdvertisedEndpointKey,
   setProjectExpanded,
-  setSidebarProjectScopeKey,
+  setSidebarProjectsVisible,
   setThreadChangedFilesExpanded,
   type UiState,
 } from "./uiStateStore";
@@ -22,7 +22,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
   return {
     projectExpandedById: {},
     projectOrder: [],
-    sidebarProjectScopeKey: null,
+    sidebarHiddenProjectKeys: [],
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
@@ -148,13 +148,18 @@ describe("uiStateStore pure functions", () => {
     });
   });
 
-  it("stores the sidebar project scope and resets it to all projects", () => {
-    const scoped = setSidebarProjectScopeKey(makeUiState(), "github.com/pingdotgg/t3code");
-
-    expect(scoped.sidebarProjectScopeKey).toBe("github.com/pingdotgg/t3code");
-    expect(setSidebarProjectScopeKey(scoped, "github.com/pingdotgg/t3code")).toBe(scoped);
-    expect(setSidebarProjectScopeKey(scoped, null).sidebarProjectScopeKey).toBeNull();
-    expect(setSidebarProjectScopeKey(scoped, "").sidebarProjectScopeKey).toBeNull();
+  it("hides several projects independently and shows new projects by default", () => {
+    const hidden = setSidebarProjectsVisible(makeUiState(), ["env:a", "env:b"], false);
+    expect(hidden.sidebarHiddenProjectKeys).toEqual(["env:a", "env:b"]);
+    expect(setSidebarProjectsVisible(hidden, ["env:a"], false)).toBe(hidden);
+    expect(setSidebarProjectsVisible(hidden, ["env:a"], true).sidebarHiddenProjectKeys).toEqual([
+      "env:b",
+    ]);
+    expect(hidden.sidebarHiddenProjectKeys).not.toContain("env:new");
+    expect(
+      setSidebarProjectsVisible(hidden, hidden.sidebarHiddenProjectKeys, true)
+        .sidebarHiddenProjectKeys,
+    ).toEqual([]);
   });
 });
 
@@ -201,7 +206,7 @@ describe("parsePersistedState", () => {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
-      sidebarProjectScopeKey: null,
+      sidebarHiddenProjectKeys: [],
       pullRequestMergeMethod: "merge",
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
@@ -323,7 +328,7 @@ describe("uiStateStore persistence", () => {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
-      sidebarProjectScopeKey: null,
+      sidebarHiddenProjectKeys: [],
       threadChangedFilesExpansionVersion: 2,
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
@@ -338,16 +343,24 @@ describe("uiStateStore persistence", () => {
     });
   });
 
-  it("restores the sidebar project scope across reloads", () => {
-    persistState(makeUiState({ sidebarProjectScopeKey: "github.com/pingdotgg/t3code" }));
-
+  it("restores multiple hidden projects across reloads", () => {
+    persistState(makeUiState({ sidebarHiddenProjectKeys: ["env:a", "other:b"] }));
     const persisted = JSON.parse(
       localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
     ) as PersistedUiState;
+    expect(parsePersistedState(persisted).sidebarHiddenProjectKeys).toEqual(["env:a", "other:b"]);
+  });
 
-    expect(parsePersistedState(persisted).sidebarProjectScopeKey).toBe(
-      "github.com/pingdotgg/t3code",
-    );
+  it("ignores the old single-project selection when migrating", () => {
+    expect(
+      parsePersistedState({ sidebarProjectScopeKey: "old-project" } as PersistedUiState)
+        .sidebarHiddenProjectKeys,
+    ).toEqual([]);
+    expect(
+      parsePersistedState({
+        sidebarHiddenProjectKeys: ["env:a", "env:a", null, 7],
+      } as unknown as PersistedUiState).sidebarHiddenProjectKeys,
+    ).toEqual(["env:a"]);
   });
 
   it("drops the temporary expanded-only migration fallback when rewriting state", () => {
