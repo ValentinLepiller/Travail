@@ -186,6 +186,10 @@ it.each(["local-exec", "remote-links"] as const)(
     state.remote =
       mode === "local-exec" ? { mode } : { mode, host: { kind: "ssh-alias", host: "test-host" } };
     await renderPicker(["cursor", "vscode"], true);
+    expect(renderer!.root.findByProps({ "aria-label": "Open in VS Code" })).toBeDefined();
+    await act(async () => {
+      renderer!.root.findByProps({ children: "Cursor" }).parent!.props.onClick();
+    });
     expect(renderer!.root.findByProps({ "aria-label": "Open in Cursor" })).toBeDefined();
     await act(async () => {
       renderer!.root.findByProps({ children: "VS Code" }).parent!.props.onClick();

@@ -1,0 +1,13 @@
+{
+  "enabled": false,
+  "workspaceId": "TWORKSPACE",
+  "excludeChannelNames": ["le-fond", "general"],
+  "excludeAuthorIds": [],
+  "excludeText": [],
+  "collector": {
+    "executable": "/absolute/path/to/node",
+    "args": ["/absolute/path/to/harness/apps/server/scripts/collect-slack-tasks.ts"],
+    "cwd": "/absolute/path/to/harness",
+    "codexHome": "/absolute/path/to/harness/.t3/harness/codex"
+  }
+}

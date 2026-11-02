@@ -2304,6 +2304,17 @@ function OpenCommandPaletteDialog(props: {
 
   actionItems.push({
     kind: "action",
+    value: "action:requests",
+    searchTerms: ["requests", "requêtes", "inbox", "approbation"],
+    title: "Ouvrir les requêtes",
+    icon: <ListTodoIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/requests" });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
     value: "action:tasks",
     searchTerms: ["tasks", "tâches", "todo", "liste", "agent"],
     title: "Ouvrir les tâches",

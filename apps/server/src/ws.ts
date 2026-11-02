@@ -1,5 +1,9 @@
+import * as Autonomous from "./autonomousAgents/AutonomousAgentService.ts";
+import * as Requests from "./agentRequests/AgentRequestService.ts";
+import * as TaskAgents from "./workTasks/WorkTaskAgentService.ts";
+import * as SlackCollector from "./workTasks/SlackTaskCollector.ts";
 import * as WorkTasks from "./workTasks/WorkTaskService.ts";
-import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
+import { WorkTaskError, OrchestrationDispatchCommandError } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Orchestrator from "./orchestration-v2/Orchestrator.ts";
 
@@ -1271,7 +1275,11 @@ const layerWsRpc = (
     const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
     const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
     const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
+    const agentRequests = yield* Requests.AgentRequestService;
+    const autonomous = yield* Autonomous.AutonomousAgentService;
+    const taskAgents = yield* TaskAgents.WorkTaskAgentService;
     const workTasks = yield* WorkTasks.WorkTaskService;
+    const slackCollector = yield* SlackCollector.SlackTaskCollector;
     const secretRequests = yield* SecretRequests.SecretRequests;
     const pullRequests = yield* PullRequestService.PullRequestService;
     const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
@@ -2121,7 +2129,29 @@ const layerWsRpc = (
             Effect.andThen(subscribeOrchestrationV2Thread(input)),
           ),
         ),
+      [WS_METHODS.agentRequestsSubscribe]: () => agentRequests.subscribe(),
+      [WS_METHODS.agentRequestsRespond]: (input) => agentRequests.respond(input),
+      [WS_METHODS.agentRequestsRetryDelivery]: (input) => agentRequests.retryDelivery(input),
+      [WS_METHODS.autonomousAgentsSubscribe]: () => autonomous.subscribe(),
+      [WS_METHODS.autonomousAgentsCommand]: (input) => autonomous.command(input),
+      [WS_METHODS.autonomousAgentsRead]: (input) => autonomous.subscribeDetail(input),
+      [WS_METHODS.slackTaskFilters]: () =>
+        slackCollector.status().pipe(
+          Effect.map(({ configured, excludeChannelNames }) => ({
+            configured,
+            excludeChannelNames,
+          })),
+          Effect.mapError(() => new WorkTaskError({ reason: "storage" })),
+        ),
+      [WS_METHODS.workChantiersSubscribe]: () => workTasks.subscribeChantiers(),
+      [WS_METHODS.workChantiersSave]: (input) => workTasks.saveChantier(input),
+      [WS_METHODS.workChantiersPlan]: (input) => workTasks.applyPlan(input),
+      [WS_METHODS.workChantiersLaunch]: (input) => taskAgents.launchChantier(input),
+      [WS_METHODS.workTasksTypes]: () => workTasks.subscribeTypes(),
+      [WS_METHODS.workTasksSaveTypes]: (input) => workTasks.saveTypes(input),
+      [WS_METHODS.workTasksLaunch]: (input) => taskAgents.launch(input),
       [WS_METHODS.workTasksSubscribe]: () => workTasks.subscribe(),
+      [WS_METHODS.workTasksMessages]: (input) => workTasks.subscribeMessages(input.id),
       [WS_METHODS.workTasksSave]: (input) => workTasks.save(input),
       [WS_METHODS.workTasksDelete]: (input) => workTasks.delete(input),
       [WS_METHODS.scheduledTasksList]: (_input) =>

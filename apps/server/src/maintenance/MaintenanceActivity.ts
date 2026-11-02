@@ -73,14 +73,20 @@ const make = Effect.gen(function* () {
     }
     // Count all persisted work before allowing a stop. Terminal whitelists keep
     // unknown future statuses busy; absent tables or invalid counts fail closed.
+    // Historical plans cannot execute work after their turn has ended.
     const rows = yield* sql`
       SELECT SUM(n) AS activeWork FROM (
         SELECT COUNT(*) AS n FROM orchestration_v2_projection_runs
           WHERE status NOT IN ('completed', 'interrupted', 'failed', 'cancelled', 'rolled_back')
         UNION ALL SELECT COUNT(*) FROM orchestration_v2_projection_run_attempts
           WHERE status NOT IN ('completed', 'interrupted', 'failed', 'cancelled', 'superseded')
-        UNION ALL SELECT COUNT(*) FROM orchestration_v2_projection_nodes
+        UNION ALL SELECT COUNT(*) FROM orchestration_v2_projection_nodes AS node
           WHERE status NOT IN ('idle', 'completed', 'interrupted', 'failed', 'cancelled', 'rolled_back')
+          AND NOT EXISTS (
+            SELECT 1 FROM orchestration_v2_projection_runs AS run
+            WHERE run.run_id = node.run_id AND node.kind = 'todo_list'
+              AND run.status IN ('completed', 'interrupted', 'failed', 'cancelled', 'rolled_back')
+          )
         UNION ALL SELECT COUNT(*) FROM orchestration_v2_projection_provider_turns
           WHERE status NOT IN ('completed', 'interrupted', 'failed', 'cancelled')
         UNION ALL SELECT COUNT(*) FROM orchestration_v2_projection_runtime_requests

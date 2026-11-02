@@ -1,3 +1,5 @@
+import { afterEach, vi } from "vite-plus/test";
+
 import * as NodePath from "@effect/platform-node/NodePath";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
@@ -28,6 +30,7 @@ const layerEnvironment = DesktopEnvironment.layer({
 );
 
 describe("DesktopAssets", () => {
+  afterEach(() => vi.unstubAllEnvs());
   it.effect("uses canonical source-tree icons for unpackaged development", () =>
     Effect.gen(function* () {
       const layerDevelopmentEnvironment = DesktopEnvironment.layer({
@@ -65,6 +68,42 @@ describe("DesktopAssets", () => {
       assert.match(Option.getOrThrow(icons.ico), /assets\/dev\/blueprint-windows\.ico$/);
       assert.match(Option.getOrThrow(icons.png), /assets\/dev\/blueprint-universal-1024\.png$/);
       assert.isTrue(Option.isNone(icons.icns));
+    }),
+  );
+
+  it.effect("uses Travail artwork for window icons instead of the upstream icon", () =>
+    Effect.gen(function* () {
+      vi.stubEnv("T3CODE_DESKTOP_DISTRO", "travail");
+      const environment = DesktopEnvironment.layer({
+        dirname: "/repo/apps/desktop/dist-electron",
+        homeDirectory: "/Users/alice",
+        platform: "linux",
+        processArch: "x64",
+        appVersion: "1.2.3",
+        appPath: "/repo/apps/desktop",
+        isPackaged: false,
+        resourcesPath: "/repo/apps/desktop/resources",
+        runningUnderArm64Translation: false,
+      }).pipe(
+        Layer.provide(
+          Layer.mergeAll(NodeServices.layer, NodePath.layerPosix, DesktopConfig.layerTest({})),
+        ),
+      );
+      const assets = yield* DesktopAssets.DesktopAssets.pipe(
+        Effect.provide(
+          DesktopAssets.layer.pipe(
+            Layer.provide(
+              Layer.merge(
+                FileSystem.layerNoop({ exists: () => Effect.succeed(true) }),
+                environment,
+              ),
+            ),
+          ),
+        ),
+      );
+      const icons = yield* assets.iconPaths;
+      assert.equal(Option.getOrThrow(icons.png), "/repo/assets/travail/icon.png");
+      assert.equal(Option.getOrThrow(icons.ico), "/repo/assets/travail/icon.ico");
     }),
   );
 

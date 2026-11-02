@@ -18,7 +18,7 @@ const desktop = NodePath.join(root, "apps/desktop");
 const home = NodePath.join(root, ".t3/travail-desktop");
 const state = NodePath.join(home, "userdata");
 const client = NodePath.join(home, "client");
-const icon = NodePath.join(root, "assets/munim/munim-universal-1024.png");
+const icon = NodePath.join(root, "assets/travail/icon.png");
 const mode = process.argv[2] ?? "start";
 
 function build(program: string, args: string[], cwd: string) {

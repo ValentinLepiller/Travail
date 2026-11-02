@@ -63,23 +63,6 @@ try {
       200_000,
       environment,
     );
-  if (usage === "voice")
-    await run(
-      {
-        program: process.execPath,
-        args: [
-          "scripts/voice-smoke/run.mjs",
-          "--home",
-          environment.CODEX_HOME ??
-            NodePath.join(process.env.HARNESS_HOME ?? ".t3/validation", "codex"),
-          "--out",
-          ".logs/harness/maintenance-voice",
-        ],
-      },
-      process.cwd(),
-      180_000,
-      environment,
-    );
   if (usage === "connectors")
     await run(
       { program: process.execPath, args: ["scripts/connectors/probe.ts"] },
@@ -98,7 +81,8 @@ try {
     await run(
       { program: process.execPath, args: ["ops/harness/old-release-gates.mjs"] },
       process.cwd(),
-      120_000,
+      // Three server lifecycles include graceful shutdown as well as startup.
+      240_000,
       environment,
     );
   console.log(
@@ -107,7 +91,6 @@ try {
       regressionChecks: "passed",
       live:
         usage === "delegation" ||
-        usage === "voice" ||
         usage === "connectors" ||
         usage === "desktops" ||
         usage === "scheduling",

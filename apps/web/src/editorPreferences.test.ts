@@ -2,6 +2,7 @@ import {
   AuthOrchestrationOperateScope,
   EnvironmentAuthorizationError,
   EnvironmentId,
+  type EditorId,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
@@ -86,3 +87,26 @@ it("returns the existing failures for a missing environment or editor", async ()
   expect((await useOpenInPreferredEditor(secondary, [])("/work"))._tag).toBe("Failure");
   expect(state.run).not.toHaveBeenCalled();
 });
+
+it.each([
+  { available: ["cursor", "vscode"], stored: null, expected: "vscode" },
+  { available: ["cursor", "vscode"], stored: "zed", expected: "vscode" },
+  { available: ["cursor"], stored: null, expected: "cursor" },
+] satisfies { available: EditorId[]; stored: EditorId | null; expected: EditorId }[])(
+  "opens with $expected when the saved editor is $stored and available editors are $available",
+  async ({ available, stored, expected }) => {
+    state.allowed.add(secondary);
+    state.getPreference.mockReturnValue(stored);
+    const open = useOpenInPreferredEditor(secondary, available);
+    expect(await open("/work")).toMatchObject({ _tag: "Success", value: expected });
+    expect(state.run).toHaveBeenCalledExactlyOnceWith({
+      environmentId: secondary,
+      input: { cwd: "/work", editor: expected },
+    });
+    expect(state.setPreference).toHaveBeenCalledExactlyOnceWith(
+      "t3code:last-editor",
+      expected,
+      expect.anything(),
+    );
+  },
+);

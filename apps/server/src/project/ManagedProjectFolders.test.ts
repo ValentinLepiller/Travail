@@ -1,3 +1,4 @@
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
@@ -133,20 +134,27 @@ it.effect("offers a Scratch folder under the data dir when it is outside a check
   ),
 );
 
-it.effect("offers nothing when the data dir sits inside a Git checkout", () =>
+it.effect("uses a neutral home outside Git when the data dir sits inside a checkout", () =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const checkout = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-scratch-repo-" });
     yield* git(checkout, ["init", "--quiet"]);
+    const neutralHome = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-neutral-home-" });
     const baseDir = path.join(checkout, ".t3");
     yield* fileSystem.makeDirectory(baseDir);
     yield* Effect.gen(function* () {
       const scratch = yield* ManagedProjectFolders.ManagedProjectFolders;
-      assert.isTrue(Option.isNone(yield* scratch.scratchRoot));
-      const failure = yield* Effect.flip(scratch.ensureScratchProject);
-      assert.equal(failure._tag, "ScratchUnavailableError");
-    }).pipe(Effect.provide(layer(baseDir)));
+      const root = Option.getOrThrow(yield* scratch.scratchRoot);
+      assert.isTrue(root.startsWith(path.join(neutralHome, ".t3", "scratch")));
+      const created = yield* scratch.ensureScratchProject;
+      const again = yield* scratch.ensureScratchProject;
+      assert.equal(created.projectId, again.projectId);
+      assert.isFalse(yield* (yield* GitWorkflow.GitWorkflowService).isRepository(root));
+    }).pipe(
+      Effect.provide(layer(baseDir)),
+      Effect.provideService(HostProcess.HomeDirectory, neutralHome),
+    );
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 

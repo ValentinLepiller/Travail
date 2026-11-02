@@ -50,7 +50,7 @@ async function fixture() {
     port: 3773,
     timezone: "Europe/Paris",
     environmentId: "fixture",
-    nativeCodex: "unused",
+    nativeCodex: NodePath.join(root, "native-codex.mjs"),
     path: process.env.PATH ?? "",
     prepareUpdates: false,
     adaptWithAgent: false,
@@ -67,6 +67,10 @@ async function fixture() {
     NodePath.join(root, "codex/auth.json"),
     JSON.stringify({ auth_mode: "chatgpt", tokens: { access_token: "fixture" } }),
   );
+  await NodeFSP.writeFile(config.nativeCodex, 'console.log("codex-cli 0.165.0")');
+  const installed = NodePath.join(root, "installed");
+  await NodeFSP.mkdir(installed);
+  await NodeFSP.symlink(installed, NodePath.join(root, "current"));
   return { root, config };
 }
 it("requires all configured usage checks to pass in an isolated state", async () => {
@@ -107,10 +111,22 @@ it("exercises the candidate Codex rather than the current release wrapper", asyn
   await NodeFSP.writeFile(NodePath.join(provider, "package-lock.json"), "{}");
   await NodeFSP.writeFile(
     NodePath.join(code, "codex.js"),
-    "#!/usr/bin/env node\nprocess.exit(0)\n",
+    '#!/usr/bin/env node\nconsole.log("codex-cli 0.165.0")\n',
     { mode: 0o700 },
   );
   await NodeFSP.symlink("../@openai/codex/bin/codex.js", NodePath.join(bin, "codex"));
   f.config.checks.agents = [{ program: "codex", args: ["--version"] }];
   expect((await validate(f.config, f.root)).usages.agents).toBe(true);
+});
+
+it("rejects a stale dedicated Codex runtime before launching the usage checks", async () => {
+  const f = await fixture();
+  const provider = NodePath.join(f.root, ".harness-provider/node_modules/@openai/codex/bin");
+  await NodeFSP.mkdir(provider, { recursive: true });
+  await NodeFSP.writeFile(NodePath.join(provider, "codex.js"), 'console.log("codex-cli 0.159.3")');
+  f.config.checks.agents = [{ program: process.execPath, args: ["--eval", "process.exit(99)"] }];
+  await expect(validate(f.config, f.root)).rejects.toThrow(
+    "Candidate Codex 0.159.3 is older than installed 0.165.0",
+  );
+  await expect(NodeFSP.access(NodePath.join(f.root, ".t3/validation.json"))).rejects.toThrow();
 });

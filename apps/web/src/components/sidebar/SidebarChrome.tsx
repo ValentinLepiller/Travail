@@ -1,4 +1,4 @@
-import { ArrowLeftIcon, ChartNoAxesColumnIcon, SettingsIcon, ListTodoIcon } from "lucide-react";
+import { ArrowLeftIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
@@ -42,9 +42,13 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   // The hook, not the stage-label resolver: this is the header that actually
   // draws the artwork, and reading the build channel here meant a chosen scene
   // never appeared on a release build.
-  const backdropVariant = useSidebarStageBackdropVariant(
+  const selectedBackdropVariant = useSidebarStageBackdropVariant(
     environmentIdentificationMode === "artwork",
   );
+  const backdropVariant =
+    APP_BASE_NAME === "Travail"
+      ? ({ kind: "custom", image: "/travail-backdrop.svg", name: "Travail" } as const)
+      : selectedBackdropVariant;
   const pillLabel =
     environmentIdentificationMode === "pill"
       ? resolveEnvironmentIdentificationPillLabel(stageLabel)
@@ -265,19 +269,6 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
             label="Settings"
             onClick={handleSettingsClick}
           />
-          {isMobile && (
-            <SidebarMenuItem className="min-w-0 flex-1">
-              <SidebarMenuButton
-                onClick={() => {
-                  closeMobileSidebar();
-                  void navigate({ to: "/tasks" });
-                }}
-              >
-                <ListTodoIcon />
-                <span>Tâches</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          )}
           {pullRequestsSupported ? (
             <SidebarUtilityItem
               icon={<PullRequestGlyph.pullRequest />}

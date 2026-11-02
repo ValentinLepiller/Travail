@@ -154,7 +154,8 @@ export function canSnooze(
 
 /**
  * Snoozed resolution: hidden from the inbox while the wake time is in the
- * future and the thread has not raised its hand. Timer wakes are derived —
+ * future, or indefinitely when only snoozedAt is set, and the thread has not
+ * raised its hand. Timer wakes are derived —
  * no server event fires when snoozedUntil passes; the stale fields simply
  * stop classifying as snoozed (and feed the woke indicator until the user
  * visits or re-engages).
@@ -163,7 +164,8 @@ export function effectiveSnoozed(
   shell: ThreadSnoozeShell,
   options: { readonly now: string },
 ): boolean {
-  if (shell.snoozedUntil == null) return false;
+  if (shell.snoozedUntil == null)
+    return shell.snoozedAt != null && !threadRaisedHandWhileSnoozed(shell);
   const wakeAtMs = Date.parse(shell.snoozedUntil);
   // Malformed data never hides a thread.
   if (Number.isNaN(wakeAtMs)) return false;

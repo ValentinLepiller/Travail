@@ -85,44 +85,35 @@ export function SidebarProjectVisibility({
   );
 }
 
-export function SidebarProjects({
-  projects,
+export function SidebarProjectHeader({
+  project,
   onNewThread,
   onSettings,
 }: {
-  projects: readonly SidebarProjectSnapshot[];
+  project: SidebarProjectSnapshot;
   onNewThread: (project: SidebarProjectSnapshot) => void;
   onSettings: (project: SidebarProjectSnapshot) => void;
 }) {
-  if (projects.length === 0) return null;
   return (
-    <nav aria-label="Projects" className="mb-3 flex flex-col gap-px">
-      <h2 className="px-2 py-1 text-xs font-medium text-sidebar-muted-foreground">Projects</h2>
-      {projects.map((project) => (
-        <div
-          key={project.projectKey}
-          className="group flex items-center gap-1 rounded-md hover:bg-sidebar-row-hover"
-        >
-          <button
-            type="button"
-            aria-label={`New thread in ${project.displayName}`}
-            onClick={() => onNewThread(project)}
-            className="flex h-8 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-2 text-left text-sm text-sidebar-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:-outline-offset-2"
-          >
-            <ProjectFavicon project={project} className="size-4 shrink-0" />
-            <span className="min-w-0 flex-1 truncate">{project.displayName}</span>
-            <PlusIcon className="size-3.5 shrink-0 text-sidebar-muted-foreground" />
-          </button>
-          <Button
-            variant="ghost-muted"
-            size="icon-xs"
-            aria-label={`Project settings for ${project.displayName}`}
-            onClick={() => onSettings(project)}
-          >
-            <SettingsIcon className="size-3.5" />
-          </Button>
-        </div>
-      ))}
-    </nav>
+    <div className="group flex items-center gap-1 rounded-md hover:bg-sidebar-row-hover">
+      <button
+        type="button"
+        aria-label={`New thread in ${project.displayName}`}
+        onClick={() => onNewThread(project)}
+        className="flex h-8 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-2 text-left text-sm text-sidebar-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:-outline-offset-2"
+      >
+        <ProjectFavicon project={project} className="size-4 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">{project.displayName}</span>
+        <PlusIcon className="size-3.5 shrink-0 text-sidebar-muted-foreground" />
+      </button>
+      <Button
+        variant="ghost-muted"
+        size="icon-xs"
+        aria-label={`Project settings for ${project.displayName}`}
+        onClick={() => onSettings(project)}
+      >
+        <SettingsIcon className="size-3.5" />
+      </Button>
+    </div>
   );
 }

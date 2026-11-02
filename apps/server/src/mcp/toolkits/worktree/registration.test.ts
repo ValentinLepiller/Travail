@@ -1,3 +1,7 @@
+import * as Autonomous from "../../../autonomousAgents/AutonomousAgentService.ts";
+import * as WorkTasks from "../../../workTasks/WorkTaskService.ts";
+import * as Requests from "../../../agentRequests/AgentRequestService.ts";
+import * as SlackTasks from "../../../workTasks/SlackTaskCollector.ts";
 import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../../../orchestration-v2/ProjectionStore.ts";
 import * as DeviceService from "../../../device/DeviceService.ts";
@@ -48,6 +52,8 @@ const layerStubServices = Layer.mergeAll(
   Layer.mock(ProviderRegistry.ProviderRegistry)({}),
   Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({}),
   Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+  Layer.mock(Autonomous.AutonomousAgentService)({}),
+  Layer.mock(WorkTasks.WorkTaskService)({}),
   Layer.mock(SecretRequests.SecretRequests)({}),
   Layer.mock(ProjectService.ProjectService)({}),
   Layer.mock(PullRequestReviewGuideService.PullRequestReviewGuideService)({}),
@@ -91,7 +97,11 @@ const decodeToolsListPayload = Schema.decodeUnknownEffect(ToolsListPayload);
 it.effect("production mcp layer lists worktree tools over http", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const layerRoutes = McpHttpServer.layer.pipe(Layer.provide(McpSessionRegistry.layer));
+      const layerRoutes = McpHttpServer.layer.pipe(
+        Layer.provide(Layer.mock(Requests.AgentRequestService)({})),
+        Layer.provide(Layer.mock(SlackTasks.SlackTaskCollector)({})),
+        Layer.provide(McpSessionRegistry.layer),
+      );
       yield* HttpRouter.serve(layerRoutes, {
         disableListenLog: true,
         disableLogger: true,

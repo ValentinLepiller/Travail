@@ -331,6 +331,22 @@ async function grant(id: EnvironmentId, result: SessionResult) {
 }
 
 describe("project settings permissions", () => {
+  it("updates emoji project colors across checkouts while preserving the emoji", async () => {
+    state.projects = state.projects.map((project) => ({
+      ...project,
+      projectIcon: { kind: "emoji", emoji: "☢️" },
+    }));
+    const root = await mountPanel();
+    await act(async () => {
+      root.findByProps({ "aria-label": "Amber" }).props.onClick();
+    });
+    expect(state.update).toHaveBeenCalledTimes(2);
+    expect(state.projects.map((project) => project.projectIcon)).toEqual([
+      { kind: "emoji", emoji: "☢️", color: "amber" },
+      { kind: "emoji", emoji: "☢️", color: "amber" },
+    ]);
+  });
+
   it("preflights every member before any shared field update", async () => {
     await grant(remoteId, AsyncResult.success(session([AuthSettingsWriteScope])));
     const root = await mountPanel();

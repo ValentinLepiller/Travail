@@ -475,9 +475,7 @@
         object-fit: contain;
       }
 
-      /* Brands that ship a wordmark (see resolveWebIconOverrides) swap it in for
-         the app icon. The image is black-on-transparent; invert it in dark mode
-         so the same asset reads on both boot backgrounds, like the Motes splash. */
+      /* Use the supplied Travail artwork on both appearance backgrounds. */
       #boot-shell-wordmark {
         display: none;
         width: min(13.75rem, 22vw);
@@ -496,10 +494,6 @@
       html.boot-has-wordmark #boot-shell-card {
         width: auto;
         height: auto;
-      }
-
-      html.dark.boot-has-wordmark #boot-shell-wordmark {
-        filter: invert(1);
       }
 
       #boot-error {

@@ -1,3 +1,5 @@
+import * as WorkTaskSettlementWorker from "./workTasks/WorkTaskSettlementWorker.ts";
+import * as WorkTasks from "./workTasks/WorkTaskService.ts";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import type { RelayManagedEndpointRuntimeConfig } from "@t3tools/contracts/relay";
 import * as Clock from "effect/Clock";
@@ -593,6 +595,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   // Asks T3 Connect to deliver webhooks it held while this environment was offline.
   HeldHooksWaker.layer,
   layerThreadSettlementWorker,
+  WorkTaskSettlementWorker.layer.pipe(Layer.provide(WorkTasks.layer)),
   StorageCleanup.layer.pipe(Layer.provide(ProjectionStoreV2.layer)),
   layerThreadPullRequestWorker,
   // Fork: self-hosted push notifications for settled/attention threads.

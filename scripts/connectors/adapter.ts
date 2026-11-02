@@ -11,6 +11,7 @@ const operations = {
   "gmail.send": "gmail.send_email",
   "slack.workspaces": "slack.slack_list_workspaces",
   "slack.search": "slack.slack_search_public",
+  "slack.searchAll": "slack.slack_search_public_and_private",
   "slack.channels": "slack.slack_list_user_channels",
   "slack.readChannel": "slack.slack_read_channel",
   "slack.read": "slack.slack_read_thread",
@@ -88,12 +89,14 @@ export function prepareCall(request: unknown, allowWrite = false) {
   }
   if (
     operation === "slack.search" ||
+    operation === "slack.searchAll" ||
     operation === "slack.read" ||
     operation === "slack.readChannel"
   ) {
     args.limit = boundedLimit(args.limit);
     args.response_format ??= "concise";
-    if (operation === "slack.search") args.include_context ??= false;
+    if (operation === "slack.search" || operation === "slack.searchAll")
+      args.include_context ??= false;
   }
   if (
     (operation === "gmail.createDraft" ||

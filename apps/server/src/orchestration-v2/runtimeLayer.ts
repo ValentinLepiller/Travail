@@ -1,4 +1,12 @@
+import * as GmailTasks from "../workTasks/GmailTaskCollector.ts";
+import * as GmailSource from "../workTasks/GmailTaskSource.ts";
+import * as Autonomous from "../autonomousAgents/AutonomousAgentService.ts";
+import * as Requests from "../agentRequests/AgentRequestService.ts";
+import * as RequestEffects from "../agentRequests/RequestEffects.ts";
+import * as TaskAgents from "../workTasks/WorkTaskAgentService.ts";
 import * as WorkTasks from "../workTasks/WorkTaskService.ts";
+import * as SlackTasks from "../workTasks/SlackTaskCollector.ts";
+import * as SlackSource from "../workTasks/SlackTaskSource.ts";
 import * as UsageLimitRecoveryWorker from "./UsageLimitRecoveryWorker.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as Layer from "effect/Layer";
@@ -349,6 +357,35 @@ export const layer = Layer.mergeAll(
   layerLegacyV1ThreadImporterProvided,
 );
 
+const layerAutonomousProvided = Autonomous.layer.pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      layerThreadLaunchProvided,
+      layerThreadManagementProvided,
+      layerManagedProjectFoldersProvided,
+      WorkTasks.layer,
+    ),
+  ),
+);
+
+const layerRequestsProvided = Requests.layer.pipe(
+  Layer.provide(
+    RequestEffects.layer.pipe(
+      Layer.provide(Layer.mergeAll(layerThreadManagementProvided, layerAutonomousProvided)),
+    ),
+  ),
+);
+
+const layerGmailTasksProvided = GmailTasks.layer.pipe(
+  Layer.provide(WorkTasks.layer),
+  Layer.provide(GmailSource.layer),
+);
+
+const layerSlackTasksProvided = SlackTasks.layer.pipe(
+  Layer.provide(WorkTasks.layer),
+  Layer.provide(SlackSource.layer),
+);
+
 export const layerProduction = Layer.mergeAll(
   layer.pipe(Layer.provide(layerProjectService)),
   layerProjectService,
@@ -356,7 +393,16 @@ export const layerProduction = Layer.mergeAll(
   layerThreadLaunchProvided,
   layerThreadLifecycleProvided,
   layerScheduledTaskProvided,
+  layerAutonomousProvided,
+  Autonomous.workerLayer.pipe(Layer.provide(layerAutonomousProvided)),
+  TaskAgents.layer.pipe(Layer.provide(Layer.mergeAll(layerThreadLaunchProvided, WorkTasks.layer))),
   WorkTasks.layer,
+  layerGmailTasksProvided,
+  GmailTasks.workerLayer.pipe(Layer.provide(layerGmailTasksProvided)),
+  layerSlackTasksProvided,
+  SlackTasks.workerLayer.pipe(Layer.provide(layerSlackTasksProvided)),
+  layerRequestsProvided,
+  Requests.workerLayer.pipe(Layer.provide(layerRequestsProvided)),
   layerSecretRequestsProvided,
   UsageLimitRecoveryWorker.layer.pipe(
     Layer.provide(Layer.mergeAll(ProjectionStore.layer, layerThreadManagementProvided)),

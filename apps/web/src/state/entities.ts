@@ -92,10 +92,12 @@ export function useServerConfigs(): ReadonlyMap<EnvironmentId, ServerConfig> {
 
 /** Every thread shell. Pass `enabled: false` to read a stable empty list and
     skip re-rendering on each shell update while the caller does not need them. */
+const conversationThreadShellsAtom = Atom.map(environmentThreadShells.threadShellsAtom, (threads) =>
+  threads.filter((thread) => !thread.id.startsWith("autonomous:")),
+);
+
 export function useThreadShells(enabled = true): ReadonlyArray<EnvironmentThreadShell> {
-  return useAtomValue(
-    enabled ? environmentThreadShells.threadShellsAtom : EMPTY_THREAD_SHELLS_ATOM,
-  );
+  return useAtomValue(enabled ? conversationThreadShellsAtom : EMPTY_THREAD_SHELLS_ATOM);
 }
 
 export function useAllEnvironmentShellsBootstrapped(): boolean {
@@ -117,7 +119,9 @@ export function useAllEnvironmentProjectSnapshotsReady(): boolean {
 export function useThreadShellsForProjectRefs(
   refs: ReadonlyArray<ScopedProjectRef>,
 ): ReadonlyArray<EnvironmentThreadShell> {
-  return useAtomValue(environmentThreadShells.threadShellsForProjectRefsAtom(refs));
+  return useAtomValue(environmentThreadShells.threadShellsForProjectRefsAtom(refs)).filter(
+    (thread) => !thread.id.startsWith("autonomous:"),
+  );
 }
 
 export function useProject(ref: ScopedProjectRef | null): EnvironmentProject | null {

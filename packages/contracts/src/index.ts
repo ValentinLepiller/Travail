@@ -83,3 +83,8 @@ export * from "./agentDesktops.ts";
 export * from "./maintenance.ts";
 
 export * from "./workTask.ts";
+export * from "./agentRequest.ts";
+
+export * from "./autonomousAgent.ts";
+
+export * from "./workChantier.ts";

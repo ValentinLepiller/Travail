@@ -50,7 +50,47 @@ export async function hasUpdate(
   return installed === null || installed.mt !== updates.mt || installed.codex !== updates.codex;
 }
 
+async function assertNoProviderDowngrade(config: RuntimeConfig, candidate: string) {
+  const binaryFor = async (release: string) => {
+    const binary = NodePath.join(
+      release,
+      ".harness-provider/node_modules/@openai/codex/bin/codex.js",
+    );
+    return NodeFSP.realpath(binary).catch((error: unknown) => {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+      return config.nativeCodex;
+    });
+  };
+  const current = await currentRelease(config.operations);
+  const [installedBinary, candidateBinary] = await Promise.all([
+    binaryFor(current),
+    binaryFor(candidate),
+  ]);
+  if (installedBinary === candidateBinary) return;
+  const version = async (binary: string) => {
+    const output = await run(
+      { program: process.execPath, args: [binary, "--version"] },
+      candidate,
+      config.commandTimeoutMs,
+    );
+    const match = /^codex-cli (\d+)\.(\d+)\.(\d+)(?:[-+][\w.-]+)?$/.exec(output);
+    if (!match) throw new Error("Cannot verify the Codex runtime version");
+    return match.slice(1).map(Number);
+  };
+  const [installed, proposed] = await Promise.all([
+    version(installedBinary),
+    version(candidateBinary),
+  ]);
+  const difference = proposed.findIndex((part, index) => part !== installed[index]);
+  if (difference >= 0 && proposed[difference]! < installed[difference]!) {
+    throw new Error(
+      `Candidate Codex ${proposed.join(".")} is older than installed ${installed.join(".")}; align the candidate runtime before validating. Use rollback for an explicit recovery.`,
+    );
+  }
+}
+
 export async function validate(config: RuntimeConfig, candidate: string) {
+  await assertNoProviderDowngrade(config, candidate);
   const usages = Object.fromEntries(requiredUsages.map((usage) => [usage, false])) as Record<
     Usage,
     boolean

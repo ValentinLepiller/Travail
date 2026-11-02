@@ -1,3 +1,5 @@
+import { ProjectColorPicker } from "./ProjectColorPicker";
+import { deriveProjectIdentity } from "../../projectIdentity";
 import { ProjectTransferDialog } from "./ProjectTransferDialog";
 import { useComposerMenuState } from "../chat/useComposerMenuState";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
@@ -541,6 +543,20 @@ function ProjectDetail({
               </div>
             }
           />
+          {projectIcon?.kind === "emoji" ? (
+            <SettingsRow
+              title="Project color"
+              control={
+                <ProjectColorPicker
+                  value={projectIcon.color ?? deriveProjectIdentity(representative.title).color}
+                  disabled={isSavingFavicon || !canEditGroup}
+                  onChange={(color) =>
+                    void setProjectIcon({ faviconPath, projectIcon: { ...projectIcon, color } })
+                  }
+                />
+              }
+            />
+          ) : null}
         </SettingsSection>
         <ProjectDefaultsSettings category="project" />
         <ProjectActionsSettings />

@@ -22,6 +22,30 @@ it("preserves explicit search limits and defaults Gmail reading to metadata", ()
   });
 });
 
+it("allows read-only search across private channels and DMs without changing its bounds", () => {
+  const call = prepareCall({
+    operation: "slack.searchAll",
+    arguments: {
+      filters: "-from:me",
+      after: "1793278000.000000",
+      before: "1793278060.000000",
+      response_format: "detailed",
+      sort: "timestamp",
+      sort_dir: "asc",
+      cursor: "next",
+      limit: 20,
+    },
+  });
+  expect(call.tool).toBe("slack.slack_search_public_and_private");
+  expect(call.arguments).toMatchObject({
+    after: "1793278000.000000",
+    before: "1793278060.000000",
+    cursor: "next",
+    include_context: false,
+    response_format: "detailed",
+  });
+});
+
 it.each([
   "gmail.createDraft",
   "gmail.updateDraft",

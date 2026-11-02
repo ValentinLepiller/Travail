@@ -778,6 +778,62 @@ describe("CodexAdapterV2 process spawning", () => {
     }).pipe(Effect.provideService(HostProcess.Platform, "linux")),
   );
 
+  it.effect.each([0, 9])("reports process exit %s through the session event stream", (code) =>
+    Effect.gen(function* () {
+      const nativeSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const spawner = ChildProcessSpawner.make(() =>
+        nativeSpawner.spawn(
+          ChildProcess.make(process.execPath, [
+            "-e",
+            `process.stdin.once('data', () => process.exit(${code}));`,
+          ]),
+        ),
+      );
+      const adapter = yield* CodexAdapterV2.createCodexAdapterV2({
+        instanceId: CodexAdapterV2.CODEX_DEFAULT_INSTANCE_ID,
+        displayName: undefined,
+        environment: [],
+        enabled: true,
+        config: DEFAULT_CODEX_SETTINGS,
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            CodexAdapterV2.layerAppServerClientFactory,
+            ServerConfig.layerTest(process.cwd(), { prefix: "t3-codex-exit-" }),
+          ),
+        ),
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        Effect.provideService(
+          ProviderEventLoggers.ProviderEventLoggers,
+          ProviderEventLoggers.NoOpProviderEventLoggers,
+        ),
+      );
+      const runtime = yield* adapter.openSession({
+        threadId: ThreadId.make("thread-process-exit"),
+        providerSessionId: ProviderSessionId.make("provider-session-process-exit"),
+        modelSelection: CODEX_TEST_MODEL_SELECTION,
+        runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
+      });
+      // The peer exits when initialization arrives, without accepting a turn.
+      yield* runtime
+        .ensureThread({
+          threadId: ThreadId.make("thread-process-exit"),
+          modelSelection: CODEX_TEST_MODEL_SELECTION,
+          runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
+        })
+        .pipe(Effect.flip);
+      const error = yield* runtime.events.pipe(Stream.runDrain, Effect.flip);
+      assert.equal(error._tag, "ProviderAdapterEventStreamError");
+      assert.instanceOf(error.cause, CodexError.CodexAppServerProcessExitedError);
+      assert.equal((error.cause as CodexError.CodexAppServerProcessExitedError).code, code);
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
+    ),
+  );
+
   it.effect("expands ~ in the configured binary path before spawning", () =>
     Effect.gen(function* () {
       const spawnedCommands: Array<string> = [];

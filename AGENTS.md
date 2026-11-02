@@ -6,7 +6,10 @@ This checkout is Valentin's MT Code derivative. Follow `SPECS.md`; preserve MT/T
 licenses and existing Codex authentication. Use `node --run harness:start` after building, or
 `node --run harness:dev`, to keep MT state in this checkout's `.t3/harness`. Keep desktop control
 disabled until agent sessions are isolated. Do not publish, push, expose a public listener, or
-update the daily installation without explicit authorization. Record delivered slices and proof
+update the daily installation without authorization. For small requested changes, Valentin authorizes
+installation directly after verification, including a restart that interrupts ongoing discussions;
+those discussions are expected to resume afterward. Do not ask for confirmation again for these
+small installations. Record delivered slices and proof
 in the concise `IMPLEMENTATION.md` requested for this project.
 
 T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs and agents (Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity) and serves web, desktop, and mobile clients.

@@ -58,7 +58,13 @@ export type EnvironmentSubscriptionRpcTag =
   | typeof WS_METHODS.subscribeBackgroundPolicy
   | typeof WS_METHODS.subscribeServerConfig
   | typeof WS_METHODS.subscribeServerLifecycle
+  | typeof WS_METHODS.agentRequestsSubscribe
+  | typeof WS_METHODS.autonomousAgentsSubscribe
+  | typeof WS_METHODS.autonomousAgentsRead
+  | typeof WS_METHODS.workChantiersSubscribe
+  | typeof WS_METHODS.workTasksTypes
   | typeof WS_METHODS.workTasksSubscribe
+  | typeof WS_METHODS.workTasksMessages
   | typeof WS_METHODS.scheduledTasksSubscribe
   | typeof WS_METHODS.serverGetStorageCleanupReport
   | typeof WS_METHODS.subscribeTerminalEvents

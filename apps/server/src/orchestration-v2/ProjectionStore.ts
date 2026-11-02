@@ -167,6 +167,7 @@ export type ProjectionLimitRecoveryCandidate = Pick<
   | "updatedAt"
   | "limitRecovery"
   | "snoozedUntil"
+  | "snoozedAt"
 >;
 
 /** The thread fields pull request sync reads, for a thread with at least one link. */
@@ -3525,7 +3526,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 AND json_extract(t.payload_json, '$.limitRecovery.autoResume') = 1
                 AND julianday(json_extract(item.payload_json, '$.failure.resetAt')) <= julianday(${DateTime.formatIso(options.now)})
                 AND (
-                  json_extract(t.payload_json, '$.snoozedUntil') IS NULL
+                  (json_extract(t.payload_json, '$.snoozedUntil') IS NULL AND json_extract(t.payload_json, '$.snoozedAt') IS NULL)
                   OR julianday(json_extract(t.payload_json, '$.snoozedUntil')) <= julianday(${DateTime.formatIso(options.now)})
                 )
               )
@@ -3569,6 +3570,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             pendingRuntimeRequest: null,
             limitRecovery: thread.limitRecovery ?? null,
             snoozedUntil: thread.snoozedUntil ?? null,
+            snoozedAt: thread.snoozedAt ?? null,
           });
         }
         return candidates;
@@ -6160,8 +6162,9 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
                 return (
                   thread.limitRecovery.autoResume &&
                   resetMs <= nowMs &&
-                  (thread.snoozedUntil == null ||
-                    DateTime.toEpochMillis(thread.snoozedUntil) <= nowMs)
+                  ((thread.snoozedUntil == null && thread.snoozedAt == null) ||
+                    (thread.snoozedUntil != null &&
+                      DateTime.toEpochMillis(thread.snoozedUntil) <= nowMs))
                 );
               })
               .toSorted((left, right) => left.id.localeCompare(right.id)),

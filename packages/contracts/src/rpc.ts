@@ -1,4 +1,28 @@
-import { WorkTask, WorkTaskError, WorkTaskSaveInput, WorkTaskDeleteInput } from "./workTask.ts";
+import { WorkChantier, WorkChantierSaveInput, WorkChantierLaunchInput } from "./workChantier.ts";
+import { WorkChantierPlanInput } from "./workTask.ts";
+import {
+  AutonomousAgent,
+  AutonomousAgentCommand,
+  AutonomousAgentDetail,
+  AutonomousAgentRead,
+  AutonomousAgentError,
+} from "./autonomousAgent.ts";
+import {
+  AgentRequest,
+  AgentRequestError,
+  AgentRequestRespond,
+  AgentRequestRetry,
+} from "./agentRequest.ts";
+import {
+  WorkTask,
+  WorkTaskError,
+  WorkTaskSaveInput,
+  WorkTaskDeleteInput,
+  WorkTaskMessagesInput,
+  WorkTaskTypesConfig,
+  WorkTaskLaunchInput,
+  SlackTaskMessage,
+} from "./workTask.ts";
 import {
   OrchestrationV2SearchThreadError,
   OrchestrationV2SearchThreadInput,
@@ -582,7 +606,22 @@ export const WS_METHODS = {
   serverRefreshUsageRates: "server.refreshUsageRates",
 
   // Scheduled tasks
+  agentRequestsSubscribe: "agentRequests.subscribe",
+  agentRequestsRespond: "agentRequests.respond",
+  agentRequestsRetryDelivery: "agentRequests.retryDelivery",
+  autonomousAgentsSubscribe: "autonomousAgents.subscribe",
+  autonomousAgentsCommand: "autonomousAgents.command",
+  autonomousAgentsRead: "autonomousAgents.read",
+  slackTaskFilters: "workTasks.slackFilters",
+  workChantiersSubscribe: "workChantiers.subscribe",
+  workChantiersSave: "workChantiers.save",
+  workChantiersPlan: "workChantiers.plan",
+  workChantiersLaunch: "workChantiers.launch",
+  workTasksTypes: "workTasks.types",
+  workTasksSaveTypes: "workTasks.saveTypes",
+  workTasksLaunch: "workTasks.launch",
   workTasksSubscribe: "workTasks.subscribe",
+  workTasksMessages: "workTasks.messages",
   workTasksSave: "workTasks.save",
   workTasksDelete: "workTasks.delete",
   scheduledTasksList: "scheduledTasks.list",
@@ -2096,6 +2135,84 @@ const WsSubscribeServerLifecycleRpc = Rpc.make(WS_METHODS.subscribeServerLifecyc
   stream: true,
 });
 
+const WsAgentRequestsSubscribeRpc = Rpc.make(WS_METHODS.agentRequestsSubscribe, {
+  payload: Schema.Struct({}),
+  success: Schema.Array(AgentRequest),
+  error: Schema.Union([AgentRequestError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+const WsAgentRequestsRespondRpc = Rpc.make(WS_METHODS.agentRequestsRespond, {
+  payload: AgentRequestRespond,
+  success: AgentRequest,
+  error: Schema.Union([AgentRequestError, EnvironmentAuthorizationError]),
+});
+const WsAgentRequestsRetryDeliveryRpc = Rpc.make(WS_METHODS.agentRequestsRetryDelivery, {
+  payload: AgentRequestRetry,
+  success: Schema.Void,
+  error: Schema.Union([AgentRequestError, EnvironmentAuthorizationError]),
+});
+const WsAutonomousAgentsSubscribeRpc = Rpc.make(WS_METHODS.autonomousAgentsSubscribe, {
+  payload: Schema.Struct({}),
+  success: Schema.Array(AutonomousAgent),
+  error: Schema.Union([AutonomousAgentError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+const WsAutonomousAgentsCommandRpc = Rpc.make(WS_METHODS.autonomousAgentsCommand, {
+  payload: AutonomousAgentCommand,
+  success: Schema.Void,
+  error: Schema.Union([AutonomousAgentError, EnvironmentAuthorizationError]),
+});
+const WsAutonomousAgentsReadRpc = Rpc.make(WS_METHODS.autonomousAgentsRead, {
+  payload: AutonomousAgentRead,
+  success: AutonomousAgentDetail,
+  error: Schema.Union([AutonomousAgentError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+const WsSlackTaskFiltersRpc = Rpc.make(WS_METHODS.slackTaskFilters, {
+  payload: Schema.Struct({}),
+  success: Schema.Struct({
+    configured: Schema.Boolean,
+    excludeChannelNames: Schema.Array(Schema.String),
+  }),
+  error: Schema.Union([WorkTaskError, EnvironmentAuthorizationError]),
+});
+const WsWorkChantiersSubscribeRpc = Rpc.make(WS_METHODS.workChantiersSubscribe, {
+  payload: Schema.Struct({}),
+  success: Schema.Array(WorkChantier),
+  error: Schema.Union([WorkTaskError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+const WsWorkChantiersSaveRpc = Rpc.make(WS_METHODS.workChantiersSave, {
+  payload: WorkChantierSaveInput,
+  success: WorkChantier,
+  error: Schema.Union([WorkTaskError, EnvironmentAuthorizationError]),
+});
+const WsWorkChantiersPlanRpc = Rpc.make(WS_METHODS.workChantiersPlan, {
+  payload: WorkChantierPlanInput,
+  success: WorkChantier,
+  error: Schema.Union([WorkTaskError, EnvironmentAuthorizationError]),
+});
+const WsWorkChantiersLaunchRpc = Rpc.make(WS_METHODS.workChantiersLaunch, {
+  payload: WorkChantierLaunchInput,
+  success: WorkChantier,
+  error: Schema.Union([WorkTaskError, EnvironmentAuthorizationError]),
+});
+const WsWorkTasksTypesRpc = Rpc.make(WS_METHODS.workTasksTypes, {
+  payload: Schema.Struct({}),
+  success: WorkTaskTypesConfig,
+  error: Schema.Union([WorkTaskError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+const WsWorkTasksSaveTypesRpc = Rpc.make(WS_METHODS.workTasksSaveTypes, {
+  payload: WorkTaskTypesConfig,
+  success: Schema.Void,
+  error: Schema.Union([WorkTaskError, EnvironmentAuthorizationError]),
+});
+const WsWorkTasksLaunchRpc = Rpc.make(WS_METHODS.workTasksLaunch, {
+  payload: WorkTaskLaunchInput,
+  success: WorkTask,
+  error: Schema.Union([WorkTaskError, EnvironmentAuthorizationError]),
+});
 const WsWorkTasksSubscribeRpc = Rpc.make(WS_METHODS.workTasksSubscribe, {
   payload: Schema.Struct({}),
   success: Schema.Array(WorkTask),
@@ -2106,6 +2223,12 @@ const WsWorkTasksSaveRpc = Rpc.make(WS_METHODS.workTasksSave, {
   payload: WorkTaskSaveInput,
   success: WorkTask,
   error: Schema.Union([WorkTaskError, EnvironmentAuthorizationError]),
+});
+const WsWorkTasksMessagesRpc = Rpc.make(WS_METHODS.workTasksMessages, {
+  payload: WorkTaskMessagesInput,
+  success: Schema.Array(SlackTaskMessage),
+  error: Schema.Union([WorkTaskError, EnvironmentAuthorizationError]),
+  stream: true,
 });
 const WsWorkTasksDeleteRpc = Rpc.make(WS_METHODS.workTasksDelete, {
   payload: WorkTaskDeleteInput,
@@ -2274,7 +2397,22 @@ export const WsRpcGroupFirst = RpcGroup.make(
   WsServerGetUsageSummaryRpc,
   WsServerRefreshUsageRatesRpc,
   WsServerSignalProcessRpc,
+  WsAgentRequestsSubscribeRpc,
+  WsAgentRequestsRespondRpc,
+  WsAgentRequestsRetryDeliveryRpc,
+  WsAutonomousAgentsSubscribeRpc,
+  WsAutonomousAgentsCommandRpc,
+  WsAutonomousAgentsReadRpc,
+  WsSlackTaskFiltersRpc,
+  WsWorkChantiersSubscribeRpc,
+  WsWorkChantiersSaveRpc,
+  WsWorkChantiersPlanRpc,
+  WsWorkChantiersLaunchRpc,
+  WsWorkTasksTypesRpc,
+  WsWorkTasksSaveTypesRpc,
+  WsWorkTasksLaunchRpc,
   WsWorkTasksSubscribeRpc,
+  WsWorkTasksMessagesRpc,
   WsWorkTasksSaveRpc,
   WsWorkTasksDeleteRpc,
   WsScheduledTasksListRpc,

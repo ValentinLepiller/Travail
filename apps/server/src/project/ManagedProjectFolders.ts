@@ -1,3 +1,4 @@
+import * as HostProcess from "@t3tools/shared/HostProcess";
 /**
  * ManagedProjectFolders - the project folders T3 Code makes for the user under
  * its data dir, rather than ones the user picks:
@@ -243,6 +244,7 @@ const make = Effect.gen(function* () {
   const git = yield* GitVcsDriver.GitVcsDriver;
   const projects = yield* ProjectService.ProjectService;
   const crypto = yield* Crypto.Crypto;
+  const homeDirectory = yield* HostProcess.HomeDirectory;
 
   /**
    * Claims the first free folder among `folderFor(1)`, `folderFor(2)`, ...,
@@ -271,17 +273,26 @@ const make = Effect.gen(function* () {
     }
   });
 
-  // Inside a checkout (a dev worktree's .t3, a dotfiles home) the folder would
-  // inherit the repo's git status and checkpoints, so Scratch is offered only
-  // when the data dir is outside any work tree. With no Git installed nothing
-  // can see a checkout, so Scratch is offered. Probed once; other detection
-  // failures hide Scratch rather than failing callers. An interrupted probe
-  // invalidates the cache so the next caller probes again.
+  // A checkout-local data dir needs a neutral Scratch root so threads cannot
+  // inherit that checkout's Git status, instructions and checkpoints.
   const [probe, invalidate] = yield* Effect.cachedInvalidateWithTTL(
     gitWorkflow.isRepository(config.baseDir).pipe(
       Effect.catchIf(isGitMissing, () => Effect.succeed(false)),
-      Effect.map((isRepository) =>
-        isRepository ? Option.none<string>() : Option.some(path.resolve(config.baseDir, "scratch")),
+      Effect.flatMap((isRepository) =>
+        Effect.gen(function* () {
+          if (!isRepository) return Option.some(path.resolve(config.baseDir, "scratch"));
+          const digest = yield* crypto.digest(
+            "SHA-256",
+            new TextEncoder().encode(path.resolve(config.baseDir)),
+          );
+          const key = Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
+          const neutralRoot = path.join(homeDirectory, ".t3", "scratch", key);
+          yield* fileSystem.makeDirectory(neutralRoot, { recursive: true });
+          const nested = yield* gitWorkflow
+            .isRepository(neutralRoot)
+            .pipe(Effect.catchIf(isGitMissing, () => Effect.succeed(false)));
+          return nested ? Option.none<string>() : Option.some(neutralRoot);
+        }),
       ),
       Effect.catchCause((cause) =>
         Cause.hasInterrupts(cause) ? Effect.interrupt : Effect.succeed(Option.none<string>()),

@@ -314,7 +314,15 @@ it.effect("guards task editing and deletion with the destination operate grant",
   Effect.scoped(
     Effect.gen(function* () {
       const registry = yield* setup;
-      for (const tag of [WS_METHODS.workTasksSave, WS_METHODS.workTasksDelete]) {
+      for (const tag of [
+        WS_METHODS.autonomousAgentsCommand,
+        WS_METHODS.workTasksSave,
+        WS_METHODS.workTasksSaveTypes,
+        WS_METHODS.workTasksLaunch,
+        WS_METHODS.workTasksDelete,
+        WS_METHODS.agentRequestsRespond,
+        WS_METHODS.agentRequestsRetryDelivery,
+      ]) {
         const permission = createCommandPermissions(runtime, tag);
         registry.set(sessions(env), AsyncResult.success(grant(false)));
         expect(registry.get(permission.permissionAtom(env))).toBe(false);

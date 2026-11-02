@@ -79,6 +79,9 @@ function resolveSourceTreeIconPath(
   ext: keyof DesktopIconPaths,
 ): string | undefined {
   if (environment.isPackaged || ext === "icns") return undefined;
+  if (environment.branding.baseName === "Travail") {
+    return environment.path.join(environment.rootDir, "assets", "travail", `icon.${ext}`);
+  }
   const brand = environment.isDevelopment ? "dev" : "prod";
   const fileNames = sourceTreeIconFileNames[brand];
   const fileName =

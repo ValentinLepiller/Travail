@@ -11,8 +11,12 @@ import {
   codexAppServerArgs,
   resolveCodexLaunchArgs,
 } from "../../apps/server/src/provider/codexLaunchArgs.ts";
+import {
+  codexAppServerEnvironment,
+  buildCodexInitializeParams,
+} from "../../apps/server/src/provider/CodexProvider.ts";
 import { resolveSpawnCommand } from "../../packages/shared/src/shell.ts";
-import { assessProof, observeItem } from "./proof.mjs";
+import { assessProof, observeItem, providerFailure } from "./proof.mjs";
 
 const root = NodeURL.fileURLToPath(new URL("../..", import.meta.url));
 const loadSdkDependency = NodeModule.createRequire(
@@ -125,6 +129,7 @@ try {
   for (const key of Object.keys(env)) {
     if (key.startsWith("CODEX_") && key !== "CODEX_HOME") delete env[key];
   }
+  Object.assign(env, codexAppServerEnvironment(env));
   const launchArgs = resolveCodexLaunchArgs(profile.launchArgs, env);
   receipt.launchArgsSha256 = hash(launchArgs);
   const program = Effect.gen(function* () {
@@ -180,15 +185,13 @@ try {
           if (payload.threadId === proof.parentId) {
             proof.parentCompleted = payload.turn.status === "completed";
             receipt.parentTurnStatus = payload.turn.status;
+            if (payload.turn.error) receipt.providerFailure = providerFailure(payload.turn.error);
             yield* Deferred.succeed(finished, undefined);
           }
         }),
       );
       phase = "authentication";
-      yield* client.request("initialize", {
-        clientInfo: { name: "mt_native_agent_smoke", version: "1.0.0" },
-        capabilities: { experimentalApi: true },
-      });
+      yield* client.request("initialize", buildCodexInitializeParams());
       yield* client.notify("initialized", undefined);
       const account = yield* client.request("account/read", { refreshToken: false });
       if (account.account?.type !== "chatgpt")

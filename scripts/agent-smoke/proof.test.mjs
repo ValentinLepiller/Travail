@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { assessProof, observeItem } from "./proof.mjs";
+import { assessProof, observeItem, providerFailure } from "./proof.mjs";
 
 const markers = { parent: "parent-code", child: "child-code" };
 function proof() {
@@ -97,4 +97,18 @@ it("accepts current native activity events only with the child's own completed r
   expect(assessProof(p).passed).toBe(false);
   p.verifiedChildHistories.add("child");
   expect(assessProof(p).passed).toBe(true);
+});
+
+it("records provider status without persisting error messages or credentials", () => {
+  expect(
+    providerFailure({
+      codexErrorInfo: { responseTooManyFailedAttempts: { httpStatusCode: 429 } },
+      message: "private request content",
+      additionalDetails: "private headers",
+    }),
+  ).toEqual({ kind: "responseTooManyFailedAttempts", httpStatusCode: 429 });
+  expect(providerFailure({ codexErrorInfo: "usageLimitExceeded" })).toEqual({
+    kind: "usageLimitExceeded",
+  });
+  expect(providerFailure({ message: "private" })).toEqual({ kind: "unknown" });
 });

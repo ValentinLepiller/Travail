@@ -1275,6 +1275,11 @@ describe("ThreadSettlementServiceV2 single-thread sweeps", () => {
 });
 
 describe("isSnoozed", () => {
+  it("keeps an event wait snoozed and prevents automatic settlement", () => {
+    const waiting = shell({ snoozedAt: at(-DAY_MS), snoozedUntil: null });
+    expect(ThreadSettlementService.isSnoozed(waiting, NOW_MS)).toBe(true);
+    expect(ThreadSettlementService.isAutoSettlementCandidate(waiting, NOW_MS)).toBe(false);
+  });
   const snoozed = { snoozedAt: at(-2 * DAY_MS), snoozedUntil: at(DAY_MS) };
   it("wakes for completed work after the snooze, but not an interrupted run", () => {
     expect(ThreadSettlementService.isSnoozed(shell(snoozed), NOW_MS)).toBe(true);

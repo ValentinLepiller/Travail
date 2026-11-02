@@ -88,6 +88,7 @@ const ProjectLucideIcon = Schema.Struct({
 const ProjectEmojiIcon = Schema.Struct({
   kind: Schema.Literal("emoji"),
   emoji: ProjectEmoji,
+  color: Schema.optional(ProjectIconColor),
 });
 const ProjectMonogramIcon = Schema.Struct({
   kind: Schema.Literal("monogram"),

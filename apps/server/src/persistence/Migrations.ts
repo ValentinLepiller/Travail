@@ -1,3 +1,8 @@
+import Migration0079 from "./Migrations/079_WorkChantiers.ts";
+import Migration0078 from "./Migrations/078_GmailTaskMessages.ts";
+import Migration0076 from "./Migrations/076_AutonomousAgentWaiting.ts";
+import Migration0077 from "./Migrations/077_WorkTaskTypes.ts";
+import Migration0075 from "./Migrations/075_AutonomousAgents.ts";
 /**
  * Migration runner with an inline loader.
  *
@@ -102,6 +107,8 @@ import Migration0069 from "./Migrations/060_ThreadSnapshotWindowIndexes.ts";
 // Upstream 061 (PR review guides); registered as the next free fork id.
 import Migration0070 from "./Migrations/061_PullRequestReviewGuides.ts";
 import Migration0071 from "./Migrations/072_WorkTasks.ts";
+import Migration0072 from "./Migrations/073_AgentRequests.ts";
+import Migration0073 from "./Migrations/074_SlackTaskMessages.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -188,6 +195,13 @@ export const migrationEntries = [
   // Upstream 061 (PR review guides); registered as the next free fork id.
   [70, "PullRequestReviewGuides", Migration0070],
   [71, "WorkTasks", Migration0071],
+  [72, "AgentRequests", Migration0072],
+  [73, "SlackTaskMessages", Migration0073],
+  [74, "AutonomousAgents", Migration0075],
+  [75, "AutonomousAgentWaiting", Migration0076],
+  [76, "WorkTaskTypes", Migration0077],
+  [77, "GmailTaskMessages", Migration0078],
+  [78, "WorkChantiers", Migration0079],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

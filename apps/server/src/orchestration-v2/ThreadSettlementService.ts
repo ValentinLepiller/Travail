@@ -150,7 +150,11 @@ export function isAutoSettlementCandidate(
   if (backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? [])) return false;
   if (threadHasQueuedTurnStart(thread, nowMs)) return false;
   const snoozedUntilMs = toMillis(thread.snoozedUntil);
-  if (snoozedUntilMs === null || snoozedUntilMs <= nowMs) return true;
+  if (
+    (snoozedUntilMs === null && thread.snoozedAt == null) ||
+    (snoozedUntilMs !== null && snoozedUntilMs <= nowMs)
+  )
+    return true;
   // A snoozed thread that woke early (error or completed work) can settle;
   // one still parked on its wake time keeps its stronger statement.
   const snoozedAtMs = toMillis(thread.snoozedAt);
@@ -180,7 +184,11 @@ export function isSnoozed(
   nowMs: number,
 ): boolean {
   const snoozedUntilMs = toMillis(thread.snoozedUntil);
-  if (snoozedUntilMs === null || snoozedUntilMs <= nowMs) return false;
+  if (
+    (snoozedUntilMs === null && thread.snoozedAt == null) ||
+    (snoozedUntilMs !== null && snoozedUntilMs <= nowMs)
+  )
+    return false;
   if (thread.pendingRuntimeRequest !== null) return false;
   const snoozedAtMs = toMillis(thread.snoozedAt);
   const completedAtMs = toMillis(thread.latestRunCompletedAt);

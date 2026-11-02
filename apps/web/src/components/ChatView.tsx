@@ -1,3 +1,6 @@
+import { ThreadRequests } from "./agentRequests/ThreadRequests";
+import type { CSSProperties } from "react";
+import { deriveProjectIdentity } from "../projectIdentity";
 import { ThreadFind, ThreadFindCanvas, type ThreadFindControls } from "./chat/ThreadFindProvider";
 import { THREAD_FIND_BAR_RESERVED_HEIGHT } from "./chat/ThreadFindBar";
 import { usageLimitRecoveryBannerItem } from "./chat/UsageLimitRecoveryBanner";
@@ -11926,6 +11929,13 @@ export default function ChatView(props: ChatViewProps) {
           "flex min-h-0 min-w-0 flex-col overflow-x-hidden",
           rightPanelMaximized ? "w-0 flex-none" : "flex-1",
         )}
+        style={
+          activeProject
+            ? ({
+                "--background": `color-mix(in oklab, var(--color-${activeProject.projectIcon?.color ?? deriveProjectIdentity(activeProject.title).color}-500) 5%, var(--project-surface-base))`,
+              } as CSSProperties)
+            : undefined
+        }
         data-chat-column-maximized-away={rightPanelMaximized ? "true" : "false"}
       >
         {/* Top bar */}
@@ -12230,6 +12240,13 @@ export default function ChatView(props: ChatViewProps) {
                         aria-busy={isSavingQueuedEdit}
                       >
                         <div className="relative z-10">
+                          {isServerThread && !paintOnlyDisplayedTimeline && (
+                            <ThreadRequests
+                              key={activeThreadKey}
+                              environmentId={activeThread.environmentId}
+                              threadId={activeThread.id}
+                            />
+                          )}
                           {showProviderSubagentBar ? (
                             <ProviderSubagentBar
                               provider={selectedProviderEntry ?? null}

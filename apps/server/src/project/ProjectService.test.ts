@@ -143,14 +143,14 @@ it.layer(layerTest)("ProjectService", (it) => {
         projectId,
         title: "Renamed",
         autoPull: true,
-        projectIcon: { kind: "emoji", emoji: "🦊" },
+        projectIcon: { kind: "emoji", emoji: "🦊", color: "amber" },
         faviconPath: "/work/project/custom.svg",
         defaultThreadEnvMode: "worktree",
       });
       assert.equal(updated.title, "Renamed");
       assert.equal(updated.createdAt, created.createdAt);
       assert.isTrue(updated.autoPull);
-      assert.deepEqual(updated.projectIcon, { kind: "emoji", emoji: "🦊" });
+      assert.deepEqual(updated.projectIcon, { kind: "emoji", emoji: "🦊", color: "amber" });
       assert.equal(updated.faviconPath, "/work/project/custom.svg");
       assert.equal(updated.defaultThreadEnvMode, "worktree");
 

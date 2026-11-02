@@ -31,6 +31,7 @@ export const CurrentServerRequestId = Context.Reference<string | number | undefi
 );
 
 export interface CodexAppServerClientOptions {
+  readonly onTermination?: CodexProtocol.CodexAppServerPatchedProtocolOptions["onTermination"];
   readonly logIncoming?: boolean;
   readonly logOutgoing?: boolean;
   readonly logger?: (
@@ -213,6 +214,7 @@ export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make
     ...(options.logIncoming !== undefined ? { logIncoming: options.logIncoming } : {}),
     ...(options.logOutgoing !== undefined ? { logOutgoing: options.logOutgoing } : {}),
     ...(options.logger ? { logger: options.logger } : {}),
+    ...(options.onTermination ? { onTermination: options.onTermination } : {}),
     onNotification: dispatchNotification,
     onRequest: dispatchRequest,
   });

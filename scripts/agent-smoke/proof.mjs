@@ -69,3 +69,11 @@ export function assessProof(proof) {
   if (proof.disallowedActions.size) failures.push("disallowed_action_observed");
   return { passed: failures.length === 0, failures };
 }
+
+// Keep diagnostics useful without retaining provider messages, headers or request content.
+export function providerFailure(error) {
+  const info = error?.codexErrorInfo;
+  const kind = typeof info === "string" ? info : (Object.keys(info ?? {})[0] ?? "unknown");
+  const status = typeof info === "object" && info !== null ? info[kind]?.httpStatusCode : undefined;
+  return { kind, ...(Number.isInteger(status) ? { httpStatusCode: status } : {}) };
+}

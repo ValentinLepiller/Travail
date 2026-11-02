@@ -1,3 +1,7 @@
+import * as Autonomous from "../autonomousAgents/AutonomousAgentService.ts";
+import * as WorkTasks from "../workTasks/WorkTaskService.ts";
+import * as Requests from "../agentRequests/AgentRequestService.ts";
+import * as SlackTasks from "../workTasks/SlackTaskCollector.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
@@ -1001,10 +1005,18 @@ it.effect("registers annotated tools and preserves authenticated request context
 
 it.effect("HTTP tool discovery only advertises monitors to monitoring credentials", () =>
   Effect.gen(function* () {
-    yield* HttpRouter.serve(McpHttpServer.layer, {
-      disableListenLog: true,
-      disableLogger: true,
-    }).pipe(Layer.build);
+    yield* HttpRouter.serve(
+      McpHttpServer.layer.pipe(
+        Layer.provide(Layer.mock(Requests.AgentRequestService)({})),
+        Layer.provide(Layer.mock(Autonomous.AutonomousAgentService)({})),
+        Layer.provide(Layer.mock(WorkTasks.WorkTaskService)({})),
+        Layer.provide(Layer.mock(SlackTasks.SlackTaskCollector)({})),
+      ),
+      {
+        disableListenLog: true,
+        disableLogger: true,
+      },
+    ).pipe(Layer.build);
     const registry = yield* McpSessionRegistry.McpSessionRegistry;
     const httpClient = yield* HttpClient.HttpClient;
     for (const capabilities of [["preview"], ["monitor"], []] as const) {

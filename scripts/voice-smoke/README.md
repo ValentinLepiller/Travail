@@ -1,5 +1,7 @@
 # Native voice smoke
 
+Optional diagnostic; maintenance runs the voice regression tests without this live probe.
+
 `node scripts/voice-smoke/run.mjs --out .logs/harness/voice-smoke`
 
 Runs immediate and 12-second synthetic callbacks plus a pending-work conversation against the current `CodexVoiceSession`. Requires the existing Codex ChatGPT login, Node 24+, root devDependency `werift`, Python 3, system `libopus`, and `ffmpeg` with `libopus`. Never logs in, installs dependencies, launches a real MT task, or accesses a microphone. It consumes the account's native voice/Codex allowance.

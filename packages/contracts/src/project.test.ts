@@ -181,6 +181,12 @@ effectIt.effect("project icon overrides accept Lucide icons, colors, and emoji",
     assert.deepEqual(yield* decodeUpdateIcon(lucide), lucide);
     const emoji = { kind: "emoji", emoji: "👩🏽‍💻" } as const;
     assert.deepEqual(yield* decodeUpdateIcon(emoji), emoji);
+    const coloredEmoji = { ...emoji, color: "amber" } as const;
+    assert.deepEqual(yield* decodeUpdateIcon(coloredEmoji), coloredEmoji);
+    assert.strictEqual(
+      (yield* Effect.exit(decodeUpdateIcon({ ...emoji, color: "invalid" })))._tag,
+      "Failure",
+    );
     const invalid = yield* Effect.exit(
       decodeUpdateIcon({ kind: "lucide", name: "Alarm Clock", color: "ultraviolet" }),
     );

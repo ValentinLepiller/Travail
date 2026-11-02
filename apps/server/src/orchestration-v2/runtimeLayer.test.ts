@@ -4662,25 +4662,27 @@ it.layer(layerTest)("snooze queued runs", (it) => {
 });
 
 it.layer(layerSharedApplicationDataPlaneTest)("snooze projection", (it) => {
-  it.effect("carries snooze state through the V2 shell projection", () =>
+  it.effect.each([
+    { label: "timer", wakeAt: "2099-07-25T09:00:00.000Z" },
+    { label: "response", wakeAt: null },
+  ])("carries snooze state through the V2 shell projection ($label)", ({ wakeAt: snoozedUntil }) =>
     Effect.gen(function* () {
+      const identity = snoozedUntil === null ? "event" : "timed";
       const projects = yield* ProjectService.ProjectService;
       const orchestrator = yield* Orchestrator.OrchestratorV2;
-      const projectId = ProjectId.make("runtime-layer-snoozed-project");
-      const threadId = ThreadId.make("runtime-layer-snoozed-thread");
-      const snoozedUntil = "2099-07-25T09:00:00.000Z";
-
+      const projectId = ProjectId.make(`runtime-layer-snoozed-project:${identity}`);
+      const threadId = ThreadId.make(`runtime-layer-snoozed-thread:${identity}`);
       yield* projects.create({
-        commandId: CommandId.make("runtime-layer-snoozed-project-create"),
+        commandId: CommandId.make(`runtime-layer-snoozed-project-create:${identity}`),
         projectId,
         title: "Snoozed shell projection",
-        workspaceRoot: "/tmp/runtime-layer-snoozed-project",
+        workspaceRoot: `/tmp/runtime-layer-snoozed-project-${identity}`,
       });
       yield* orchestrator.dispatch({
         type: "thread.create",
         createdBy: "user",
         creationSource: "web",
-        commandId: CommandId.make("runtime-layer-snoozed-thread-create"),
+        commandId: CommandId.make(`runtime-layer-snoozed-thread-create:${identity}`),
         threadId,
         projectId,
         title: "Snoozed thread",
@@ -4692,7 +4694,7 @@ it.layer(layerSharedApplicationDataPlaneTest)("snooze projection", (it) => {
       });
       yield* orchestrator.dispatch({
         type: "thread.snooze",
-        commandId: CommandId.make("runtime-layer-snoozed-thread-snooze"),
+        commandId: CommandId.make(`runtime-layer-snoozed-thread-snooze:${identity}`),
         threadId,
         snoozedUntil,
       });
@@ -4704,7 +4706,7 @@ it.layer(layerSharedApplicationDataPlaneTest)("snooze projection", (it) => {
 
       yield* orchestrator.dispatch({
         type: "thread.snooze",
-        commandId: CommandId.make("runtime-layer-snoozed-thread-snooze-again"),
+        commandId: CommandId.make(`runtime-layer-snoozed-thread-snooze-again:${identity}`),
         threadId,
         snoozedUntil,
       });
@@ -4712,13 +4714,16 @@ it.layer(layerSharedApplicationDataPlaneTest)("snooze projection", (it) => {
       const shell = yield* orchestrator.getShellSnapshot();
       const thread = shell.threads.find((candidate) => candidate.id === threadId);
       assert.isDefined(thread);
-      assert.equal(DateTime.formatIso(thread.snoozedUntil!), snoozedUntil);
+      assert.equal(
+        thread.snoozedUntil === null ? null : DateTime.formatIso(thread.snoozedUntil!),
+        snoozedUntil,
+      );
       assert.deepEqual(thread.snoozedAt, firstSnoozedAt);
       assert.deepEqual(thread.updatedAt, firstUpdatedAt);
 
       yield* orchestrator.dispatch({
         type: "thread.unsnooze",
-        commandId: CommandId.make("runtime-layer-snoozed-thread-wake"),
+        commandId: CommandId.make(`runtime-layer-snoozed-thread-wake:${identity}`),
         threadId,
         reason: "user",
       });
@@ -4729,7 +4734,7 @@ it.layer(layerSharedApplicationDataPlaneTest)("snooze projection", (it) => {
       assert.deepEqual(candidate?.lastSnoozeWakeAt, yield* DateTime.now);
       yield* orchestrator.dispatch({
         type: "thread.snooze",
-        commandId: CommandId.make("runtime-layer-snoozed-thread-snooze-after-wake"),
+        commandId: CommandId.make(`runtime-layer-snoozed-thread-snooze-after-wake:${identity}`),
         threadId,
         snoozedUntil,
       });
@@ -4738,9 +4743,9 @@ it.layer(layerSharedApplicationDataPlaneTest)("snooze projection", (it) => {
         type: "message.dispatch",
         createdBy: "user",
         creationSource: "web",
-        commandId: CommandId.make("runtime-layer-snoozed-message"),
+        commandId: CommandId.make(`runtime-layer-snoozed-message:${identity}`),
         threadId,
-        messageId: MessageId.make("runtime-layer-snoozed-message"),
+        messageId: MessageId.make(`runtime-layer-snoozed-message:${identity}`),
         text: "Wake this thread.",
         attachments: [],
         modelSelection,

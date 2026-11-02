@@ -69,6 +69,14 @@ function makeQueuedTurnShell(overrides: Partial<QueuedTurnShell> = {}): QueuedTu
 }
 
 describe("effectiveSnoozed", () => {
+  it("keeps event snoozes parked without a timer until the thread raises its hand", () => {
+    expect(
+      effectiveSnoozed(makeShell({ snoozedAt: SNOOZED_AT }), { now: "2099-01-01T00:00:00Z" }),
+    ).toBe(true);
+    expect(
+      effectiveSnoozed(makeShell({ snoozedAt: SNOOZED_AT, pending: "user-input" }), { now: NOW }),
+    ).toBe(false);
+  });
   it("hides a thread whose wake time is in the future", () => {
     expect(effectiveSnoozed(makeShell({ snoozedUntil: FUTURE_WAKE }), { now: NOW })).toBe(true);
   });

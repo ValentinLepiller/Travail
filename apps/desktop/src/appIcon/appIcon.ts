@@ -14,6 +14,7 @@ import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
 import * as Electron from "electron";
+import { resolveRuntimeDesktopDistro } from "../app/desktopDistro.ts";
 
 /** Built-in icons, resolved from the assets shipped beside the app. */
 const BUILT_IN_FILES: Readonly<Record<string, string>> = {
@@ -33,6 +34,27 @@ function iconSearchRoots(): readonly string[] {
 }
 
 function resolveBuiltInIconPath(id: string): string | null {
+  if (
+    id === "default" &&
+    resolveRuntimeDesktopDistro({
+      env: process.env,
+      appPath: Electron.app.getAppPath(),
+      isDevelopment: !Electron.app.isPackaged,
+    }).id === "travail"
+  ) {
+    // Electron accepts either the desktop package or its bundled entry file.
+    for (const parent of ["../..", "../../.."]) {
+      const candidate = NodePath.resolve(
+        Electron.app.getAppPath(),
+        parent,
+        "assets",
+        "travail",
+        "icon.png",
+      );
+      if (NodeFS.existsSync(candidate)) return candidate;
+    }
+    return null;
+  }
   const file = BUILT_IN_FILES[id];
   if (file === undefined) return null;
   for (const root of iconSearchRoots()) {

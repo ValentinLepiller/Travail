@@ -64,7 +64,15 @@ const layer = layerForVoice(false);
 const createTables = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   // Only the status projection is needed by this read-only query contract.
-  for (const [name] of tables) yield* sql.unsafe(`CREATE TABLE ${name} (status TEXT NOT NULL)`);
+  for (const [name] of tables) {
+    const fields =
+      name === "orchestration_v2_projection_runs"
+        ? ", run_id TEXT"
+        : name === "orchestration_v2_projection_nodes"
+          ? ", run_id TEXT, kind TEXT"
+          : "";
+    yield* sql.unsafe(`CREATE TABLE ${name} (status TEXT NOT NULL${fields})`);
+  }
 });
 
 it.effect(
@@ -163,4 +171,26 @@ it.effect(
       });
       expect((yield* gate.snapshot).operationId).toBeNull();
     }).pipe(Effect.provide(layerForVoice(false, [], 1))),
+);
+
+it.effect(
+  "unfinished historical plans do not block maintenance, while executable and unowned nodes remain busy",
+  () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const activity = yield* MaintenanceActivity.MaintenanceActivity;
+      yield* createTables;
+      yield* sql`INSERT INTO orchestration_v2_projection_runs (run_id, status) VALUES ('finished', 'completed')`;
+      yield* sql`INSERT INTO orchestration_v2_projection_nodes (run_id, kind, status) VALUES ('finished', 'todo_list', 'running')`;
+      expect((yield* activity.read).activeWork).toBe(0);
+      yield* sql`UPDATE orchestration_v2_projection_nodes SET kind = 'tool_call'`;
+      expect((yield* activity.read).activeWork).toBe(1);
+      yield* sql`UPDATE orchestration_v2_projection_nodes SET kind = 'todo_list', run_id = 'missing'`;
+      expect((yield* activity.read).activeWork).toBe(1);
+      yield* sql`UPDATE orchestration_v2_projection_nodes SET run_id = 'finished', kind = NULL`;
+      expect((yield* activity.read).activeWork).toBe(1);
+      yield* sql`UPDATE orchestration_v2_projection_nodes SET kind = 'todo_list'`;
+      yield* sql`UPDATE orchestration_v2_projection_runs SET status = 'running'`;
+      expect((yield* activity.read).activeWork).toBeGreaterThan(0);
+    }).pipe(Effect.provide(layer)),
 );
