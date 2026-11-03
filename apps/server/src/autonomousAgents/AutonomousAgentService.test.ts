@@ -110,6 +110,51 @@ const fixture = Effect.gen(function* () {
   };
 });
 
+it.effect("restores repository agents on a fresh environment without starting work", () =>
+  Effect.gen(function* () {
+    const f = yield* fixture;
+    yield* Effect.gen(function* () {
+      yield* Agents.initializeConfiguredAgents;
+      const service = yield* Agents.AutonomousAgentService;
+      const agents = yield* service.list();
+      expect(agents.map((agent) => agent.id)).toEqual([
+        "coordinateur-taches",
+        "qualifieur",
+        "slack-exclusions-review",
+      ]);
+      expect(agents.every((agent) => agent.paused && agent.currentThreadId === null)).toBe(true);
+      expect(agents.every((agent) => agent.projectId === null)).toBe(true);
+      yield* service.tick();
+      expect(f.launched).toHaveLength(0);
+      expect((yield* service.read({ id: "coordinateur-taches" })).memory).toBe("");
+      expect(agents.find((agent) => agent.id === "slack-exclusions-review")?.dailySchedule).toEqual(
+        { timeOfDay: "09:00", timeZone: "Europe/Paris" },
+      );
+    }).pipe(Effect.provideContext(f.context));
+  }).pipe(Effect.scoped),
+);
+
+it.effect("restoring repository agents preserves local configuration, memory and active runs", () =>
+  Effect.gen(function* () {
+    const f = yield* fixture;
+    yield* Effect.gen(function* () {
+      const service = yield* Agents.AutonomousAgentService;
+      const config = { ...agentConfig("coordinateur-taches"), mission: "Mission locale" };
+      yield* service.command({ type: "save", config });
+      yield* service.command({ type: "memory", id: config.id, memory: "Mémoire locale" });
+      yield* service.command({ type: "resume", id: config.id });
+      yield* service.tick();
+      const before = (yield* service.list()).find((agent) => agent.id === config.id);
+      yield* Agents.initializeConfiguredAgents;
+      yield* Agents.initializeConfiguredAgents;
+      expect((yield* service.list()).find((agent) => agent.id === config.id)).toEqual(before);
+      expect((yield* service.read({ id: config.id })).memory).toBe("Mémoire locale");
+      expect(yield* service.list()).toHaveLength(3);
+      expect(f.launched).toHaveLength(1);
+    }).pipe(Effect.provideContext(f.context));
+  }).pipe(Effect.scoped),
+);
+
 it.effect("starts paused and concurrent scheduler ticks launch exactly one durable thread", () =>
   Effect.gen(function* () {
     const f = yield* fixture;

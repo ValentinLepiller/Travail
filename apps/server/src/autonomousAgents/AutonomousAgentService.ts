@@ -1,8 +1,10 @@
 import * as ManagedFolders from "../project/ManagedProjectFolders.ts";
+import configuredAgents from "./agents.json" with { type: "json" };
 import { preservePersonality } from "./memory.ts";
 import { nextAgentRunAt } from "./schedule.ts";
 import {
   AutonomousAgent,
+  AutonomousAgentConfig,
   AutonomousAgentError,
   CommandId,
   MessageId,
@@ -80,6 +82,7 @@ export class AutonomousAgentService extends Context.Service<
 >()("t3/autonomousAgents/AutonomousAgentService") {}
 
 const isAgentError = Schema.is(AutonomousAgentError);
+const decodeConfiguredAgents = Schema.decodeUnknownEffect(Schema.Array(AutonomousAgentConfig));
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -633,10 +636,20 @@ const make = Effect.gen(function* () {
   });
 });
 export const layer = Layer.effect(AutonomousAgentService, make);
+// Configuration travels with the bundle; execution state and local edits stay in the database.
+export const initializeConfiguredAgents = Effect.gen(function* () {
+  const configs = yield* decodeConfiguredAgents(configuredAgents);
+  const service = yield* AutonomousAgentService;
+  const existing = new Set((yield* service.list()).map((agent) => agent.id));
+  for (const config of configs) {
+    if (!existing.has(config.id)) yield* service.command({ type: "save", config });
+  }
+});
 export const workerLayer = Layer.effectDiscard(
   Effect.gen(function* () {
     const service = yield* AutonomousAgentService;
     const scheduler = yield* Scheduler.Scheduler;
+    yield* initializeConfiguredAgents;
     yield* scheduler.register("autonomous-agents", service.tick());
   }),
 );
