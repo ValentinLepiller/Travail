@@ -7,11 +7,12 @@ import * as Agents from "./WorkTaskAgentService.ts";
 import * as Launch from "../orchestration-v2/ThreadLaunchService.ts";
 import { idleThreadProjection, liveThreadShell } from "../mcp/McpToolAccess.testkit.ts";
 
-it.effect(
-  "launches one full-access discussion and reuses its association on subsequent clicks",
-  () => {
+it.effect.each([false, true])(
+  "launches one discussion (chantier: %s) and reuses its association",
+  (inChantier) => {
     let task: WorkTask = {
       id: "task",
+      ...(inChantier ? { chantierId: "chantier" } : {}),
       title: "Corriger le panier",
       notes: "Un article manque",
       typeId: "fix",
@@ -25,6 +26,7 @@ it.effect(
     };
     const launches: Launch.ThreadLaunchInput[] = [];
     const tasks = Layer.mock(Tasks.WorkTaskService)({
+      assertCanStart: () => Effect.void,
       list: () => Effect.succeed([task]),
       read: () => Effect.succeed(task),
       types: () =>
@@ -61,9 +63,16 @@ it.effect(
       expect(result.status).toBe("doing");
       expect(result.agentThreadId).toBe(launches[0]?.threadId);
       expect(launches[0]?.runtimeMode).toBe("full-access");
-      expect(launches[0]?.initialMessage?.text).toBe(
+      expect(launches[0]?.initialMessage?.text).toContain(
         "Diagnostique puis corrige.\n\nCorriger le panier\n\nUn article manque",
       );
+      const prompt = launches[0]?.initialMessage?.text ?? "";
+      expect(prompt.includes("$guided-review")).toBe(inChantier);
+      if (inChantier) {
+        expect(prompt).toContain("ne démarre ni ne laisse tourner");
+        expect(prompt).toContain("t3_project_update");
+        expect(prompt).toContain("autoOpenPreview: true");
+      }
       yield* service.launch({ ...input, expectedVersion: result.version });
       expect(launches).toHaveLength(1);
       expect((yield* service.launch(input).pipe(Effect.flip)).reason).toBe("conflict");

@@ -15,6 +15,12 @@ import * as Layer from "effect/Layer";
 import * as Semaphore from "effect/Semaphore";
 import * as Tasks from "./WorkTaskService.ts";
 import * as Launch from "../orchestration-v2/ThreadLaunchService.ts";
+const chantierReviewInstructions = [
+  "Pour toute tâche de chantier qui implémente un changement ou ouvre une PR, prépare toujours une $guided-review adaptée au diff avant de passer à review. Si le changement n’est pas testable visuellement, fournis les vérifications pertinentes et explique cette limite.",
+  "Livre la recette hors du code produit, dans le dossier de travail de la tâche, avec ses données isolées, prérequis, commande de lancement et URL /__guide/. Vérifie ce qui est possible et distingue les contrôles réellement exécutés des étapes restant à tester. À la fin, ne démarre ni ne laisse tourner tes serveurs locaux de recette et n’ouvre pas d’onglet ; n’arrête jamais les services d’autrui. Cette livraison à la demande remplace la fin du skill qui demande un onglet ouvert.",
+  "Prépare une action de projet nommée Tester la PR · <numéro ou tâche>, visible dans le menu des scripts du thread : utilise t3_project_read puis t3_project_update pour préserver les scripts existants et ajouter un id unique, command, icon: play, runOnWorktreeCreate: false, runOnSettle: false, previewUrl: <URL du guide>, autoOpenPreview: true. Les scripts sont partagés par projet, pas privés au thread : cible explicitement le bon dossier de recette et worktree sans écraser les autres actions. Le clic doit lancer l’application et le guide à la demande, avec gestion des ports occupés, disponibilité et arrêt des seuls processus lancés. Le navigateur peut s’ouvrir avant la disponibilité du serveur : prévois une reprise explicite. Si l’outil ou l’accès manque, signale la limite et fournis la commande exacte sans prétendre avoir ajouté le bouton. N’élargis pas l’autorisation de publication de PR.",
+].join("\n\n");
+
 export class WorkTaskAgentService extends Context.Service<
   WorkTaskAgentService,
   {
@@ -60,6 +66,7 @@ export const layer = Layer.effect(
                     "Cadre le résultat avec Valentin, propose un découpage en tâches et prérequis, puis utilise work_chantier_apply_plan pour enregistrer le plan autorisé de manière atomique. Préserve les tâches, discussions et décisions existantes. N’invente aucune règle métier manquante. Les dépendances externes appartiennent à leurs responsables.",
                     "Tu pilotes le chantier : les tâches exécutables ont leur propre discussion. Ne revendique pas leurs tâches avec work_task_claim. Utilise work_task_launch uniquement dans le périmètre d’exécution autorisé. Une tâche à valider n’est pas livrée ; seules les tâches done débloquent leurs dépendants. Ne lance rien lors du simple découpage.",
                     "Quand une modification est demandée, analyse son impact sur les tâches en cours, conserve les travaux et actualise scope, decisions, acceptanceCriteria et les dépendances. Utilise milestone pour reporter un lot sans supprimer ses tâches. Réponds aux questions et demandes de changement tout au long du chantier.",
+                    chantierReviewInstructions,
                     `Objectif : ${chantier.objective}`,
                     `Périmètre : ${chantier.scope}`,
                   ].join("\n\n"),
@@ -101,6 +108,7 @@ export const layer = Layer.effect(
               task.chantierId
                 ? `Cette tâche appartient au chantier ${task.chantierId}. Lis work_chantier_read avant de commencer pour retrouver le périmètre courant, les décisions et les prérequis. Ta discussion exécute uniquement la tâche ${task.id}. Signale les blocages et résultats dans ses notes et passe à review pour validation ; ne déclare pas les prérequis livrés sans preuve.`
                 : null,
+              task.chantierId ? chantierReviewInstructions : null,
               ...messages.map((m) => `Slack · ${m.authorId}\n${m.text}`),
             ]
               .filter(Boolean)
