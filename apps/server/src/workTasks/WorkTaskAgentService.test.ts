@@ -68,10 +68,14 @@ it.effect.each([false, true])(
       );
       const prompt = launches[0]?.initialMessage?.text ?? "";
       expect(prompt.includes("$guided-review")).toBe(inChantier);
+      expect(prompt.includes("compte de test à utiliser")).toBe(inChantier);
       if (inChantier) {
         expect(prompt).toContain("ne démarre ni ne laisse tourner");
         expect(prompt).toContain("t3_project_update");
         expect(prompt).toContain("autoOpenPreview: true");
+        expect(prompt).toContain("identifiant ou email");
+        expect(prompt).toContain("référence exacte");
+        expect(prompt).toContain("ne présente pas la recette comme prête à tester");
       }
       yield* service.launch({ ...input, expectedVersion: result.version });
       expect(launches).toHaveLength(1);
