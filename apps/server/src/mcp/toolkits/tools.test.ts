@@ -15,8 +15,9 @@ const toolkits = {
 // `anyOf: [object, array]`, which `McpSchema.Tool` rejects ("Missing key at
 // ["type"]"); that registration failure wedged the routes layer build behind
 // the activation gate, and the desktop timed out waiting for the backend.
-for (const [name, toolkit] of Object.entries(toolkits)) {
-  it(`${name} tools render MCP-compatible input schemas`, () => {
+it.each(Object.entries(toolkits))(
+  "%s tools render MCP-compatible input schemas",
+  (_name, toolkit) => {
     const tools = Object.values(toolkit.tools);
     expect(tools.length).toBeGreaterThan(0);
     for (const tool of tools) {
@@ -32,5 +33,5 @@ for (const [name, toolkit] of Object.entries(toolkits)) {
         `${tool.name} McpSchema.Tool`,
       ).not.toThrow();
     }
-  });
-}
+  },
+);

@@ -1169,7 +1169,7 @@ export function VoiceSessionProvider({ children }: { readonly children: ReactNod
               <Button
                 size="icon-lg"
                 variant={muted ? "default" : "outline"}
-                className="rounded-full"
+                shape="circle"
                 onClick={toggleMuted}
                 disabled={!active}
                 aria-label={muted ? "Unmute microphone" : "Mute microphone"}
@@ -1179,7 +1179,7 @@ export function VoiceSessionProvider({ children }: { readonly children: ReactNod
               <Button
                 size="icon-lg"
                 variant="destructive"
-                className="rounded-full"
+                shape="circle"
                 onClick={end}
                 aria-label="End voice session"
               >
@@ -1190,7 +1190,7 @@ export function VoiceSessionProvider({ children }: { readonly children: ReactNod
             <div className="shrink-0 border-t border-border/50">
               <button
                 type="button"
-                className="flex w-full items-center justify-center gap-1 px-4 py-1.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+                className="flex w-full items-center justify-center gap-1 px-4 py-1.5 text-2xs text-muted-foreground transition-colors hover:text-foreground"
                 onClick={() => setDetailsOpen((open) => !open)}
                 aria-expanded={detailsOpen}
               >
@@ -1211,7 +1211,9 @@ export function VoiceSessionProvider({ children }: { readonly children: ReactNod
           </aside>
         ) : (
           <Button
-            className="fixed right-4 bottom-4 z-[90] size-11 rounded-full shadow-lg"
+            elevation="floating"
+            shape="circle"
+            className="fixed right-4 bottom-4 z-[90] size-11"
             size="icon"
             onClick={() => setPanelOpen(true)}
             aria-label="Open active OpenAI voice session"

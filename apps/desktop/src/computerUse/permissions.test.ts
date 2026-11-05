@@ -1,3 +1,4 @@
+import * as HostProcess from "@t3tools/shared/HostProcess";
 // @effect-diagnostics nodeBuiltinImport:off - Fixture reads of Chrome Secure Preferences stay synchronous.
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
@@ -29,8 +30,7 @@ import { openComputerUsePrivacySettings, readComputerUsePermissions } from "./pe
 
 describe("computerUse permissions", () => {
   it("reports accessibility and screen recording on darwin", () => {
-    const previous = process.platform;
-    Object.defineProperty(process, "platform", { value: "darwin" });
+    vi.spyOn(HostProcess.Platform, "defaultValue").mockReturnValue("darwin");
     try {
       const state = readComputerUsePermissions();
       assert.equal(state.platform, "darwin");
@@ -43,25 +43,23 @@ describe("computerUse permissions", () => {
       // Reading the state is where the extension gets set up, so it registers the host.
       assert.ok(registerNativeHost.mock.calls.length > 0);
     } finally {
-      Object.defineProperty(process, "platform", { value: previous });
+      vi.restoreAllMocks();
     }
   });
 
   it("marks privacy permissions not required off macOS", () => {
-    const previous = process.platform;
-    Object.defineProperty(process, "platform", { value: "linux" });
+    vi.spyOn(HostProcess.Platform, "defaultValue").mockReturnValue("linux");
     try {
       const state = readComputerUsePermissions();
       assert.equal(state.platform, "linux");
       assert.isTrue(state.permissions.every((permission) => permission.status === "notRequired"));
     } finally {
-      Object.defineProperty(process, "platform", { value: previous });
+      vi.restoreAllMocks();
     }
   });
 
   it("opens the Accessibility privacy pane and prompts trust", async () => {
-    const previous = process.platform;
-    Object.defineProperty(process, "platform", { value: "darwin" });
+    vi.spyOn(HostProcess.Platform, "defaultValue").mockReturnValue("darwin");
     try {
       const opened = await openComputerUsePrivacySettings("accessibility");
       assert.isTrue(opened);
@@ -74,13 +72,12 @@ describe("computerUse permissions", () => {
         "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
       );
     } finally {
-      Object.defineProperty(process, "platform", { value: previous });
+      vi.restoreAllMocks();
     }
   });
 
   it("detects an unpacked extension from Secure Preferences without state", () => {
-    const previous = process.platform;
-    Object.defineProperty(process, "platform", { value: "darwin" });
+    vi.spyOn(HostProcess.Platform, "defaultValue").mockReturnValue("darwin");
     const home = NodeOS.homedir();
     const securePath = NodePath.join(
       home,
@@ -103,7 +100,7 @@ describe("computerUse permissions", () => {
         assert.isTrue(["missing", "unknown"].includes(state.chromeExtension.status));
       }
     } finally {
-      Object.defineProperty(process, "platform", { value: previous });
+      vi.restoreAllMocks();
     }
   });
 });

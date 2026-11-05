@@ -6664,9 +6664,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         (pendingImageCompressionsRef.current.get(attachmentTargetKey) ?? 0) > 0,
       insertTextAtEnd: insertComposerTextAtEnd,
       replaceTextRange: ({ rangeStart, rangeEnd, replacement, expectedText }) =>
-        applyPromptReplacement(rangeStart, rangeEnd, replacement, {
-          ...(expectedText === undefined ? {} : { expectedText }),
-        }),
+        applyPromptReplacement(
+          rangeStart,
+          rangeEnd,
+          replacement,
+          expectedText === undefined ? {} : { expectedText },
+        ),
       pasteTextAtEnd: (text: string, options) => {
         const bypassAutoAttachment =
           options?.bypassAutoAttachment === true ||
@@ -7923,7 +7926,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                               disabled={
                                 phase === "running" || isConnecting || projectSelectionRequired
                               }
-                              className="rounded-full"
+                              shape="circle"
                               onPointerDown={
                                 isMobileViewport ? (event) => event.preventDefault() : undefined
                               }
@@ -7944,12 +7947,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                             <Button
                               type="button"
                               size="icon-sm"
-                              variant="ghost-muted"
-                              className={cn(
-                                "rounded-full",
-                                voiceSession.active &&
-                                  "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
-                              )}
+                              variant={voiceSession.active ? "ghost-primary" : "ghost-muted"}
+                              shape="circle"
                               onPointerDown={
                                 isMobileViewport ? (event) => event.preventDefault() : undefined
                               }

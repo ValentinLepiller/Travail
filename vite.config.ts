@@ -400,6 +400,9 @@ export default defineConfig({
           "apps/mobile/src/native/T3ComposerEditor.ios.tsx",
           "apps/mobile/src/native/T3ComposerEditor.native.tsx",
           "apps/mobile/src/native/SelectableMarkdownText.tsx",
+          // Native Android ripple color and SVG wordmark color are interop props.
+          "apps/mobile/src/components/SshPasswordPromptHost.tsx",
+          "apps/mobile/src/components/CompactBrandTitle.tsx",
         ],
         rules: {
           "t3code/no-mobile-uniwind-theme-escape-hatches": ["error", { allowUniwindTheme: true }],

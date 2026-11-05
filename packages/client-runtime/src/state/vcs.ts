@@ -22,6 +22,7 @@ import {
   createEnvironmentSubscriptionAtomFamily,
   createRuntimeCommand,
   runInEnvironment,
+  withRpcPermissionGuard,
 } from "./runtime.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
@@ -31,12 +32,10 @@ import {
   config as environmentConfig,
   request,
   requestGuarded,
-  RpcPermissionGuard,
   runStream,
   subscribe,
   type EnvironmentRpcInput,
 } from "../rpc/client.ts";
-import { createCommandPermissions } from "./commandPermissions.ts";
 import { followStreamInEnvironment } from "./runtime.ts";
 import { consumeSshPromptedOperation } from "./sshPasswordPrompts.ts";
 import { vcsCommandConcurrency, vcsCommandScheduler } from "./vcsCommandScheduler.ts";
@@ -338,12 +337,7 @@ export function createVcsEnvironmentAtoms<R, E>(
               runStream(WS_METHODS.vcsPullWithPrompts, target.input),
               onSshPasswordPrompt,
             );
-          }).pipe(
-            Effect.provideService(RpcPermissionGuard, {
-              authorize: (id, method, payload) =>
-                createCommandPermissions(runtime, method).authorize(registry, id, payload),
-            }),
-          ),
+          }).pipe(withRpcPermissionGuard(runtime, registry)),
         ).pipe(Effect.ensuring(invalidateRefs(target, registry))),
     }),
     refreshStatus: createEnvironmentRpcCommand(runtime, {

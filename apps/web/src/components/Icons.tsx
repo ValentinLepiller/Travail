@@ -670,11 +670,7 @@ export const AntigravityIcon: Icon = (props) => (
 );
 
 export const DevinIcon: Icon = ({ className, ...props }) => (
-  <svg
-    {...props}
-    viewBox="0 0 24 24"
-    className={cn("fill-[#171717] dark:fill-[#E5E5E5]", className)}
-  >
+  <svg {...props} viewBox="0 0 24 24" className={cn("fill-foreground", className)}>
     <path
       fillRule="evenodd"
       d="M5 4h7a8 8 0 0 1 0 16H5V4Zm3 3v10h4a5 5 0 0 0 0-10H8Z"

@@ -226,7 +226,7 @@ function CustomArt({
     <div
       role="img"
       aria-label={variant.name}
-      className="stage-art h-full w-full bg-cover bg-center bg-no-repeat"
+      className="h-full w-full bg-cover bg-center bg-no-repeat"
       style={{ backgroundImage: `url(${JSON.stringify(variant.image)})` }}
     />
   );

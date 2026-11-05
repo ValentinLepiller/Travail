@@ -79,7 +79,7 @@ export function TerminalSearchBar(props: TerminalSearchBarProps) {
           placeholder="Find"
           aria-label="Find in terminal"
         />
-        <span className="pointer-events-none absolute inset-y-0 right-1.5 flex items-center text-[10px] text-muted-foreground/70 italic tabular-nums">
+        <span className="pointer-events-none absolute inset-y-0 right-1.5 flex items-center text-3xs text-muted-foreground/70 italic tabular-nums">
           {count}
         </span>
       </span>
@@ -88,7 +88,7 @@ export function TerminalSearchBar(props: TerminalSearchBarProps) {
         <SearchOptionButton
           active={props.caseSensitive}
           label="Match case"
-          className="size-auto h-5 w-6 rounded-none text-[11px] sm:size-auto sm:h-5 sm:w-6 sm:text-[11px] min-w-0"
+          className="size-auto h-5 w-6  sm:size-auto sm:h-5 sm:w-6 min-w-0"
           onClick={() => props.onCaseSensitiveChange(!props.caseSensitive)}
         >
           Aa
@@ -139,7 +139,7 @@ export function TerminalSearchBar(props: TerminalSearchBarProps) {
         inert={!props.open}
         onKeyDown={handleKeyDown}
         className={cn(
-          "overflow-hidden transition-[max-width] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
+          "overflow-hidden transition-[max-width] duration-200 ease-out motion-reduce:transition-none",
           props.open ? "max-w-80" : "max-w-0",
         )}
       >

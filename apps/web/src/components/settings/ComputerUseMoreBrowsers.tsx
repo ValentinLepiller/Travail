@@ -31,7 +31,7 @@ export function ComputerUseMoreBrowsers() {
               <EdgeIcon className="size-6" />
               <div className="min-w-0">
                 <p className="text-sm font-medium text-foreground">Microsoft Edge</p>
-                <p className="text-[13px] text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   Load the unpacked extension from edge://extensions
                 </p>
               </div>
@@ -40,7 +40,7 @@ export function ComputerUseMoreBrowsers() {
               <BraveIcon className="size-6" />
               <div className="min-w-0">
                 <p className="text-sm font-medium text-foreground">Brave</p>
-                <p className="text-[13px] text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   Same extension via brave://extensions
                 </p>
               </div>
@@ -49,7 +49,7 @@ export function ComputerUseMoreBrowsers() {
               <FirefoxIcon className="size-6" />
               <div className="min-w-0">
                 <p className="text-sm font-medium text-foreground">Firefox</p>
-                <p className="text-[13px] text-muted-foreground">Not supported yet</p>
+                <p className="text-sm text-muted-foreground">Not supported yet</p>
               </div>
             </div>
           </div>

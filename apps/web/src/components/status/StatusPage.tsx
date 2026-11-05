@@ -16,8 +16,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "../../workspaceTitlebar";
 import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "../WorkspaceBreadcrumb";
 import { Button } from "../ui/button";
-import { Card } from "../ui/card";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
+import { EmptyDescription, EmptyHeader, EmptyMedia } from "../ui/empty";
 import { ScrollArea } from "../ui/scroll-area";
 import { SidebarInset } from "../ui/sidebar";
 import { stackedThreadToast, toastManager } from "../ui/toast";
@@ -43,15 +42,15 @@ function StatusEmptyState({
   readonly description: string;
 }) {
   return (
-    <Empty className="min-h-64 rounded-xl border border-dashed border-border/70 bg-card/20 p-8">
+    <div className="flex min-w-0 min-h-64 flex-1 flex-col items-center justify-center text-center rounded-xl border border-dashed border-border/70 bg-card/20 p-8">
       <EmptyHeader>
         <EmptyMedia variant="icon">
           <ShieldCheckIcon />
         </EmptyMedia>
-        <EmptyTitle className="text-base">{title}</EmptyTitle>
+        <div className="text-base font-medium">{title}</div>
         <EmptyDescription>{description}</EmptyDescription>
       </EmptyHeader>
-    </Empty>
+    </div>
   );
 }
 
@@ -92,7 +91,7 @@ function RateLimitRow({
         />
       </div>
       {resetTimestamp ? (
-        <p className="mt-2 text-[11px] text-muted-foreground">Resets {resetTimestamp}</p>
+        <p className="mt-2 text-2xs text-muted-foreground">Resets {resetTimestamp}</p>
       ) : null}
     </div>
   );
@@ -108,7 +107,7 @@ function CodexRateLimitsCard({
   const rateLimits = provider.codexStatus?.rateLimits;
 
   return (
-    <Card className="gap-0 rounded-xl border-border/70 bg-card/35 p-4 shadow-none before:rounded-[calc(var(--radius-xl)-1px)]">
+    <div className="relative flex flex-col rounded-xl border border-border/70 bg-card/35 p-4 text-card-foreground">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           {showProviderLabel ? (
@@ -125,7 +124,7 @@ function CodexRateLimitsCard({
       {rateLimits?.primary || rateLimits?.secondary ? (
         <div className="mt-4 flex flex-col gap-2">
           {rateLimits.limitName ? (
-            <span className="text-[11px] text-muted-foreground">{rateLimits.limitName}</span>
+            <span className="text-2xs text-muted-foreground">{rateLimits.limitName}</span>
           ) : null}
           {rateLimits.primary ? (
             <RateLimitRow
@@ -157,7 +156,7 @@ function CodexRateLimitsCard({
           Rate limit data is not available yet. Click Update to try again.
         </p>
       )}
-    </Card>
+    </div>
   );
 }
 
@@ -171,7 +170,7 @@ function ClaudeRateLimitsCard({
   const rateLimits = provider.claudeStatus?.rateLimits;
 
   return (
-    <Card className="gap-0 rounded-xl border-border/70 bg-card/35 p-4 shadow-none before:rounded-[calc(var(--radius-xl)-1px)]">
+    <div className="relative flex flex-col rounded-xl border border-border/70 bg-card/35 p-4 text-card-foreground">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           {showProviderLabel ? (
@@ -220,7 +219,7 @@ function ClaudeRateLimitsCard({
           Claude rate limit data is not available yet. Click Update to try again.
         </p>
       )}
-    </Card>
+    </div>
   );
 }
 
@@ -279,12 +278,12 @@ export function StatusPage() {
   }, [isRefreshing, primaryEnvironmentId, refreshProviders, statusProviders]);
 
   return (
-    <SidebarInset className="isolate h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
+    <SidebarInset className="isolate h-dvh min-h-0 overflow-hidden overscroll-y-none">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
         {!isElectron ? (
           <header
             className={cn(
-              "workspace-topbar px-3 transition-[padding-left] duration-200 ease-linear motion-reduce:transition-none sm:px-5",
+              "flex h-(--workspace-topbar-height) shrink-0 items-center px-3 transition-[padding-left] duration-200 ease-linear motion-reduce:transition-none sm:px-5",
               COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
             )}
           >
@@ -295,7 +294,7 @@ export function StatusPage() {
         ) : (
           <div
             className={cn(
-              "drag-region flex h-[52px] shrink-0 items-center px-5 transition-[padding-left] duration-200 ease-linear motion-reduce:transition-none wco:h-[env(titlebar-area-height)] wco:pr-[calc(100vw-env(titlebar-area-width)-env(titlebar-area-x)+1em)]",
+              "drag-region flex h-[52px] shrink-0 items-center px-5 transition-[padding-left] duration-200 ease-linear motion-reduce:transition-none wco:h-[env(titlebar-area-height)] wco:wco-titlebar-padding",
               COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
             )}
           >

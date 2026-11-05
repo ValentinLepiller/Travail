@@ -15,16 +15,11 @@ import {
   createEnvironmentRpcSubscriptionAtomFamily,
   createRuntimeCommand,
   runInEnvironment,
+  withRpcPermissionGuard,
 } from "./runtime.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import * as Persistence from "../platform/persistence.ts";
-import {
-  config as environmentConfig,
-  requestGuarded,
-  RpcPermissionGuard,
-  runStream,
-} from "../rpc/client.ts";
-import { createCommandPermissions } from "./commandPermissions.ts";
+import { config as environmentConfig, requestGuarded, runStream } from "../rpc/client.ts";
 import { vcsCommandConcurrency, vcsCommandScheduler } from "./vcsCommandScheduler.ts";
 import { invalidateCachedVcsRefs } from "./vcsRefInvalidation.ts";
 import { consumeSshPromptedOperation } from "./sshPasswordPrompts.ts";
@@ -76,12 +71,7 @@ export function createSourceControlEnvironmentAtoms<R, E>(
               runStream(WS_METHODS.sourceControlCloneRepositoryWithPrompts, target.input),
               onSshPasswordPrompt,
             );
-          }).pipe(
-            Effect.provideService(RpcPermissionGuard, {
-              authorize: (id, method, payload) =>
-                createCommandPermissions(runtime, method).authorize(registry, id, payload),
-            }),
-          ),
+          }).pipe(withRpcPermissionGuard(runtime, registry)),
         ),
     }),
     // Clone-backed project creation. The RPC returns once the project exists
@@ -154,12 +144,7 @@ export function createSourceControlEnvironmentAtoms<R, E>(
               runStream(WS_METHODS.sourceControlPublishRepositoryWithPrompts, target.input),
               onSshPasswordPrompt,
             );
-          }).pipe(
-            Effect.provideService(RpcPermissionGuard, {
-              authorize: (id, method, payload) =>
-                createCommandPermissions(runtime, method).authorize(registry, id, payload),
-            }),
-          ),
+          }).pipe(withRpcPermissionGuard(runtime, registry)),
         ).pipe(
           Effect.ensuring(
             invalidateCachedVcsRefs(registry, {

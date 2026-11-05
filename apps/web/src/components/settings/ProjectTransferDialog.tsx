@@ -167,149 +167,155 @@ export function ProjectTransferDialog({
               intact.
             </DialogDescription>
           </DialogHeader>
-          <DialogPanel className="space-y-5">
-            <div className="grid gap-1.5">
-              <Label htmlFor="transfer-source">Source checkout</Label>
-              <Select
-                disabled={busy}
-                value={source?.physicalProjectKey ?? ""}
-                onValueChange={(value) => {
-                  if (!value) return;
-                  setSourceKey(value);
-                  const next = sources.find((item) => item.physicalProjectKey === value);
-                  if (!next?.repositoryIdentity) setMode("copy");
-                  if (next?.environmentId === target) setTarget("");
-                }}
-              >
-                <SelectTrigger id="transfer-source">
-                  <SelectValue>
-                    {source ? machineLabel(source.environmentId) : "Choose a checkout"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectPopup>
-                  {sources.map((item) => (
-                    <SelectItem key={item.physicalProjectKey} value={item.physicalProjectKey}>
-                      <span className="min-w-0">
-                        <span className="block">{machineLabel(item.environmentId)}</span>
-                        <span className="block break-all text-xs text-muted-foreground">
-                          {item.workspaceRoot}
+          <DialogPanel>
+            <div className="space-y-5">
+              <div className="grid gap-1.5">
+                <Label htmlFor="transfer-source">Source checkout</Label>
+                <Select
+                  disabled={busy}
+                  value={source?.physicalProjectKey ?? ""}
+                  onValueChange={(value) => {
+                    if (!value) return;
+                    setSourceKey(value);
+                    const next = sources.find((item) => item.physicalProjectKey === value);
+                    if (!next?.repositoryIdentity) setMode("copy");
+                    if (next?.environmentId === target) setTarget("");
+                  }}
+                >
+                  <SelectTrigger id="transfer-source">
+                    <SelectValue>
+                      {source ? machineLabel(source.environmentId) : "Choose a checkout"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup>
+                    {sources.map((item) => (
+                      <SelectItem key={item.physicalProjectKey} value={item.physicalProjectKey}>
+                        <span className="min-w-0">
+                          <span className="block">{machineLabel(item.environmentId)}</span>
+                          <span className="block break-all text-xs text-muted-foreground">
+                            {item.workspaceRoot}
+                          </span>
                         </span>
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
-              <p className="break-all text-xs text-muted-foreground">{source?.workspaceRoot}</p>
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="transfer-target">Destination machine</Label>
-              <Select
-                disabled={busy || destinationId !== undefined}
-                value={target || null}
-                onValueChange={(value) => setTarget(value ?? "")}
-              >
-                <SelectTrigger id="transfer-target">
-                  <SelectValue placeholder="Choose a machine">
-                    {target ? machineLabel(target) : undefined}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectPopup>
-                  {destinations.map((item) => (
-                    <SelectItem key={item.environmentId} value={item.environmentId}>
-                      {machineLabel(item.environmentId)}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
-              {target && !ready && (
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+                <p className="break-all text-xs text-muted-foreground">{source?.workspaceRoot}</p>
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="transfer-target">Destination machine</Label>
+                <Select
+                  disabled={busy || destinationId !== undefined}
+                  value={target || null}
+                  onValueChange={(value) => setTarget(value ?? "")}
+                >
+                  <SelectTrigger id="transfer-target">
+                    <SelectValue placeholder="Choose a machine">
+                      {target ? machineLabel(target) : undefined}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup>
+                    {destinations.map((item) => (
+                      <SelectItem key={item.environmentId} value={item.environmentId}>
+                        {machineLabel(item.environmentId)}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+                {target && !ready && (
+                  <p className="text-xs text-muted-foreground">
+                    Connect both machines using a version of {APP_BASE_NAME} that supports project
+                    copying.
+                  </p>
+                )}
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="transfer-path">Destination folder</Label>
+                <div className="flex gap-2">
+                  <Input
+                    className="min-w-0 flex-1"
+                    id="transfer-path"
+                    value={destinationPath}
+                    disabled={busy}
+                    placeholder="~/code/my-project"
+                    onChange={(event) => setDestinationPath(event.target.value)}
+                  />
+                  <Button
+                    variant="outline"
+                    disabled={busy || !ready}
+                    onClick={() => setBrowsing(true)}
+                  >
+                    Browse…
+                  </Button>
+                </div>
                 <p className="text-xs text-muted-foreground">
-                  Connect both machines using a version of {APP_BASE_NAME} that supports project
-                  copying.
+                  Browse for a parent folder, then name the new folder in the path above.
+                </p>
+              </div>
+              <fieldset className="space-y-3">
+                <legend className="mb-3 text-sm font-medium">Checkout</legend>
+                <RadioGroup
+                  disabled={busy}
+                  value={mode}
+                  onValueChange={(value) => setMode(value as ProjectTransferMode)}
+                >
+                  <label className="flex items-start gap-3 text-sm">
+                    <Radio
+                      value="clone"
+                      disabled={!source?.repositoryIdentity}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      Fresh checkout
+                      <span className="block text-xs leading-relaxed text-muted-foreground">
+                        {source?.repositoryIdentity
+                          ? "Clone the default branch without local changes."
+                          : "Requires a Git repository with a remote."}
+                      </span>
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-3 text-sm">
+                    <Radio value="copy" className="mt-0.5" />
+                    <span>
+                      One-time copy
+                      <span className="block text-xs leading-relaxed text-muted-foreground">
+                        Keep current files, Git history and uncommitted changes.
+                      </span>
+                    </span>
+                  </label>
+                </RadioGroup>
+                {mode === "copy" && (
+                  <label className="flex items-start gap-3 text-sm">
+                    <Checkbox
+                      disabled={busy}
+                      checked={includeIgnored}
+                      onCheckedChange={setIncludeIgnored}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      Include ignored files
+                      <span className="block text-xs leading-relaxed text-muted-foreground">
+                        Includes .env and dependencies. Pause edits during the copy (up to 10 GB).
+                      </span>
+                    </span>
+                  </label>
+                )}
+              </fieldset>
+              <p className="text-xs text-muted-foreground">
+                Project settings and actions are included. Conversations and provider credentials
+                stay on the source.
+              </p>
+              {progress && (
+                <p role="status" className="text-sm">
+                  {progress}
+                </p>
+              )}
+              {error && (
+                <p role="alert" className="break-words text-sm text-destructive">
+                  {error}
                 </p>
               )}
             </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="transfer-path">Destination folder</Label>
-              <div className="flex gap-2">
-                <Input
-                  className="min-w-0 flex-1"
-                  id="transfer-path"
-                  value={destinationPath}
-                  disabled={busy}
-                  placeholder="~/code/my-project"
-                  onChange={(event) => setDestinationPath(event.target.value)}
-                />
-                <Button
-                  variant="outline"
-                  disabled={busy || !ready}
-                  onClick={() => setBrowsing(true)}
-                >
-                  Browse…
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Browse for a parent folder, then name the new folder in the path above.
-              </p>
-            </div>
-            <fieldset className="space-y-3">
-              <legend className="mb-3 text-sm font-medium">Checkout</legend>
-              <RadioGroup
-                disabled={busy}
-                value={mode}
-                onValueChange={(value) => setMode(value as ProjectTransferMode)}
-              >
-                <label className="flex items-start gap-3 text-sm">
-                  <Radio value="clone" disabled={!source?.repositoryIdentity} className="mt-0.5" />
-                  <span>
-                    Fresh checkout
-                    <span className="block text-xs leading-relaxed text-muted-foreground">
-                      {source?.repositoryIdentity
-                        ? "Clone the default branch without local changes."
-                        : "Requires a Git repository with a remote."}
-                    </span>
-                  </span>
-                </label>
-                <label className="flex items-start gap-3 text-sm">
-                  <Radio value="copy" className="mt-0.5" />
-                  <span>
-                    One-time copy
-                    <span className="block text-xs leading-relaxed text-muted-foreground">
-                      Keep current files, Git history and uncommitted changes.
-                    </span>
-                  </span>
-                </label>
-              </RadioGroup>
-              {mode === "copy" && (
-                <label className="flex items-start gap-3 text-sm">
-                  <Checkbox
-                    disabled={busy}
-                    checked={includeIgnored}
-                    onCheckedChange={setIncludeIgnored}
-                    className="mt-0.5"
-                  />
-                  <span>
-                    Include ignored files
-                    <span className="block text-xs leading-relaxed text-muted-foreground">
-                      Includes .env and dependencies. Pause edits during the copy (up to 10 GB).
-                    </span>
-                  </span>
-                </label>
-              )}
-            </fieldset>
-            <p className="text-xs text-muted-foreground">
-              Project settings and actions are included. Conversations and provider credentials stay
-              on the source.
-            </p>
-            {progress && (
-              <p role="status" className="text-sm">
-                {progress}
-              </p>
-            )}
-            {error && (
-              <p role="alert" className="break-words text-sm text-destructive">
-                {error}
-              </p>
-            )}
           </DialogPanel>
           <DialogFooter>
             <Button

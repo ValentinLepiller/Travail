@@ -15,6 +15,8 @@ const buttonVariants = cva(
       variant: "default",
     },
     variants: {
+      shape: { circle: "rounded-full before:rounded-full" },
+      elevation: { floating: "shadow-lg" },
       size: {
         compact:
           "h-7 gap-1 rounded-md px-[calc(--spacing(2)-1px)] text-xs before:rounded-[calc(var(--radius-md)-1px)] [&_svg:not([class*='size-'])]:size-3.5",
@@ -51,6 +53,15 @@ const buttonVariants = cva(
           "[--control-icon-color:currentColor] border-transparent text-muted-foreground data-pressed:bg-accent [:hover,[data-pressed]]:bg-accent [:hover,[data-pressed]]:text-foreground",
         "ghost-destructive":
           "[--control-icon-color:currentColor] border-transparent text-muted-foreground data-pressed:bg-accent [:hover,[data-pressed]]:bg-accent [:hover,[data-pressed]]:text-destructive",
+        "ghost-primary":
+          "border-transparent bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+        "ghost-danger":
+          "border-transparent text-destructive hover:text-destructive hover:bg-accent",
+        favorite: "border-transparent text-warning hover:text-warning-foreground hover:bg-accent",
+        "favorite-muted":
+          "border-transparent text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent",
+        "message-action":
+          "border-transparent bg-message-action text-message-action-foreground hover:bg-message-action-hover",
         glass:
           "surface-glass [--control-icon-color:var(--contrast-muted-foreground)] rounded-full border-border/60 text-foreground shadow-sm before:rounded-full [:hover,[data-pressed]]:border-border",
         link: "border-transparent underline-offset-4 [:hover,[data-pressed]]:underline",
@@ -74,17 +85,19 @@ type ButtonVariant = NonNullable<VariantProps<typeof buttonVariants>["variant"]>
 type ButtonSize = NonNullable<VariantProps<typeof buttonVariants>["size"]>;
 
 interface ButtonProps extends useRender.ComponentProps<"button"> {
+  shape?: VariantProps<typeof buttonVariants>["shape"];
+  elevation?: VariantProps<typeof buttonVariants>["elevation"];
   variant?: ButtonVariant;
   size?: ButtonSize;
 }
 
-function Button({ className, variant, size, render, ...props }: ButtonProps) {
+function Button({ className, variant, size, shape, elevation, render, ...props }: ButtonProps) {
   const typeValue: React.ButtonHTMLAttributes<HTMLButtonElement>["type"] = render
     ? undefined
     : "button";
 
   const defaultProps = {
-    className: cn(buttonVariants({ className, size, variant })),
+    className: cn(buttonVariants({ className, size, variant, shape, elevation })),
     "data-slot": "button",
     type: typeValue,
   };

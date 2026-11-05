@@ -18,7 +18,7 @@ function isToolEntry(kind: VoiceTraceEntry["kind"]): boolean {
 
 function TraceTime({ timestamp }: { readonly timestamp: VoiceTraceEntry["timestamp"] }) {
   return (
-    <time className="ml-auto shrink-0 font-normal text-[10px] text-muted-foreground">
+    <time className="ml-auto shrink-0 font-normal text-3xs text-muted-foreground">
       {new Date(timestamp).toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit",
@@ -37,7 +37,7 @@ function TraceContent({ entry }: { readonly entry: VoiceTraceEntry }) {
         </p>
       ) : null}
       {entry.details ? (
-        <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words border-l border-border/70 pl-3 font-mono text-[10px] leading-relaxed text-muted-foreground">
+        <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words border-l border-border/70 pl-3 font-mono text-3xs leading-relaxed text-muted-foreground">
           {entry.details}
         </pre>
       ) : null}
@@ -133,7 +133,7 @@ export function VoiceTraceTimeline({
             <div className="flex items-center gap-1.5 font-medium">
               <BotIcon className="size-3.5" />
               OpenAI
-              <span className="ml-auto text-[10px] font-normal text-muted-foreground">Live</span>
+              <span className="ml-auto text-3xs font-normal text-muted-foreground">Live</span>
             </div>
             <p className="mt-1.5 whitespace-pre-wrap break-words leading-relaxed text-foreground/75">
               {streamingAssistantText}

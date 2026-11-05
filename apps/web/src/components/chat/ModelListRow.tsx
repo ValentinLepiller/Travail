@@ -79,7 +79,7 @@ export const ModelListRow = memo(function ModelListRow(props: {
           ) : null}
           {props.isHandoff ? (
             <span
-              className="shrink-0 rounded border border-primary/30 bg-primary/10 px-1 py-0.5 text-[10px] font-medium leading-none text-primary"
+              className="shrink-0 rounded border border-primary/30 bg-primary/10 px-1 py-0.5 text-3xs font-medium leading-none text-primary"
               aria-label="Handoff to new thread"
             >
               Handoff

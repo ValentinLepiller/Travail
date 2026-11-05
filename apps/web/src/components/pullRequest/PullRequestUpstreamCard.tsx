@@ -154,7 +154,7 @@ function PullRequestUpstreamCardImpl({
         <p className="line-clamp-1 text-xs text-muted-foreground">{reason}</p>
       ) : null}
 
-      <div className="mt-auto flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+      <div className="mt-auto flex min-w-0 items-center gap-1.5 text-2xs text-muted-foreground">
         <span className="shrink-0">#{entry.number}</span>
         {entry.author ? (
           <>

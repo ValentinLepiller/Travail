@@ -18,12 +18,9 @@ export function SearchOptionButton(props: {
           <Toggle
             aria-label={props.label}
             pressed={props.active}
-            className={cn(
-              "size-8 rounded-[5px] font-mono text-muted-foreground data-pressed:text-foreground sm:size-7",
-              props.className,
-            )}
+            className={cn("size-8 sm:size-7", props.className)}
             size="compact"
-            variant="ghost"
+            variant="search"
             onClick={props.onClick}
             disabled={props.disabled}
           />

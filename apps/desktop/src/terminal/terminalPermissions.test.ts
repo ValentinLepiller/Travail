@@ -31,13 +31,13 @@ function permissionSpawner(exitCode: Effect.Effect<ChildProcessSpawner.ExitCode>
 const exit = (code: number) => Effect.succeed(ChildProcessSpawner.ExitCode(code));
 
 describe("terminal permissions", () => {
-  for (const terminal of ["system", "terminal", "iterm2"] as const) {
-    it.effect(`waits for ${terminal} permission to succeed`, () =>
+  it.effect.each(["system", "terminal", "iterm2"] as const)(
+    "waits for %s permission to succeed",
+    (terminal) =>
       requestTerminalPermission(terminal, "darwin").pipe(
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, permissionSpawner(exit(0))),
       ),
-    );
-  }
+  );
 
   it.effect("does not ask for Automation permission for Ghostty or non-macOS terminals", () =>
     Effect.all([

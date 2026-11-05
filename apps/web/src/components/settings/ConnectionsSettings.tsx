@@ -1475,7 +1475,7 @@ function EnvironmentLabelControl({
   environmentLabels,
   canRename,
   showValue = false,
-  valueClassName = "text-[13px] text-muted-foreground",
+  valueClassName = "text-sm text-muted-foreground",
   valueElement: ValueElement = "span",
 }: {
   readonly environmentId: EnvironmentId;
@@ -3424,7 +3424,7 @@ export function ConnectionsSettings() {
         <label className="flex items-start justify-between gap-4 rounded-md border border-border/60 px-3 py-2.5">
           <span className="min-w-0">
             <span className="block text-xs font-medium text-foreground">Forward SSH agent</span>
-            <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">
+            <span className="mt-0.5 block text-2xs leading-4 text-muted-foreground">
               Let Git and signing commands on this trusted host use your local SSH agent, including
               1Password.
             </span>

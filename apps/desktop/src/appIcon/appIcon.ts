@@ -1,3 +1,4 @@
+import * as HostProcess from "@t3tools/shared/HostProcess";
 // @effect-diagnostics nodeBuiltinImport:off - resolves icon files on disk from the Electron main process, outside any Effect runtime.
 /**
  * Runtime app icon.
@@ -87,7 +88,7 @@ export function applyAppIcon(input: {
         })();
   if (icon === null || icon.isEmpty()) return false;
 
-  if (process.platform === "darwin") {
+  if (HostProcess.Platform.defaultValue() === "darwin") {
     try {
       Electron.app.dock?.setIcon(icon);
       return true;

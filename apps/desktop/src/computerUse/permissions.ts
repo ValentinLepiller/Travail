@@ -1,3 +1,4 @@
+import * as HostProcess from "@t3tools/shared/HostProcess";
 // @effect-diagnostics nodeBuiltinImport:off - Sync Chrome preference reads for IPC must stay off the Effect runtime.
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
@@ -20,7 +21,7 @@ import { resolveChromeExtensionDirSync } from "../computerHistory/resolveBinary.
 import { ensureChromeNativeHostRegistered } from "./nativeHost.ts";
 
 function platformTag(): DesktopComputerUsePermissionsState["platform"] {
-  switch (process.platform) {
+  switch (HostProcess.Platform.defaultValue()) {
     case "darwin":
       return "darwin";
     case "win32":
@@ -61,7 +62,7 @@ function accessibilityStatus(): DesktopComputerUsePermission["status"] {
 
 function chromeProfileRoots(): string[] {
   const home = NodeOS.homedir();
-  switch (process.platform) {
+  switch (HostProcess.Platform.defaultValue()) {
     case "darwin":
       return [
         NodePath.join(home, "Library/Application Support/Google/Chrome"),
@@ -180,7 +181,8 @@ function resolveChromeExtensionStatus(): {
   detail: string;
 } {
   let sawChrome = false;
-  let hostRegistered = process.platform === "win32" && nativeHostRegisteredWindows();
+  let hostRegistered =
+    HostProcess.Platform.defaultValue() === "win32" && nativeHostRegisteredWindows();
 
   for (const root of chromeProfileRoots()) {
     try {
@@ -310,7 +312,7 @@ function privacySettingsUrl(pane: DesktopComputerUsePrivacyPane): string {
 export async function openComputerUsePrivacySettings(
   pane: DesktopComputerUsePrivacyPane,
 ): Promise<boolean> {
-  if (process.platform !== "darwin") {
+  if (HostProcess.Platform.defaultValue() !== "darwin") {
     return false;
   }
 

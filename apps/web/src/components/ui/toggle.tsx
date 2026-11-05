@@ -24,6 +24,8 @@ const toggleVariants = cva(
         xs: "h-7 min-w-7 px-[calc(--spacing(1)-1px)] sm:h-6 sm:min-w-6 rounded-md",
       },
       variant: {
+        search:
+          "border-transparent rounded-md font-mono text-muted-foreground data-pressed:text-foreground shadow-none before:shadow-none hover:bg-accent data-pressed:bg-accent",
         default: "border-transparent",
         pill: "border-transparent rounded-full px-3 font-normal text-muted-foreground data-pressed:text-foreground",
         ghost:

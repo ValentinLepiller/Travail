@@ -1,4 +1,5 @@
-"use client";
+import { observeResize } from "../../lib/observeResize";
+("use client");
 
 import {
   COMPUTER_VIEW_MAX_WIDTH_LIMIT,
@@ -331,7 +332,7 @@ export const ComputerViewDialog = memo(function ComputerViewDialog({
     const container = containerRef.current;
     if (container === null) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    const observer = new ResizeObserver((entries) => {
+    const stopObserving = observeResize(container, (entries) => {
       const width = entries[0]?.contentRect.width ?? 0;
       if (width <= 0) return;
       if (timer !== null) clearTimeout(timer);
@@ -340,10 +341,9 @@ export const ComputerViewDialog = memo(function ComputerViewDialog({
         setContainerWidth(width);
       }, 400);
     });
-    observer.observe(container);
     return () => {
       if (timer !== null) clearTimeout(timer);
-      observer.disconnect();
+      stopObserving();
     };
   }, []);
 
@@ -497,10 +497,7 @@ export const ComputerViewDialog = memo(function ComputerViewDialog({
         height: surface.offsetHeight,
       });
     update();
-    const observer = new ResizeObserver(update);
-    observer.observe(surface);
-    observer.observe(container);
-    return () => observer.disconnect();
+    return observeResize([surface, container], update);
   }, [hasFrame]);
   const remoteCursor = view?.cursor ?? null;
   // Like any remote desktop, the pointer over the picture is the remote
@@ -647,7 +644,7 @@ export const ComputerViewDialog = memo(function ComputerViewDialog({
         <div
           ref={containerRef}
           className={cn(
-            "relative flex min-h-0 min-w-0 flex-1 bg-black",
+            "relative flex min-h-0 min-w-0 flex-1 bg-black scrollbar-gutter-both",
             settings.scaleToFit ? "items-center justify-center p-3 pt-0" : "overflow-auto",
           )}
         >
@@ -823,7 +820,7 @@ function ComputerViewOptions({
       ref={panelRef}
       role="region"
       aria-label="Computer View options"
-      className="flex w-80 shrink-0 flex-col overflow-y-auto border-l border-white/10 bg-black text-sm text-white/80"
+      className="flex w-80 shrink-0 flex-col overflow-y-auto scrollbar-gutter-both border-l border-white/10 bg-black text-sm text-white/80"
     >
       <div className="flex items-center justify-between px-4 pt-3 pb-1">
         <span className="font-medium text-white">Options</span>

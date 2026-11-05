@@ -2564,7 +2564,7 @@ function PullRequestsRouteView() {
       ) : null}
 
       {rankingError !== null ? (
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs">
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs">
           {/* Named rather than swallowed: ranking is a model call, and the usual reason it does
               not answer is a limit on the model doing the judging — which the reader can only act
               on if they are told. The rows are still shown, in the order they came in. */}

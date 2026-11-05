@@ -149,8 +149,9 @@ describe("saved Codex agent history", () => {
     }),
   );
 
-  for (const scenario of ["unrelated", "cycle", "parent"] as const) {
-    it.effect(`rejects ${scenario} without loading conversation content`, () =>
+  it.effect.each(["unrelated", "cycle", "parent"] as const)(
+    "rejects %s without loading conversation content",
+    (scenario) =>
       Effect.gen(function* () {
         const calls: boolean[] = [];
         const result = yield* readCodexAgentHistory({
@@ -166,8 +167,7 @@ describe("saved Codex agent history", () => {
         expect(result.entries).toEqual([]);
         expect(calls).not.toContain(true);
       }),
-    );
-  }
+  );
 
   it.effect("rejects a descendant of an unrelated parent thread", () =>
     Effect.gen(function* () {

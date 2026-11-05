@@ -486,8 +486,9 @@ describe("GitHubSourceControlProvider writes", () => {
   });
 
   // MT Code: the "create pull requests as draft" setting rides on the REST body.
-  for (const draft of [undefined, false, true]) {
-    it.effect(`creates GitHub pull requests with draft=${draft}`, () => {
+  it.effect.each([undefined, false, true])(
+    "creates GitHub pull requests with draft=%s",
+    (draft) => {
       const requests: Array<GitHubApi.GitHubRestInput> = [];
       const { layer } = harness({
         remotes: remotesOutput(["origin", "git@github.com:acme/web.git"]),
@@ -521,8 +522,8 @@ describe("GitHubSourceControlProvider writes", () => {
           ...(draft === true ? { draft: true } : {}),
         });
       }).pipe(Effect.provide(Layer.merge(layer, NodeServices.layer)), Effect.scoped);
-    });
-  }
+    },
+  );
 
   it.effect("creates a repository under an organization the viewer is not", () => {
     const requests: Array<string> = [];

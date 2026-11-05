@@ -1,8 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off
 // @effect-diagnostics globalDate:off
 import { describe, expect, it } from "vite-plus/test";
-import * as NodeFs from "node:fs/promises";
-import * as NodeOs from "node:os";
+import * as NodeFSP from "node:fs/promises";
+import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import type { ComputerHistoryEvent } from "./events.ts";
@@ -93,14 +93,14 @@ describe("computer history summarizer", () => {
 
 describe("computer history store", () => {
   it("summarizes closed segments, lists timeline, mirrors, and clears", async () => {
-    const root = await NodeFs.mkdtemp(NodePath.join(NodeOs.tmpdir(), "t3-ch-"));
-    const codexHome = await NodeFs.mkdtemp(NodePath.join(NodeOs.tmpdir(), "t3-codex-"));
+    const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-ch-"));
+    const codexHome = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-codex-"));
     await ensureComputerHistoryLayout(root);
 
     const startedAt = new Date(Date.now() - 15 * 60 * 1000);
     const segmentId = startedAt.toISOString().replaceAll(":", "-");
     const segmentDir = NodePath.join(computerHistorySegmentsDir(root), segmentId);
-    await NodeFs.mkdir(segmentDir, { recursive: true });
+    await NodeFSP.mkdir(segmentDir, { recursive: true });
     const events: ComputerHistoryEvent[] = [
       event({
         id: "a",
@@ -117,12 +117,12 @@ describe("computer history store", () => {
         text: "ls",
       }),
     ];
-    await NodeFs.writeFile(
+    await NodeFSP.writeFile(
       NodePath.join(segmentDir, "events.jsonl"),
       events.map((item) => JSON.stringify(item)).join("\n"),
       "utf8",
     );
-    await NodeFs.writeFile(
+    await NodeFSP.writeFile(
       NodePath.join(segmentDir, "metadata.json"),
       JSON.stringify({
         sessionID: "s1",
@@ -147,7 +147,7 @@ describe("computer history store", () => {
     expect(timeline.items.length).toBeGreaterThanOrEqual(1);
     expect(timeline.items[0]?.applications).toContain("com.apple.Terminal");
 
-    const mirrored = await NodeFs.readdir(
+    const mirrored = await NodeFSP.readdir(
       NodePath.join(codexHome, "memories", "extensions", "skysight", "resources"),
     );
     expect(mirrored.some((name) => name.endsWith(".md"))).toBe(true);
@@ -158,15 +158,15 @@ describe("computer history store", () => {
     await clearHistory(root, "all", { codexHome });
     const cleared = await listTimeline(root);
     expect(cleared.items).toEqual([]);
-    const resources = await NodeFs.readdir(computerHistoryResourcesDir(root));
+    const resources = await NodeFSP.readdir(computerHistoryResourcesDir(root));
     expect(resources.filter((name) => name.endsWith(".md"))).toEqual([]);
   });
 
   it("writes memory files under resources", async () => {
-    const root = await NodeFs.mkdtemp(NodePath.join(NodeOs.tmpdir(), "t3-ch-write-"));
+    const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-ch-write-"));
     await ensureComputerHistoryLayout(root);
     const path = await writeMemoryFile(root, "# hi\n", "test.md", { mirrorToCodex: false });
     expect(path.endsWith("test.md")).toBe(true);
-    expect(await NodeFs.readFile(path, "utf8")).toBe("# hi\n");
+    expect(await NodeFSP.readFile(path, "utf8")).toBe("# hi\n");
   });
 });

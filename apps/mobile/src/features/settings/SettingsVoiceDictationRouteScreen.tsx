@@ -5,7 +5,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppText as Text } from "../../components/AppText";
 import { SymbolView } from "../../components/AppSymbol";
-import { useThemeColor } from "../../lib/useThemeColor";
 import {
   MOBILE_VOICE_TRANSCRIPTION_PROVIDERS,
   mobileVoiceTranscriptionProviderConfig,
@@ -35,9 +34,6 @@ export function SettingsVoiceDictationRouteScreen() {
   const [draftProviders, setDraftProviders] =
     useState<MobileVoiceTranscriptionProviderSettingsMap>(EMPTY_PROVIDER_SETTINGS);
   const [draftInitialized, setDraftInitialized] = useState(false);
-  const foreground = useThemeColor("--color-foreground");
-  const placeholder = useThemeColor("--color-foreground-muted");
-  const checkmarkColor = useThemeColor("--color-icon");
   const providerConfig = mobileVoiceTranscriptionProviderConfig(draftProvider);
   const providerSettings = draftProviders[draftProvider];
 
@@ -119,7 +115,7 @@ export function SettingsVoiceDictationRouteScreen() {
                 <SymbolView
                   name="checkmark"
                   size={18}
-                  tintColor={checkmarkColor}
+                  tintColorClassName="accent-icon"
                   type="monochrome"
                   weight="semibold"
                 />
@@ -135,12 +131,10 @@ export function SettingsVoiceDictationRouteScreen() {
               autoCorrect={false}
               editable={settings.loaded && !settings.saving}
               placeholder={draftProvider === "openai" ? "sk-…" : "gsk_…"}
-              placeholderTextColor={placeholder}
               secureTextEntry
               value={providerSettings.apiKey}
               onChangeText={(apiKey) => updateSelectedProvider({ apiKey })}
-              className="rounded-xl bg-subtle px-4 py-3 text-base"
-              style={{ color: foreground }}
+              className="rounded-xl bg-subtle px-4 py-3 text-base text-foreground placeholder:text-foreground-muted"
               accessibilityLabel={`${providerConfig.label} API key for voice dictation`}
             />
           </View>
@@ -156,11 +150,9 @@ export function SettingsVoiceDictationRouteScreen() {
               autoCorrect={false}
               editable={settings.loaded && !settings.saving}
               placeholder={providerConfig.defaultModel}
-              placeholderTextColor={placeholder}
               value={providerSettings.model}
               onChangeText={(model) => updateSelectedProvider({ model })}
-              className="rounded-xl bg-subtle px-4 py-3 text-base"
-              style={{ color: foreground }}
+              className="rounded-xl bg-subtle px-4 py-3 text-base text-foreground placeholder:text-foreground-muted"
               accessibilityLabel="Voice transcription model ID"
             />
           </View>
@@ -184,7 +176,7 @@ export function SettingsVoiceDictationRouteScreen() {
                 <SymbolView
                   name="checkmark"
                   size={18}
-                  tintColor={checkmarkColor}
+                  tintColorClassName="accent-icon"
                   type="monochrome"
                   weight="semibold"
                 />

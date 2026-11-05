@@ -1,4 +1,5 @@
-import { GitMergeIcon, LoaderIcon } from "lucide-react";
+import { LoaderIcon } from "lucide-react";
+import { PullRequestGlyph } from "./pullRequestIcons";
 import { memo } from "react";
 
 import { formatRelativeTimeLabel } from "~/timestampFormat";
@@ -37,7 +38,7 @@ function PullRequestUpstreamReleaseBannerImpl({
 }: PullRequestUpstreamReleaseBannerProps) {
   return (
     <div className="flex min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-card px-3 py-2">
-      <GitMergeIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+      <PullRequestGlyph.merged aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
       <Tooltip>
         <TooltipTrigger
           render={
@@ -55,7 +56,7 @@ function PullRequestUpstreamReleaseBannerImpl({
         <TooltipPopup>{name ?? tagName}</TooltipPopup>
       </Tooltip>
       {isPrerelease ? (
-        <span className="shrink-0 rounded border border-border/60 px-1 text-[10px] text-muted-foreground">
+        <span className="shrink-0 rounded border border-border/60 px-1 text-3xs text-muted-foreground">
           nightly
         </span>
       ) : null}

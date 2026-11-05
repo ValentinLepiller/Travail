@@ -180,7 +180,7 @@ export function SshPasswordRequestDialog({
             passed to the SSH process for this attempt and is not saved by ${APP_DISPLAY_NAME}.
           </DialogDescription>
         </DialogHeader>
-        <DialogPanel className="space-y-3" scrollFade={false}>
+        <DialogPanel scrollFade={false}>
           <form
             className="space-y-3"
             id={formId}

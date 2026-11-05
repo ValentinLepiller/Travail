@@ -421,7 +421,7 @@ const GITHUB_ALERT_PRESENTATIONS: Record<
     label: "Tip",
     Icon: LightbulbIcon,
     borderClassName: "border-emerald-500/70",
-    titleClassName: "text-emerald-600 dark:text-emerald-400",
+    titleClassName: "text-success",
   },
   important: {
     label: "Important",
@@ -3209,7 +3209,7 @@ const CHAT_MARKDOWN_COMPONENTS = {
       // and MathML never produce matches the server did not count.
       const fallback = (
         <code
-          className={displayMath ? "chat-markdown-math-display" : "chat-markdown-math-inline"}
+          className={displayMath ? "chat-markdown-math-display" : ""}
           data-markdown-copy={displayMath ? `\n\n${source}\n\n` : source}
           data-thread-find-ignore
         >

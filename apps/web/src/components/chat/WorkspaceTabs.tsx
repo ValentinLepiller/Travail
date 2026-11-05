@@ -149,7 +149,7 @@ function ServerThreadTabItem({
           aria-label={fullLabel}
           aria-haspopup={isActive ? "menu" : undefined}
           onClick={handleActivationClick}
-          className="group/tab-trigger flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-sm text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+          className="group/tab-trigger flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-sm text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         >
           <ProjectFavicon
             project={{
@@ -174,20 +174,22 @@ function ServerThreadTabItem({
         </button>
       )}
 
-      <Button
-        size="icon-micro"
-        variant="ghost-muted"
-        aria-label={`Close ${title}`}
-        onClick={onClose}
+      <span
         className={cn(
-          "shrink-0",
           isActive
             ? "opacity-60 hover:opacity-100"
-            : "opacity-0 group-hover/tab:opacity-100 focus-visible:opacity-100",
+            : "opacity-0 group-hover/tab:opacity-100 focus-within:opacity-100",
         )}
       >
-        <X className="size-3" />
-      </Button>
+        <Button
+          size="icon-micro"
+          variant="ghost-muted"
+          aria-label={`Close ${title}`}
+          onClick={onClose}
+        >
+          <X className="size-3" />
+        </Button>
+      </span>
     </div>
   );
 }
@@ -449,9 +451,10 @@ export function WorkspaceTabs({
   return (
     <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden" data-workspace-tabs="">
       <ScrollArea
+        radius="none"
         hideScrollbars
         scrollFade
-        className="min-w-0 flex-1 rounded-none"
+        className="min-w-0 flex-1"
         data-workspace-tab-list=""
       >
         <div
@@ -468,7 +471,7 @@ export function WorkspaceTabs({
                   data-tab-key="new-thread"
                   onClick={onNewTab}
                   className={cn(
-                    "group/tab relative flex h-7 max-w-40 min-w-24 shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-md px-2.5 text-xs transition-colors duration-150 [-webkit-app-region:no-drag] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+                    "group/tab relative flex h-7 max-w-40 min-w-24 shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-md px-2.5 text-xs transition-colors duration-150 [-webkit-app-region:no-drag] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                     isDraftActive
                       ? "border border-border/80 bg-accent text-foreground shadow-2xs font-medium"
                       : "border border-transparent text-muted-foreground hover:bg-accent/60 hover:text-foreground",

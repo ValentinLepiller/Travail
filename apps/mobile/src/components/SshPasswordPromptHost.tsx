@@ -3,7 +3,7 @@ import { Modal, Pressable, View } from "react-native";
 
 import type { SourceControlSshPasswordPromptRequest } from "@t3tools/contracts";
 
-import { useThemeColor } from "../lib/useThemeColor";
+import { useUniwindTheme } from "../lib/useUniwindTheme";
 import { AppText, AppTextInput } from "./AppText";
 import { sshPasswordPromptBroker } from "./sshPasswordPromptBroker";
 import { getSshPasswordPromptTiming } from "./sshPasswordPromptTiming";
@@ -12,7 +12,7 @@ export function SshPasswordPromptHost() {
   const [prompt, setPrompt] = useState<SourceControlSshPasswordPromptRequest | null>(null);
   const [password, setPassword] = useState("");
   const [now, setNow] = useState(() => Date.now());
-  const pressedOverlay = useThemeColor("--color-subtle");
+  const pressedOverlay = useUniwindTheme()["--color-subtle"];
 
   useEffect(
     () =>

@@ -121,7 +121,7 @@ function PrivacyExclusionList({
             type="button"
             variant="outline"
             size="sm"
-            className="justify-start gap-1.5"
+            className="justify-start"
             disabled={disabled}
             onClick={() => setAdding(true)}
           >
@@ -190,28 +190,30 @@ function ComputerHistoryPrivacyDialog({
             Computer History is on.
           </DialogDescription>
         </DialogHeader>
-        <DialogPanel className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <PrivacyExclusionList
-              title="Exclude these apps"
-              addLabel="Add app"
-              placeholder="App name or bundle id"
-              items={draftApps}
-              onChange={setDraftApps}
-              disabled={disabled}
-            />
-            <PrivacyExclusionList
-              title="Exclude these websites"
-              addLabel="Add website"
-              placeholder="Hostname or URL fragment"
-              items={draftWebsites}
-              onChange={setDraftWebsites}
-              disabled={disabled}
-            />
+        <DialogPanel>
+          <div className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <PrivacyExclusionList
+                title="Exclude these apps"
+                addLabel="Add app"
+                placeholder="App name or bundle id"
+                items={draftApps}
+                onChange={setDraftApps}
+                disabled={disabled}
+              />
+              <PrivacyExclusionList
+                title="Exclude these websites"
+                addLabel="Add website"
+                placeholder="Hostname or URL fragment"
+                items={draftWebsites}
+                onChange={setDraftWebsites}
+                disabled={disabled}
+              />
+            </div>
+            <p className="text-muted-foreground text-xs leading-relaxed">
+              Private-mode web browsing activity is never included in computer history.
+            </p>
           </div>
-          <p className="text-muted-foreground text-xs leading-relaxed">
-            Private-mode web browsing activity is never included in computer history.
-          </p>
         </DialogPanel>
         <DialogFooter>
           <DialogClose render={<Button type="button" variant="outline" />}>Cancel</DialogClose>

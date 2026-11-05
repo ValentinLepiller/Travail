@@ -133,7 +133,12 @@ export function InlineVisualization(props: {
           ) : null}
         </div>
       ) : frameDocument === null ? (
-        <Skeleton className="h-96 rounded-none" role="status" aria-label="Loading visualization" />
+        <Skeleton
+          shape="square"
+          className="h-96 "
+          role="status"
+          aria-label="Loading visualization"
+        />
       ) : (
         <iframe
           ref={frameRef}

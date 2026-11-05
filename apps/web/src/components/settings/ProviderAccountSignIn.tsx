@@ -188,9 +188,9 @@ export function ProviderAccountSignIn({
       </Button>
       <Button
         type="button"
-        size="icon-xs"
-        variant="ghost"
-        className="size-6 shrink-0 rounded-sm p-0 text-muted-foreground hover:text-foreground"
+        size="icon-micro"
+        variant="ghost-muted"
+        className="size-6 shrink-0"
         onClick={() => copyToClipboard(url)}
         aria-label="Copy sign-in link"
       >
@@ -201,7 +201,7 @@ export function ProviderAccountSignIn({
 
   if (phase.status === "succeeded") {
     return (
-      <div className="flex items-center gap-1.5 text-[13px] text-success">
+      <div className="flex items-center gap-1.5 text-sm text-success">
         <CheckIcon className="size-3.5" aria-hidden />
         <span>Signed in. Refreshing account details…</span>
       </div>
@@ -218,8 +218,7 @@ export function ProviderAccountSignIn({
           <Button
             type="button"
             size="xs"
-            variant="ghost"
-            className="text-muted-foreground"
+            variant="ghost-muted"
             onClick={() => setShowSignInOptions(true)}
           >
             Sign in again
@@ -266,7 +265,7 @@ export function ProviderAccountSignIn({
       ) : null}
 
       {phase.status === "failed" ? (
-        <p className="text-[12px] leading-snug text-destructive">{phase.message}</p>
+        <p className="text-xs leading-snug text-destructive">{phase.message}</p>
       ) : null}
 
       {(phase.status === "idle" || phase.status === "failed") && showApiKey ? (
@@ -274,7 +273,8 @@ export function ProviderAccountSignIn({
           <div className="flex items-center gap-1.5">
             <Input
               type="password"
-              className="h-7 bg-background text-[13px]"
+              size="compact"
+              className="h-7"
               placeholder={keyHint.placeholder}
               value={apiKeyDraft}
               onChange={(event) => setApiKeyDraft(event.target.value)}
@@ -290,21 +290,21 @@ export function ProviderAccountSignIn({
               Save
             </Button>
           </div>
-          <span className="text-[11px] text-muted-foreground">{keyHint.description}</span>
+          <span className="text-2xs text-muted-foreground">{keyHint.description}</span>
         </div>
       ) : null}
 
       {busy ? (
         <div className="grid gap-2">
           {phase.status === "starting" ? (
-            <div className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
+            <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
               <LoaderIcon className="size-3.5 animate-spin" aria-hidden />
               <span>Starting sign-in…</span>
             </div>
           ) : null}
           {phase.status === "authUrl" ? (
             <div className="grid gap-1.5">
-              <p className="text-[13px] text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 Finish signing in to {accountLabel} in your browser. This completes on its own.
               </p>
               {openLinkNode(phase.url, "Open sign-in page")}
@@ -312,11 +312,11 @@ export function ProviderAccountSignIn({
           ) : null}
           {phase.status === "deviceCode" ? (
             <div className="grid gap-1.5">
-              <p className="text-[13px] text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 Open the link on any device and enter this code:
               </p>
               <div className="flex items-center gap-2">
-                <code className="rounded bg-muted/60 px-2 py-1 font-mono text-sm tracking-[0.2em] text-foreground">
+                <code className="rounded bg-muted/60 px-2 py-1 font-mono text-sm tracking-widest text-foreground">
                   {phase.userCode}
                 </code>
                 {openLinkNode(phase.url, "Open verification page")}
@@ -325,13 +325,15 @@ export function ProviderAccountSignIn({
           ) : null}
           {phase.status === "awaitingCode" ? (
             <div className="grid max-w-md gap-1.5">
-              <p className="text-[13px] text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 Authorize in the browser, then paste the code it gives you here.
               </p>
               {openLinkNode(phase.url, "Open sign-in page")}
               <div className="flex items-center gap-1.5">
                 <Input
-                  className="h-7 bg-background font-mono text-[13px]"
+                  size="compact"
+                  font="mono"
+                  className="h-7"
                   placeholder="Paste authorization code"
                   value={codeDraft}
                   onChange={(event) => setCodeDraft(event.target.value)}
@@ -355,13 +357,7 @@ export function ProviderAccountSignIn({
             </div>
           ) : null}
           <div>
-            <Button
-              type="button"
-              size="xs"
-              variant="ghost"
-              className={cn("text-muted-foreground")}
-              onClick={cancelLogin}
-            >
+            <Button type="button" size="xs" variant="ghost-muted" onClick={cancelLogin}>
               Cancel
             </Button>
           </div>
