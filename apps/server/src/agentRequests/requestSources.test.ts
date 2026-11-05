@@ -1,3 +1,4 @@
+import { taskImageTestLayer } from "../workTasks/WorkTaskService.testkit.ts";
 import { expect, it } from "@effect/vitest";
 import { AgentRequestCreate, ThreadId, type SlackTaskMessage } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -28,7 +29,10 @@ const message: SlackTaskMessage = {
   text: "Le message initial",
 };
 const taskId = `slack:${message.workspaceId}:${message.channelId}:${message.ts}`;
-const services = Layer.merge(Tasks.layer, Requests.layer).pipe(
+const services = Layer.merge(
+  Tasks.layer.pipe(Layer.provide(taskImageTestLayer)),
+  Requests.layer,
+).pipe(
   Layer.provide(
     Layer.succeed(RequestEffects.RequestEffects, {
       execute: () => Effect.die("must not execute"),

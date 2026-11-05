@@ -1,3 +1,4 @@
+import { ChatImageAttachment, PROVIDER_SEND_TURN_MAX_ATTACHMENTS } from "./chatAttachment.ts";
 import { WorkSource, WorkChantierSaveInput } from "./workChantier.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import * as Schema from "effect/Schema";
@@ -54,6 +55,9 @@ export const WorkTaskFields = Schema.Struct({
   acceptanceCriteria: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(10000))),
   typeId: Schema.optionalKey(Schema.NullOr(TrimmedNonEmptyString)),
   title: TrimmedNonEmptyString.check(Schema.isMaxLength(240)),
+  attachments: Schema.optionalKey(
+    Schema.Array(ChatImageAttachment).check(Schema.isMaxLength(PROVIDER_SEND_TURN_MAX_ATTACHMENTS)),
+  ),
   notes: Schema.String.check(Schema.isMaxLength(20_000)),
   status: WorkTaskStatus,
   projectId: Schema.NullOr(ProjectId),

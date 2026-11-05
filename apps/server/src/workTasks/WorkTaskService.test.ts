@@ -1,3 +1,13 @@
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
+import { ChatAttachmentId } from "@t3tools/contracts";
+import * as ServerConfig from "../config.ts";
+import {
+  createPendingAttachmentId,
+  resolveAttachmentPath,
+  sweepStalePendingAttachments,
+} from "../attachmentStore.ts";
+import { taskImageTestLayer } from "./WorkTaskService.testkit.ts";
 import * as Deferred from "effect/Deferred";
 import * as Stream from "effect/Stream";
 import { EventId, type OrchestrationV2DomainEvent } from "@t3tools/contracts";
@@ -82,7 +92,11 @@ it.effect(
         (yield* service.save({ ...otherTask, status: "todo", expectedVersion: otherTask.version }))
           .status,
       ).toBe("todo");
-    }).pipe(Effect.provide(Tasks.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
+    }).pipe(
+      Effect.provide(
+        Tasks.layer.pipe(Layer.provide(taskImageTestLayer), Layer.provideMerge(Sqlite.layerMemory)),
+      ),
+    ),
 );
 
 const qualificationFixture = Effect.gen(function* () {
@@ -147,7 +161,11 @@ it.effect(
           .save({ ...second, status: "ready", expectedVersion: second.version }, threadId)
           .pipe(Effect.flip)).reason,
       ).toBe("preparation");
-    }).pipe(Effect.provide(Tasks.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
+    }).pipe(
+      Effect.provide(
+        Tasks.layer.pipe(Layer.provide(taskImageTestLayer), Layer.provideMerge(Sqlite.layerMemory)),
+      ),
+    ),
 );
 
 it.effect.each([
@@ -215,7 +233,11 @@ it.effect.each([
       }>`SELECT task_ids_json FROM autonomous_agent_runs WHERE thread_id = ${threadId}`)[0]
         ?.task_ids_json,
     ).toBe("[]");
-  }).pipe(Effect.provide(Tasks.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
+  }).pipe(
+    Effect.provide(
+      Tasks.layer.pipe(Layer.provide(taskImageTestLayer), Layer.provideMerge(Sqlite.layerMemory)),
+    ),
+  ),
 );
 
 it.effect("consolidates one request from a mixed DM and preserves every source", () =>
@@ -245,7 +267,11 @@ it.effect("consolidates one request from a mixed DM and preserves every source",
     expect((yield* service.save(input, threadId).pipe(Effect.flip)).reason).toBe("conflict");
     expect(yield* service.read(seed.id)).toEqual(principal);
     expect(yield* service.ingestSlack(message())).toBe("duplicate");
-  }).pipe(Effect.provide(Tasks.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
+  }).pipe(
+    Effect.provide(
+      Tasks.layer.pipe(Layer.provide(taskImageTestLayer), Layer.provideMerge(Sqlite.layerMemory)),
+    ),
+  ),
 );
 
 it.effect.each(["version", "reserved", "qualified", "associated", "dependency", "caller"] as const)(
@@ -274,7 +300,11 @@ it.effect.each(["version", "reserved", "qualified", "associated", "dependency", 
         .pipe(Effect.flip);
       expect(result.reason).toBe("conflict");
       expect(yield* service.list()).toEqual(before);
-    }).pipe(Effect.provide(Tasks.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
+    }).pipe(
+      Effect.provide(
+        Tasks.layer.pipe(Layer.provide(taskImageTestLayer), Layer.provideMerge(Sqlite.layerMemory)),
+      ),
+    ),
 );
 
 it.effect("groups replies only while a task is unqualified and preserves edited notes", () =>
@@ -311,7 +341,11 @@ it.effect("groups replies only while a task is unqualified and preserves edited 
         service.messages(task.id).pipe(Effect.map((messages) => messages.length)),
       ),
     ).toEqual([2, 2]);
-  }).pipe(Effect.provide(Tasks.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
+  }).pipe(
+    Effect.provide(
+      Tasks.layer.pipe(Layer.provide(taskImageTestLayer), Layer.provideMerge(Sqlite.layerMemory)),
+    ),
+  ),
 );
 
 it.effect("deduplicates concurrent ingestion and never recreates deleted or completed tasks", () =>
@@ -328,7 +362,11 @@ it.effect("deduplicates concurrent ingestion and never recreates deleted or comp
     yield* service.delete({ id: done.id, expectedVersion: done.version });
     expect(yield* service.ingestSlack(message())).toBe("duplicate");
     expect(yield* service.list()).toEqual([]);
-  }).pipe(Effect.provide(Tasks.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
+  }).pipe(
+    Effect.provide(
+      Tasks.layer.pipe(Layer.provide(taskImageTestLayer), Layer.provideMerge(Sqlite.layerMemory)),
+    ),
+  ),
 );
 
 it.effect(
@@ -346,7 +384,11 @@ it.effect(
         "1793278000.000001",
         "1793278001.000001",
       ]);
-    }).pipe(Effect.provide(Tasks.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
+    }).pipe(
+      Effect.provide(
+        Tasks.layer.pipe(Layer.provide(taskImageTestLayer), Layer.provideMerge(Sqlite.layerMemory)),
+      ),
+    ),
 );
 
 it.effect(
@@ -386,19 +428,23 @@ it.effect(
         (yield* service.save({ ...input, expectedVersion: reopened.version }).pipe(Effect.flip))
           .reason,
       ).toBe("conflict");
-    }).pipe(Effect.provide(Tasks.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
+    }).pipe(
+      Effect.provide(
+        Tasks.layer.pipe(Layer.provide(taskImageTestLayer), Layer.provideMerge(Sqlite.layerMemory)),
+      ),
+    ),
 );
 
 it.effect("retains message deduplication across service restarts", () =>
   Effect.gen(function* () {
     yield* Effect.flatMap(Tasks.WorkTaskService, (service) => service.ingestSlack(message())).pipe(
-      Effect.provide(Tasks.layer),
+      Effect.provide(Tasks.layer.pipe(Layer.provide(taskImageTestLayer))),
     );
     yield* Effect.gen(function* () {
       const restarted = yield* Tasks.WorkTaskService;
       expect(yield* restarted.ingestSlack(message())).toBe("duplicate");
       expect(yield* restarted.list()).toHaveLength(1);
-    }).pipe(Effect.provide(Tasks.layer));
+    }).pipe(Effect.provide(Tasks.layer.pipe(Layer.provide(taskImageTestLayer))));
   }).pipe(Effect.provide(Sqlite.layerMemory)),
 );
 
@@ -419,7 +465,11 @@ it.effect("does not overwrite an unrelated task when its ID conflicts with an im
     expect((yield* service.ingestSlack(source).pipe(Effect.flip)).reason).toBe("storage");
     expect(yield* service.list()).toEqual([manual]);
     expect(yield* service.messages(manual.id)).toEqual([]);
-  }).pipe(Effect.provide(Tasks.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
+  }).pipe(
+    Effect.provide(
+      Tasks.layer.pipe(Layer.provide(taskImageTestLayer), Layer.provideMerge(Sqlite.layerMemory)),
+    ),
+  ),
 );
 
 it.effect("refuses unavailable project and agent assignments without creating a task", () =>
@@ -443,7 +493,11 @@ it.effect("refuses unavailable project and agent assignments without creating a 
     });
     expect((yield* service.save(missingAgent).pipe(Effect.flip)).reason).toBe("agent");
     expect(yield* service.list()).toEqual([]);
-  }).pipe(Effect.provide(Tasks.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
+  }).pipe(
+    Effect.provide(
+      Tasks.layer.pipe(Layer.provide(taskImageTestLayer), Layer.provideMerge(Sqlite.layerMemory)),
+    ),
+  ),
 );
 
 it.effect("persists configurable type prompts and rejects stale configuration writes", () =>
@@ -462,7 +516,11 @@ it.effect("persists configurable type prompts and rejects stale configuration wr
     const config = yield* service.types();
     yield* service.saveTypes({ ...config, types: [] });
     expect((yield* service.types()).types).toEqual([]);
-  }).pipe(Effect.provide(Tasks.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
+  }).pipe(
+    Effect.provide(
+      Tasks.layer.pipe(Layer.provide(taskImageTestLayer), Layer.provideMerge(Sqlite.layerMemory)),
+    ),
+  ),
 );
 
 it.effect(
@@ -536,7 +594,11 @@ it.effect(
         (yield* service.claim(a, { id: first.id, expectedVersion: done.version }).pipe(Effect.flip))
           .reason,
       ).toBe("conflict");
-    }).pipe(Effect.provide(Tasks.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
+    }).pipe(
+      Effect.provide(
+        Tasks.layer.pipe(Layer.provide(taskImageTestLayer), Layer.provideMerge(Sqlite.layerMemory)),
+      ),
+    ),
 );
 
 it.effect(
@@ -567,7 +629,11 @@ it.effect(
         expectedVersion: 0,
       });
       expect(created.qualifiedAt).toBe(created.createdAt);
-    }).pipe(Effect.provide(Tasks.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
+    }).pipe(
+      Effect.provide(
+        Tasks.layer.pipe(Layer.provide(taskImageTestLayer), Layer.provideMerge(Sqlite.layerMemory)),
+      ),
+    ),
 );
 
 it.effect("does not invent a qualification date for legacy tasks when edited or reopened", () =>
@@ -583,7 +649,11 @@ it.effect("does not invent a qualification date for legacy tasks when edited or 
       task = yield* service.save({ ...task, status, expectedVersion: task.version });
       expect(task.qualifiedAt).toBeNull();
     }
-  }).pipe(Effect.provide(Tasks.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
+  }).pipe(
+    Effect.provide(
+      Tasks.layer.pipe(Layer.provide(taskImageTestLayer), Layer.provideMerge(Sqlite.layerMemory)),
+    ),
+  ),
 );
 
 it.effect(
@@ -666,7 +736,12 @@ it.effect(
     }).pipe(
       Effect.provide(
         Agents.layer.pipe(
-          Layer.provideMerge(Tasks.layer.pipe(Layer.provideMerge(Sqlite.layerMemory))),
+          Layer.provideMerge(
+            Tasks.layer.pipe(
+              Layer.provide(taskImageTestLayer),
+              Layer.provideMerge(Sqlite.layerMemory),
+            ),
+          ),
           Layer.provide(Layer.mock(Launch.ThreadLaunchService)({})),
         ),
       ),
@@ -746,7 +821,11 @@ it.effect(
       const once = yield* service.list();
       yield* service.completeForSettledThread(ThreadId.make("agent"));
       expect(yield* service.list()).toEqual(once);
-    }).pipe(Effect.provide(Tasks.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
+    }).pipe(
+      Effect.provide(
+        Tasks.layer.pipe(Layer.provide(taskImageTestLayer), Layer.provideMerge(Sqlite.layerMemory)),
+      ),
+    ),
 );
 
 it.effect("limits a Chef's task execution to its project and respects its pause", () =>
@@ -797,5 +876,126 @@ it.effect("limits a Chef's task execution to its project and respects its pause"
       "project",
     );
     yield* service.assertCanStart(task);
-  }).pipe(Effect.provide(Tasks.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
+  }).pipe(
+    Effect.provide(
+      Tasks.layer.pipe(Layer.provide(taskImageTestLayer), Layer.provideMerge(Sqlite.layerMemory)),
+    ),
+  ),
+);
+
+it.effect(
+  "keeps a human task and its pasted image after pending uploads expire without starting an agent",
+  () =>
+    Effect.gen(function* () {
+      const service = yield* Tasks.WorkTaskService;
+      const sql = yield* SqlClient.SqlClient;
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const projectId = ProjectId.make("human-project");
+      yield* sql`INSERT INTO projection_projects (project_id,title,workspace_root,scripts_json,created_at,updated_at) VALUES (${projectId},'Test','/tmp/human','[]','','')`;
+      const bytes = new Uint8Array([137, 80, 78, 71]);
+      const image = {
+        type: "image" as const,
+        id: ChatAttachmentId.make(createPendingAttachmentId()),
+        name: "capture.png",
+        mimeType: "image/png",
+        sizeBytes: bytes.length,
+      };
+      yield* fs.makeDirectory(config.attachmentsDir, { recursive: true });
+      yield* fs.writeFile(path.join(config.attachmentsDir, `${image.id}.png`), bytes);
+      const created = yield* service.save({
+        id: "human-task",
+        expectedVersion: 0,
+        title: "Un titre humain",
+        notes: "Description\navec image",
+        attachments: [image],
+        projectId,
+        status: "todo",
+        agentThreadId: null,
+        dueDate: null,
+      });
+      expect(created).toMatchObject({
+        title: "Un titre humain",
+        notes: "Description\navec image",
+        projectId,
+        status: "todo",
+        agentThreadId: null,
+      });
+      const storedImage = created.attachments![0]!;
+      expect(storedImage).toMatchObject({
+        ...image,
+        id: expect.stringMatching(/^work-task-human-task-/),
+      });
+      yield* Effect.sync(() =>
+        sweepStalePendingAttachments({
+          attachmentsDir: config.attachmentsDir,
+          nowMs: Number.MAX_SAFE_INTEGER,
+        }),
+      );
+      expect(
+        yield* fs.readFile(
+          resolveAttachmentPath({
+            attachmentsDir: config.attachmentsDir,
+            attachment: storedImage,
+          })!,
+        ),
+      ).toEqual(Buffer.from(bytes));
+      expect(yield* service.read(created.id)).toEqual(created);
+      const { attachments: _images, ...legacyEdit } = created;
+      const updated = yield* service.save({
+        ...legacyEdit,
+        notes: "Description mise à jour",
+        expectedVersion: created.version,
+      });
+      expect(updated.attachments).toEqual(created.attachments);
+      expect(yield* sql`SELECT thread_id FROM orchestration_v2_projection_threads`).toEqual([]);
+      expect(yield* sql`SELECT thread_id FROM autonomous_agent_runs`).toEqual([]);
+      const removed = yield* service.save({
+        ...updated,
+        attachments: [],
+        expectedVersion: updated.version,
+      });
+      expect(removed.attachments).toEqual([]);
+    }).pipe(
+      Effect.provide(
+        Tasks.layer.pipe(
+          Layer.provideMerge(Sqlite.layerMemory),
+          Layer.provideMerge(taskImageTestLayer),
+        ),
+      ),
+    ),
+);
+
+it.effect("refuses to save a task with a missing pasted image", () =>
+  Effect.gen(function* () {
+    const service = yield* Tasks.WorkTaskService;
+    const error = yield* service
+      .save({
+        id: "missing-image",
+        expectedVersion: 0,
+        title: "Image manquante",
+        notes: "À conserver",
+        projectId: null,
+        status: "todo",
+        agentThreadId: null,
+        dueDate: null,
+        attachments: [
+          {
+            type: "image",
+            id: ChatAttachmentId.make(createPendingAttachmentId()),
+            name: "missing.png",
+            mimeType: "image/png",
+            sizeBytes: 4,
+          },
+        ],
+      })
+      .pipe(Effect.flip);
+    expect(error.reason).toBe("storage");
+    expect(yield* service.list()).toEqual([]);
+  }).pipe(
+    Effect.provide(
+      Tasks.layer.pipe(Layer.provide(taskImageTestLayer), Layer.provideMerge(Sqlite.layerMemory)),
+    ),
+  ),
 );

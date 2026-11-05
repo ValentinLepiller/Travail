@@ -70,6 +70,29 @@ describe("local work page state", () => {
     ).toBeNull();
   });
 
+  it("keeps pasted images and unfinished transfers with the task draft after reload", async () => {
+    const { taskPageState } = await import("./workPageState");
+    const editing = {
+      ...taskDraft,
+      expectedVersion: 0,
+      attachments: [
+        {
+          type: "image" as const,
+          id: "pending-image",
+          name: "capture.png",
+          mimeType: "image/png",
+          sizeBytes: 340,
+        },
+      ],
+      pendingImages: [{ id: "upload-other", name: "other.png" }],
+    };
+    taskPageState("image-server").setState({ editing });
+    vi.resetModules();
+    const reloaded = await import("./workPageState");
+    expect(reloaded.taskPageState("image-server").getState().editing).toEqual(editing);
+    expect(reloaded.taskPageState("other-server").getState().editing).toBeNull();
+  });
+
   it.each([
     "not json",
     JSON.stringify({ selected: 12 }),

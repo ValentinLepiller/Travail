@@ -1,8 +1,15 @@
+import * as FileSystem from "effect/FileSystem";
+import * as ServerConfig from "../config.ts";
+import {
+  claimPendingAttachments,
+  releaseClaimedAttachments,
+} from "../orchestration-v2/AttachmentClaims.ts";
 import { validateTaskDependencies } from "./taskDependencies.ts";
 import { GmailTaskMessage, gmailMessageUrl } from "./gmailTaskRules.ts";
 import { reservedWorkTasks } from "./reservations.ts";
 import {
   WorkTask,
+  ChatImageAttachment,
   WorkChantier,
   workTaskBlockers,
   type WorkChantierSaveInput,
@@ -88,6 +95,7 @@ export class WorkTaskService extends Context.Service<
 >()("t3/workTasks/WorkTaskService") {}
 
 const isWorkTaskError = Schema.is(WorkTaskError);
+const decodeImages = Schema.decodeUnknownEffect(Schema.Array(ChatImageAttachment));
 const validateGmailMessage = Schema.decodeEffect(GmailTaskMessage);
 const validateMessage = Schema.decodeEffect(SlackTaskMessage);
 const taskIdsCodec = Schema.fromJsonString(Schema.Array(Schema.String));
@@ -96,6 +104,12 @@ const encodeTaskIds = Schema.encodeEffect(taskIdsCodec);
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const config = yield* ServerConfig.ServerConfig;
+  const imageStorage = Layer.mergeAll(
+    Layer.succeed(FileSystem.FileSystem, fileSystem),
+    Layer.succeed(ServerConfig.ServerConfig, config),
+  );
   const reservations = reservedWorkTasks.pipe(Effect.provideService(SqlClient.SqlClient, sql));
   const revision = yield* SubscriptionRef.make(0);
   const codec = Schema.fromJsonString(WorkTask);
@@ -402,6 +416,7 @@ const make = Effect.gen(function* () {
     callerThreadId?: ThreadId,
     plannedTasks?: ReadonlyArray<WorkTaskSaveInput>,
   ) {
+    const claimedPaths: string[] = [];
     const task = yield* sql
       .withTransaction(
         Effect.gen(function* () {
@@ -456,6 +471,7 @@ const make = Effect.gen(function* () {
             acceptanceCriteria: input.acceptanceCriteria ?? previous?.acceptanceCriteria ?? "",
             title: input.title,
             notes: input.notes,
+            attachments: input.attachments ?? previous?.attachments ?? [],
             status: input.status,
             projectId: input.projectId,
             agentThreadId: input.agentThreadId,
@@ -489,12 +505,34 @@ const make = Effect.gen(function* () {
             if (workTaskBlockers(next, all, chantier?.externalDependencies).length)
               return yield* new WorkTaskError({ reason: "dependencies" });
           }
-          yield* sql`INSERT INTO work_tasks (id, version, payload_json) VALUES (${next.id}, ${next.version}, ${yield* encode(next)})
+          let saved = next;
+          if (input.attachments?.length) {
+            const claimed = yield* claimPendingAttachments({
+              threadId: `work-task-${input.id}`,
+              attachments: input.attachments,
+            }).pipe(
+              Effect.provide(imageStorage),
+              Effect.tap((claimed) =>
+                Effect.sync(() => claimedPaths.push(...claimed.claimedPaths)),
+              ),
+              Effect.uninterruptible,
+            );
+            saved = {
+              ...next,
+              attachments: yield* decodeImages(claimed.attachments),
+            };
+          }
+          yield* sql`INSERT INTO work_tasks (id, version, payload_json) VALUES (${next.id}, ${next.version}, ${yield* encode(saved)})
         ON CONFLICT(id) DO UPDATE SET version = excluded.version, payload_json = excluded.payload_json`;
-          return next;
+          return saved;
         }),
       )
-      .pipe(Effect.mapError((cause) => (isWorkTaskError(cause) ? cause : storageError())));
+      .pipe(
+        Effect.onError(() =>
+          releaseClaimedAttachments(claimedPaths).pipe(Effect.provide(imageStorage)),
+        ),
+        Effect.mapError((cause) => (isWorkTaskError(cause) ? cause : storageError())),
+      );
     if (!plannedTasks) yield* changed;
     return task;
   });

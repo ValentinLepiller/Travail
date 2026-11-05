@@ -135,7 +135,7 @@ export const layer = Layer.effect(
                 workspaceStrategy: { type: "root" },
                 createdBy: "user",
                 creationSource: "web",
-                initialMessage: { text, attachments: [] },
+                initialMessage: { text, attachments: task.attachments ?? [] },
               })
               .pipe(
                 Effect.catch(() =>

@@ -1,3 +1,4 @@
+import { taskImageTestLayer } from "../workTasks/WorkTaskService.testkit.ts";
 import * as ManagedFolders from "../project/ManagedProjectFolders.ts";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -93,7 +94,7 @@ const fixture = Effect.gen(function* () {
   const db = Sqlite.layerMemory;
   const layer = Agents.layer.pipe(
     Layer.provideMerge(db),
-    Layer.provideMerge(Tasks.layer.pipe(Layer.provide(db))),
+    Layer.provideMerge(Tasks.layer.pipe(Layer.provide(taskImageTestLayer)).pipe(Layer.provide(db))),
     Layer.provide(threadsLayer),
     Layer.provide(launchLayer),
     Layer.provide(

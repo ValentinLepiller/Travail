@@ -1,5 +1,6 @@
+import { TaskDescription } from "./TaskDescription";
 import { useStore } from "zustand";
-import { taskPageState } from "../../state/workPageState";
+import { taskPageState, type WorkTaskDraft } from "../../state/workPageState";
 import { STATUS_LABELS, STATUS_PRESENTATION } from "./workTaskPresentation";
 import { WorkChantiersView } from "./WorkChantiersView";
 import { WorkSourceEditor } from "./WorkSourceEditor";
@@ -279,7 +280,7 @@ function EnvironmentTasks({
   const setFilter = (filter: Filter) => page.setState({ filter });
   const setSearch = (search: string) => page.setState({ search });
   const setProjectFilter = (projectFilter: string) => page.setState({ projectFilter });
-  const setEditing = (editing: WorkTaskSaveInput | null) => page.setState({ editing });
+  const setEditing = (editing: WorkTaskDraft | null) => page.setState({ editing });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -553,7 +554,24 @@ function EnvironmentTasks({
           className="space-y-4 rounded-xl border border-border bg-card p-5"
           onSubmit={(event) => {
             event.preventDefault();
-            if (!editorIsStale) void persist(editing, true);
+            if (!editorIsStale && !editing.pendingImages?.length)
+              void persist(
+                editing.expectedVersion === 0
+                  ? {
+                      id: editing.id,
+                      expectedVersion: 0,
+                      title: editing.title,
+                      notes: editing.notes,
+                      attachments: editing.attachments ?? [],
+                      projectId: editing.projectId,
+                      chantierId: chantierId ?? null,
+                      status: "todo",
+                      agentThreadId: null,
+                      dueDate: null,
+                    }
+                  : editing,
+                true,
+              );
           }}
         >
           <h3 className="font-medium">
@@ -569,196 +587,212 @@ function EnvironmentTasks({
                 onChange={(event) => setEditing({ ...editing, title: event.target.value })}
               />
             </TaskField>
-            <TaskField label="Cadre">
-              <TaskSelect
-                value={editing.chantierId ?? ""}
-                onChange={(event) => {
-                  const selected = chantiers.find((c) => c.id === event.target.value);
-                  setEditing({
-                    ...editing,
-                    chantierId: selected?.id ?? null,
-                    projectId: selected?.projectId ?? editing.projectId,
-                    dependsOn: [],
-                    externalDependsOn: [],
-                  });
-                }}
-              >
-                <option value="">Ponctuelle</option>
-                {chantiers.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.title}
-                  </option>
-                ))}
-              </TaskSelect>
-            </TaskField>
-            <WorkSourceEditor
-              sources={editing.sources ?? workTaskSources(editing)}
-              onChange={(sources) => setEditing({ ...editing, sources })}
-            />
-            {editing.chantierId && (
+            {editing.expectedVersion > 0 && (
               <>
-                <TaskField label="Lot / jalon">
-                  <Input
-                    maxLength={240}
-                    value={editing.milestone ?? ""}
-                    onChange={(e) => setEditing({ ...editing, milestone: e.target.value })}
-                    placeholder="Premier lot"
-                  />
-                </TaskField>
-                <TaskField label="Critères de validation">
-                  <Textarea
-                    maxLength={10000}
-                    value={editing.acceptanceCriteria ?? ""}
-                    onChange={(e) => setEditing({ ...editing, acceptanceCriteria: e.target.value })}
-                  />
-                </TaskField>
-                <fieldset className="space-y-2 rounded-lg border p-3">
-                  <legend className="px-1 text-sm">Prérequis</legend>
-                  {tasks
-                    .filter((t) => t.chantierId === editing.chantierId && t.id !== editing.id)
-                    .map((t) => (
-                      <label key={t.id} className="flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={editing.dependsOn?.includes(t.id) ?? false}
-                          onChange={(e) =>
-                            setEditing({
-                              ...editing,
-                              dependsOn: e.target.checked
-                                ? [...(editing.dependsOn ?? []), t.id]
-                                : (editing.dependsOn?.filter((id) => id !== t.id) ?? []),
-                            })
-                          }
-                        />
-                        {t.title} · {STATUS_LABELS[t.status]}
-                      </label>
+                <TaskField label="Cadre">
+                  <TaskSelect
+                    value={editing.chantierId ?? ""}
+                    onChange={(event) => {
+                      const selected = chantiers.find((c) => c.id === event.target.value);
+                      setEditing({
+                        ...editing,
+                        chantierId: selected?.id ?? null,
+                        projectId: selected?.projectId ?? editing.projectId,
+                        dependsOn: [],
+                        externalDependsOn: [],
+                      });
+                    }}
+                  >
+                    <option value="">Ponctuelle</option>
+                    {chantiers.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.title}
+                      </option>
                     ))}
-                  {chantiers
-                    .find((c) => c.id === editing.chantierId)
-                    ?.externalDependencies.map((d) => (
-                      <label key={d.id} className="flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={editing.externalDependsOn?.includes(d.id) ?? false}
-                          onChange={(e) =>
-                            setEditing({
-                              ...editing,
-                              externalDependsOn: e.target.checked
-                                ? [...(editing.externalDependsOn ?? []), d.id]
-                                : (editing.externalDependsOn?.filter((id) => id !== d.id) ?? []),
-                            })
-                          }
-                        />
-                        {d.title} · {d.done ? "Livré" : d.owner || "Autre équipe"}
-                      </label>
-                    ))}
-                </fieldset>
+                  </TaskSelect>
+                </TaskField>
+                <WorkSourceEditor
+                  sources={editing.sources ?? workTaskSources(editing)}
+                  onChange={(sources) => setEditing({ ...editing, sources })}
+                />
+                {editing.chantierId && (
+                  <>
+                    <TaskField label="Lot / jalon">
+                      <Input
+                        maxLength={240}
+                        value={editing.milestone ?? ""}
+                        onChange={(e) => setEditing({ ...editing, milestone: e.target.value })}
+                        placeholder="Premier lot"
+                      />
+                    </TaskField>
+                    <TaskField label="Critères de validation">
+                      <Textarea
+                        maxLength={10000}
+                        value={editing.acceptanceCriteria ?? ""}
+                        onChange={(e) =>
+                          setEditing({ ...editing, acceptanceCriteria: e.target.value })
+                        }
+                      />
+                    </TaskField>
+                    <fieldset className="space-y-2 rounded-lg border p-3">
+                      <legend className="px-1 text-sm">Prérequis</legend>
+                      {tasks
+                        .filter((t) => t.chantierId === editing.chantierId && t.id !== editing.id)
+                        .map((t) => (
+                          <label key={t.id} className="flex items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={editing.dependsOn?.includes(t.id) ?? false}
+                              onChange={(e) =>
+                                setEditing({
+                                  ...editing,
+                                  dependsOn: e.target.checked
+                                    ? [...(editing.dependsOn ?? []), t.id]
+                                    : (editing.dependsOn?.filter((id) => id !== t.id) ?? []),
+                                })
+                              }
+                            />
+                            {t.title} · {STATUS_LABELS[t.status]}
+                          </label>
+                        ))}
+                      {chantiers
+                        .find((c) => c.id === editing.chantierId)
+                        ?.externalDependencies.map((d) => (
+                          <label key={d.id} className="flex items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={editing.externalDependsOn?.includes(d.id) ?? false}
+                              onChange={(e) =>
+                                setEditing({
+                                  ...editing,
+                                  externalDependsOn: e.target.checked
+                                    ? [...(editing.externalDependsOn ?? []), d.id]
+                                    : (editing.externalDependsOn?.filter((id) => id !== d.id) ??
+                                      []),
+                                })
+                              }
+                            />
+                            {d.title} · {d.done ? "Livré" : d.owner || "Autre équipe"}
+                          </label>
+                        ))}
+                    </fieldset>
+                  </>
+                )}
               </>
             )}
-            <TaskField label="Notes">
-              <Textarea
-                maxLength={20_000}
-                value={editing.notes}
-                onChange={(event) => setEditing({ ...editing, notes: event.target.value })}
+            <TaskDescription
+              key={editing.id}
+              environmentId={environmentId}
+              task={editing}
+              update={(change) =>
+                page.setState((state) =>
+                  state.editing?.id === editing.id ? { editing: change(state.editing) } : state,
+                )
+              }
+              setError={setError}
+            />
+            <TaskField label="Projet">
+              <TaskProjectSelect
+                label="Projet"
+                projects={selectableProjects}
+                value={editing.projectId ?? ""}
+                emptyLabel="Sans projet"
+                onValueChange={(value) =>
+                  setEditing({
+                    ...editing,
+                    projectId: value ? ProjectId.make(value) : null,
+                    agentThreadId: null,
+                  })
+                }
               />
             </TaskField>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <TaskField label="Type">
-                <TaskSelect
-                  value={editing.typeId ?? ""}
-                  onChange={(e) => setEditing({ ...editing, typeId: e.target.value || null })}
-                >
-                  <option value="">Aucun</option>
-                  {editing.typeId &&
-                    !typesQuery.data?.types.some((t) => t.id === editing.typeId) && (
-                      <option value={editing.typeId}>Type supprimé (Aucun)</option>
-                    )}
-                  {typesQuery.data?.types.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </TaskSelect>
-              </TaskField>
-              <TaskField label="Statut">
-                <TaskSelect
-                  value={editing.status}
-                  onChange={(event) => {
-                    const status = event.target.value;
-                    if (
-                      status === "unqualified" ||
-                      status === "todo" ||
-                      status === "ready" ||
-                      status === "doing" ||
-                      status === "review" ||
-                      status === "done" ||
-                      status === "rejected" ||
-                      status === "merged"
-                    )
-                      setEditing({ ...editing, status });
-                  }}
-                >
-                  {Object.entries(STATUS_LABELS).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </TaskSelect>
-              </TaskField>
-              <TaskField label="Échéance (facultative)">
-                <Input
-                  type="date"
-                  value={editing.dueDate ?? ""}
-                  onChange={(event) =>
-                    setEditing({ ...editing, dueDate: event.target.value || null })
-                  }
-                />
-              </TaskField>
-              <TaskField label="Projet">
-                <TaskProjectSelect
-                  label="Projet"
-                  projects={selectableProjects}
-                  value={editing.projectId ?? ""}
-                  emptyLabel="Sans projet"
-                  onValueChange={(value) =>
-                    setEditing({
-                      ...editing,
-                      projectId: value ? ProjectId.make(value) : null,
-                      agentThreadId: null,
-                    })
-                  }
-                />
-              </TaskField>
-              <TaskField label="Discussion associée">
-                <TaskSelect
-                  value={editing.agentThreadId ?? ""}
-                  onChange={(event) => {
-                    const agent = threads.find((t) => t.id === event.target.value);
-                    setEditing({
-                      ...editing,
-                      agentThreadId: agent?.id ?? null,
-                      projectId: agent?.projectId ?? editing.projectId,
-                    });
-                  }}
-                >
-                  <option value="">Aucune · pour moi</option>
-                  {editing.agentThreadId &&
-                    !threads.some((t) => t.id === editing.agentThreadId) && (
-                      <option value={editing.agentThreadId}>Discussion indisponible</option>
-                    )}
-                  {availableThreads.map((thread) => (
-                    <option key={thread.id} value={thread.id}>
-                      {thread.title} · {thread.providerInstanceId}
-                    </option>
-                  ))}
-                </TaskSelect>
-              </TaskField>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Lancer un agent utilise les réglages de modèle T3 Code et le prompt du type choisi. Le
-              titre, les notes et les messages Slack sont transmis. Les prérequis doivent être
-              terminés ; les tâches de chantier passent à valider après clôture de leur discussion.
-            </p>
+            {editing.expectedVersion > 0 && (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <TaskField label="Type">
+                    <TaskSelect
+                      value={editing.typeId ?? ""}
+                      onChange={(e) => setEditing({ ...editing, typeId: e.target.value || null })}
+                    >
+                      <option value="">Aucun</option>
+                      {editing.typeId &&
+                        !typesQuery.data?.types.some((t) => t.id === editing.typeId) && (
+                          <option value={editing.typeId}>Type supprimé (Aucun)</option>
+                        )}
+                      {typesQuery.data?.types.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}
+                        </option>
+                      ))}
+                    </TaskSelect>
+                  </TaskField>
+                  <TaskField label="Statut">
+                    <TaskSelect
+                      value={editing.status}
+                      onChange={(event) => {
+                        const status = event.target.value;
+                        if (
+                          status === "unqualified" ||
+                          status === "todo" ||
+                          status === "ready" ||
+                          status === "doing" ||
+                          status === "review" ||
+                          status === "done" ||
+                          status === "rejected" ||
+                          status === "merged"
+                        )
+                          setEditing({ ...editing, status });
+                      }}
+                    >
+                      {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </TaskSelect>
+                  </TaskField>
+                  <TaskField label="Échéance (facultative)">
+                    <Input
+                      type="date"
+                      value={editing.dueDate ?? ""}
+                      onChange={(event) =>
+                        setEditing({ ...editing, dueDate: event.target.value || null })
+                      }
+                    />
+                  </TaskField>
+                  <TaskField label="Discussion associée">
+                    <TaskSelect
+                      value={editing.agentThreadId ?? ""}
+                      onChange={(event) => {
+                        const agent = threads.find((t) => t.id === event.target.value);
+                        setEditing({
+                          ...editing,
+                          agentThreadId: agent?.id ?? null,
+                          projectId: agent?.projectId ?? editing.projectId,
+                        });
+                      }}
+                    >
+                      <option value="">Aucune · pour moi</option>
+                      {editing.agentThreadId &&
+                        !threads.some((t) => t.id === editing.agentThreadId) && (
+                          <option value={editing.agentThreadId}>Discussion indisponible</option>
+                        )}
+                      {availableThreads.map((thread) => (
+                        <option key={thread.id} value={thread.id}>
+                          {thread.title} · {thread.providerInstanceId}
+                        </option>
+                      ))}
+                    </TaskSelect>
+                  </TaskField>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Lancer un agent utilise les réglages de modèle T3 Code et le prompt du type
+                  choisi. Le titre, les notes et les messages Slack sont transmis. Les prérequis
+                  doivent être terminés ; les tâches de chantier passent à valider après clôture de
+                  leur discussion.
+                </p>
+              </>
+            )}
           </fieldset>
           {editing.expectedVersion > 0 && (
             <SlackMessages environmentId={environmentId} taskId={editing.id} />
@@ -772,7 +806,13 @@ function EnvironmentTasks({
           <div className="flex flex-wrap items-center gap-2">
             <Button
               type="submit"
-              disabled={busy || !canSave || !editing.title.trim() || editorIsStale}
+              disabled={
+                busy ||
+                !canSave ||
+                !editing.title.trim() ||
+                editorIsStale ||
+                Boolean(editing.pendingImages?.length)
+              }
             >
               {busy ? "Enregistrement…" : "Enregistrer"}
             </Button>

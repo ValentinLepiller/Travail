@@ -1,3 +1,4 @@
+import { taskImageTestLayer } from "../../../workTasks/WorkTaskService.testkit.ts";
 import * as TaskAgents from "../../../workTasks/WorkTaskAgentService.ts";
 import { expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -18,7 +19,9 @@ import * as Handlers from "./handlers.ts";
 import { WorkTasksToolkit } from "./tools.ts";
 
 const collectorLayer = Collector.layer.pipe(
-  Layer.provideMerge(Tasks.layer.pipe(Layer.provideMerge(Sqlite.layerMemory))),
+  Layer.provideMerge(
+    Tasks.layer.pipe(Layer.provide(taskImageTestLayer), Layer.provideMerge(Sqlite.layerMemory)),
+  ),
   Layer.provide(
     Layer.succeed(Source.SlackTaskSource, {
       readPage: () => Effect.die("Disabled collector must not access Slack"),

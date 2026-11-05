@@ -1,3 +1,4 @@
+import { taskImageTestLayer } from "./WorkTaskService.testkit.ts";
 import { expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
@@ -35,7 +36,9 @@ const message = (channelName = "cotily", offset = 1) => ({
 });
 const layerTest = (readPage: Source.SlackTaskSource["Service"]["readPage"]) =>
   Collector.layer.pipe(
-    Layer.provideMerge(Tasks.layer.pipe(Layer.provideMerge(Sqlite.layerMemory))),
+    Layer.provideMerge(
+      Tasks.layer.pipe(Layer.provide(taskImageTestLayer), Layer.provideMerge(Sqlite.layerMemory)),
+    ),
     Layer.provide(Layer.succeed(Source.SlackTaskSource, { readPage })),
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "slack-task-collector-" })),
     Layer.provideMerge(NodeServices.layer),

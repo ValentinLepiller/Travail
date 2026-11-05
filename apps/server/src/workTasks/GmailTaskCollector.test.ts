@@ -1,3 +1,4 @@
+import { taskImageTestLayer } from "./WorkTaskService.testkit.ts";
 import { expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
@@ -34,7 +35,9 @@ const message = (sender = "cotily", offset = 1) => ({
 });
 const layerTest = (readPage: Source.GmailTaskSource["Service"]["readPage"]) =>
   Collector.layer.pipe(
-    Layer.provideMerge(Tasks.layer.pipe(Layer.provideMerge(Sqlite.layerMemory))),
+    Layer.provideMerge(
+      Tasks.layer.pipe(Layer.provide(taskImageTestLayer), Layer.provideMerge(Sqlite.layerMemory)),
+    ),
     Layer.provide(Layer.succeed(Source.GmailTaskSource, { readPage })),
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "gmail-task-collector-" })),
     Layer.provideMerge(NodeServices.layer),

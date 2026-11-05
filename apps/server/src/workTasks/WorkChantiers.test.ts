@@ -1,3 +1,4 @@
+import { taskImageTestLayer } from "./WorkTaskService.testkit.ts";
 import { expect, it } from "@effect/vitest";
 import {
   ProjectId,
@@ -51,7 +52,10 @@ const task = (id: string, dependsOn: string[] = []): WorkTaskSaveInput => ({
   chantierId: "chantier",
   dependsOn,
 });
-const layer = Tasks.layer.pipe(Layer.provideMerge(Sqlite.layerMemory));
+const layer = Tasks.layer.pipe(
+  Layer.provide(taskImageTestLayer),
+  Layer.provideMerge(Sqlite.layerMemory),
+);
 
 it.effect("applies a plan with forward references atomically and preserves omitted work", () =>
   Effect.gen(function* () {
@@ -301,7 +305,7 @@ it.effect(
     }).pipe(
       Effect.provide(
         Agents.layer.pipe(
-          Layer.provideMerge(Tasks.layer),
+          Layer.provideMerge(Tasks.layer.pipe(Layer.provide(taskImageTestLayer))),
           Layer.provide(launcher),
           Layer.provideMerge(Sqlite.layerMemory),
         ),

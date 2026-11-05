@@ -55,14 +55,28 @@ const TaskFilter = Schema.Literals([
   "rejected",
   "merged",
 ]);
+const WorkTaskDraft = Schema.Struct({
+  ...WorkTaskSaveInput.fields,
+  title: Schema.String,
+  notes: Schema.String,
+  pendingImages: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        id: Schema.String,
+        name: Schema.String,
+        error: Schema.optionalKey(Schema.String),
+      }),
+    ),
+  ),
+});
+export type WorkTaskDraft = typeof WorkTaskDraft.Type;
+
 const TaskPageState = Schema.Struct({
   filter: TaskFilter,
   search: Schema.String,
   projectFilter: Schema.String,
   // Incomplete titles are valid local drafts, but remain invalid save inputs.
-  editing: Schema.NullOr(
-    Schema.Struct({ ...WorkTaskSaveInput.fields, title: Schema.String, notes: Schema.String }),
-  ),
+  editing: Schema.NullOr(WorkTaskDraft),
 });
 export const taskPageState = localPageState("task-page", TaskPageState, {
   filter: "all",

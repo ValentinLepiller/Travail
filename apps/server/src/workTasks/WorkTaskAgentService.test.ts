@@ -15,6 +15,15 @@ it.effect.each([false, true])(
       ...(inChantier ? { chantierId: "chantier" } : {}),
       title: "Corriger le panier",
       notes: "Un article manque",
+      attachments: [
+        {
+          type: "image",
+          id: "task-image",
+          name: "capture.png",
+          mimeType: "image/png",
+          sizeBytes: 340,
+        },
+      ],
       typeId: "fix",
       status: "ready",
       projectId: ProjectId.make("project"),
@@ -63,6 +72,7 @@ it.effect.each([false, true])(
       expect(result.status).toBe("doing");
       expect(result.agentThreadId).toBe(launches[0]?.threadId);
       expect(launches[0]?.runtimeMode).toBe("full-access");
+      expect(launches[0]?.initialMessage?.attachments).toEqual(task.attachments);
       expect(launches[0]?.initialMessage?.text).toContain(
         "Diagnostique puis corrige.\n\nCorriger le panier\n\nUn article manque",
       );
