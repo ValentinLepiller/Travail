@@ -316,10 +316,9 @@ export function useUsage(
       ? lastAnswered
       : null;
   // With no answers, even failed ones keep the last answered usage on screen.
-  const shown =
-    hasAnswered
-      ? { window: input, merged }
-      : (kept ?? (isPending ? null : { window: input, merged }));
+  const shown = hasAnswered
+    ? { window: input, merged }
+    : (kept ?? (isPending ? null : { window: input, merged }));
 
   return {
     merged,
