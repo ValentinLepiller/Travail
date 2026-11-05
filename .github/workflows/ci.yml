@@ -79,7 +79,12 @@ jobs:
         run: vp run --filter @t3tools/desktop ensure:electron
 
       - name: Typecheck
+        id: typecheck
         run: vpr typecheck
+
+      - name: Failed typecheck details
+        if: failure() && steps.typecheck.outcome == 'failure'
+        run: vp run --last-details
 
   build:
     name: Build

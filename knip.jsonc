@@ -60,8 +60,10 @@
       "ignoreDependencies": ["@effect/platform-node-shared", "@t3tools/web", "@napi-rs/keyring"],
     },
     "apps/desktop": {
-      // Electron loads these bundles by filename rather than importing them.
+      // TypeScript resolves the launcher's declaration beside its JavaScript module.
+      // Electron loads the remaining bundles by filename rather than importing them.
       "entry": [
+        "scripts/electron-launcher.d.mts",
         "gnome-extension/extension.js!",
         "src/electron/WindowsForegroundFocusWorker.ts!",
         "src/snapShot/GlobalShiftShortcutWorker.ts!",
