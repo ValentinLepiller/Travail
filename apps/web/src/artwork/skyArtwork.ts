@@ -3,15 +3,8 @@ import { skyPalette } from "./skyPalette";
 import { filament, noise, trace } from "./skyScene";
 
 export type { SkyConditions, SkyPhase, SkyWeather } from "./skyConditions";
-export const SKY_PHASES: readonly SkyPhase[] = ["dawn", "day", "dusk", "night"];
-export const SKY_WEATHER: readonly SkyWeather[] = [
-  "clear",
-  "cloudy",
-  "rain",
-  "snow",
-  "fog",
-  "storm",
-];
+const SKY_PHASES: readonly SkyPhase[] = ["dawn", "day", "dusk", "night"];
+const SKY_WEATHER: readonly SkyWeather[] = ["clear", "cloudy", "rain", "snow", "fog", "storm"];
 export const isLocalSky = (selection: string) =>
   selection === "local-day-night" || selection === "local-weather";
 const title = (value: string) => value[0]!.toUpperCase() + value.slice(1);
@@ -134,7 +127,7 @@ export const skyIconKey = (conditions: SkyConditions) => {
   ].join("|");
 };
 
-export function skyIconRamp(conditions: SkyConditions): readonly string[] | null {
+function skyIconRamp(conditions: SkyConditions): readonly string[] | null {
   // The shipped tile already is a cloudy night, so that sky ships untouched.
   if (isShippedNight(conditions)) return null;
   const weather = skyWeatherOf(conditions);
@@ -193,7 +186,7 @@ export function skyIconRamp(conditions: SkyConditions): readonly string[] | null
 }
 
 /** The ramp colour for a 0..1 tone, honouring where each stop sits. */
-export function sampleSkyRamp(ramp: readonly string[], level: number): string {
+function sampleSkyRamp(ramp: readonly string[], level: number): string {
   const last = ramp.length - 1;
   let index = 0;
   while (index < last - 1 && level > RAMP_POSITIONS[index + 1]!) index++;
@@ -239,7 +232,7 @@ export const TILE_STARS: ReadonlyArray<readonly [number, number]> = [
 export const skyHidesStars = (conditions: SkyConditions) => skyPalette(conditions).stars < 0.3;
 
 /** Transparent 1024 overlay: what a repaint alone cannot say. */
-export function skyIconOverlaySvg(conditions: SkyConditions): string {
+function skyIconOverlaySvg(conditions: SkyConditions): string {
   const weather = skyWeatherOf(conditions);
   const tint = skyPalette(conditions).cloudA;
   let body = "";

@@ -6,7 +6,7 @@
 import { COMPUTER_VIEW_MAX_WIDTH_LIMIT, type ComputerViewInput } from "@t3tools/contracts";
 
 /** Pointer movement below this many remote-screen pixels stays a click. */
-export const COMPUTER_VIEW_DRAG_THRESHOLD_PX = 5;
+const COMPUTER_VIEW_DRAG_THRESHOLD_PX = 5;
 
 const WHEEL_PIXELS_PER_SCROLL_LINE = 40;
 const MAX_SCROLL_AMOUNT = 20;

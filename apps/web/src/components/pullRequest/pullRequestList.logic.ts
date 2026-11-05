@@ -383,8 +383,8 @@ export function matchesPullRequestFilters(
   filters: PullRequestListFilters,
   viewer?: string | null,
 ): boolean {
-  const labels = entry.labels.map((label) => label.name.trim().toLowerCase());
-  const holds = (label: string) => labels.includes(label.trim().toLowerCase());
+  const labels = new Set(entry.labels.map((label) => label.name.trim().toLowerCase()));
+  const holds = (label: string) => labels.has(label.trim().toLowerCase());
   return (
     (filters.draft === undefined || entry.isDraft === (filters.draft === "only")) &&
     (filters.review === undefined ||
@@ -976,11 +976,6 @@ export function resolveSelectedEnvironmentId<Id extends string>(
  * anything for rows it has scored.
  */
 export type PullRequestSortOrder = "updated" | "useful";
-
-export const PULL_REQUEST_SORT_ORDERS = ["updated", "useful"] as const;
-
-export const isPullRequestSortOrder = (value: unknown): value is PullRequestSortOrder =>
-  value === "updated" || value === "useful";
 
 /**
  * Rows in the asked-for order, keyed by `pullRequestEntryKey` where scores are involved.

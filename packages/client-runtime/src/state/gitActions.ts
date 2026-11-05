@@ -42,16 +42,6 @@ export type GitActionRequestInput = Pick<
   "action" | "commitMessage" | "featureBranch" | "filePaths"
 >;
 
-export function shouldSubmitStackAfterGitAction(action: GitStackedAction): boolean {
-  return action !== "commit";
-}
-
-export function prepareGitActionForStackSubmit(action: GitStackedAction): GitStackedAction {
-  if (action === "create_pr") return "push";
-  if (action === "commit_push_pr") return "commit_push";
-  return action;
-}
-
 export function buildMenuItems(
   gitStatus: VcsStatusResult | null,
   isBusy: boolean,

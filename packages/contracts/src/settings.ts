@@ -63,8 +63,8 @@ export const DEFAULT_SIDEBAR_PROJECT_SORT_ORDER: SidebarProjectSortOrder = "upda
 
 export const SidebarThreadSortOrder = Schema.Literals(["updated_at", "created_at"]);
 export type SidebarThreadSortOrder = typeof SidebarThreadSortOrder.Type;
-export const DEFAULT_SIDEBAR_THREAD_SORT_ORDER: SidebarThreadSortOrder = "updated_at";
-export const DEFAULT_SIDEBAR_ACTIVE_THREAD_SORT_ORDER: SidebarThreadSortOrder = "updated_at";
+const DEFAULT_SIDEBAR_THREAD_SORT_ORDER: SidebarThreadSortOrder = "updated_at";
+const DEFAULT_SIDEBAR_ACTIVE_THREAD_SORT_ORDER: SidebarThreadSortOrder = "updated_at";
 
 export const SidebarProjectGroupingMode = Schema.Literals([
   "repository",
@@ -157,21 +157,6 @@ export const TerminalFontSize = Schema.Int.check(
 );
 export type TerminalFontSize = typeof TerminalFontSize.Type;
 const DEFAULT_TERMINAL_FONT_SIZE: TerminalFontSize = 12;
-
-/**
- * Sidebar header artwork.
- *
- * Upstream ties the artwork to the Dev/Nightly channel; MT Code ships one
- * release, so the artwork is a plain choice: a named scene, one of your own,
- * or none.
- */
-export const SIDEBAR_ARTWORK_BUILT_IN_IDS = [
-  "local-weather",
-  "local-day-night",
-  "night",
-  "day",
-  "none",
-] as const;
 export const SidebarArtworkSelection = TrimmedNonEmptyString.check(Schema.isMaxLength(80));
 export type SidebarArtworkSelection = typeof SidebarArtworkSelection.Type;
 /**
@@ -198,15 +183,6 @@ export const CustomSidebarArtwork = Schema.Struct({
   createdAt: TrimmedNonEmptyString.check(Schema.isMaxLength(40)),
 });
 export type CustomSidebarArtwork = typeof CustomSidebarArtwork.Type;
-
-/**
- * Which icon the app wears in the Dock, taskbar, and window.
- *
- * The bundle's own icon cannot change at runtime without breaking the code
- * signature (and with it every macOS permission grant), so this swaps the
- * *running* icon rather than rewriting the installed app.
- */
-export const APP_ICON_BUILT_IN_IDS = ["default", "light", "dark"] as const;
 export const AppIconSelection = TrimmedNonEmptyString.check(Schema.isMaxLength(80));
 export type AppIconSelection = typeof AppIconSelection.Type;
 export const DEFAULT_APP_ICON_SELECTION = "default";
@@ -235,7 +211,7 @@ export const DesktopNotificationEventSettingsSchema = Schema.Struct({
 });
 export type DesktopNotificationEventSettings = typeof DesktopNotificationEventSettingsSchema.Type;
 
-export const DEFAULT_DESKTOP_NOTIFICATION_EVENT_SETTINGS: DesktopNotificationEventSettings =
+const DEFAULT_DESKTOP_NOTIFICATION_EVENT_SETTINGS: DesktopNotificationEventSettings =
   Schema.decodeSync(DesktopNotificationEventSettingsSchema)({});
 
 export const DesktopNotificationSettingsSchema = Schema.Struct({
@@ -248,7 +224,7 @@ export const DesktopNotificationSettingsSchema = Schema.Struct({
 });
 export type DesktopNotificationSettings = typeof DesktopNotificationSettingsSchema.Type;
 
-export const DEFAULT_DESKTOP_NOTIFICATION_SETTINGS: DesktopNotificationSettings = Schema.decodeSync(
+const DEFAULT_DESKTOP_NOTIFICATION_SETTINGS: DesktopNotificationSettings = Schema.decodeSync(
   DesktopNotificationSettingsSchema,
 )({});
 

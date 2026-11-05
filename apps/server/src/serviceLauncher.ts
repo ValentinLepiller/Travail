@@ -372,7 +372,7 @@ const pidRecordMtime = async (target: string): Promise<number | undefined> => {
  * old timestamp only makes the answer unknown, and the unknown case is settled
  * by watching for the next heartbeat rather than guessing.
  */
-export async function pidRecordIsBeingRefreshed(
+async function pidRecordIsBeingRefreshed(
   target: string,
   probeMs: number = PID_HEARTBEAT_MS * 2,
 ): Promise<boolean> {

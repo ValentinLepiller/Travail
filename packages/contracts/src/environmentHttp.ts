@@ -739,7 +739,7 @@ const EnvironmentPluginMarketplaceWriteErrors = [
   PluginMarketplaceOperationError,
 ] as const;
 
-export class EnvironmentPluginMarketplaceHttpApi extends HttpApiGroup.make("plugins")
+class EnvironmentPluginMarketplaceHttpApi extends HttpApiGroup.make("plugins")
   .add(
     HttpApiEndpoint.get("catalog", "/api/plugins", {
       headers: OptionalBearerHeaders,
@@ -825,7 +825,7 @@ export class EnvironmentPluginMarketplaceHttpApi extends HttpApiGroup.make("plug
     }).middleware(EnvironmentAuthenticatedAuth),
   ) {}
 
-export class EnvironmentSkillsHttpApi extends HttpApiGroup.make("skills").add(
+class EnvironmentSkillsHttpApi extends HttpApiGroup.make("skills").add(
   HttpApiEndpoint.get("inventory", "/api/skills", {
     headers: OptionalBearerHeaders,
     success: SkillInventory,
@@ -905,7 +905,7 @@ export const SelfHostedPushDeviceRegistrationResult = Schema.Struct({
   registered: Schema.Boolean,
 });
 
-export class EnvironmentNotificationsHttpApi extends HttpApiGroup.make("notifications")
+class EnvironmentNotificationsHttpApi extends HttpApiGroup.make("notifications")
   .add(
     HttpApiEndpoint.post("registerDevice", "/api/notifications/device", {
       headers: OptionalBearerHeaders,

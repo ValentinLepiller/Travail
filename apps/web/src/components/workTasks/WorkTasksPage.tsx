@@ -237,7 +237,7 @@ export function WorkTasksPage() {
   );
 }
 
-export function EnvironmentTasks({
+function EnvironmentTasks({
   environmentId,
   chantierId,
 }: {

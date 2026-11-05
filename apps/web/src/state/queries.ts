@@ -14,8 +14,6 @@ import type {
   ProjectContentMatch,
   ProjectEntry,
   ProjectEntryKind,
-  ProjectId,
-  ProviderInstanceId,
   ThreadId,
   TurnItemId,
   VcsListRefsResult,
@@ -32,7 +30,6 @@ import { orchestrationEnvironment } from "./orchestration";
 import { isPaginatedBranchesNextPagePending } from "./paginatedBranches";
 import { projectContentSearch, projectEnvironment } from "./projects";
 import { useEnvironmentQuery } from "./query";
-import { serverEnvironment } from "./server";
 import { vcsEnvironment } from "./vcs";
 
 const PROJECT_PATH_SEARCH_DEBOUNCE_MS = 120;
@@ -283,35 +280,6 @@ export function useProjectPathSearch(
 
 export function useComposerPathSearch(target: ComposerPathSearchTarget) {
   return useProjectPathSearch(target, COMPOSER_PATH_SEARCH_LIMIT);
-}
-
-export function useProviderWorkspaceCapabilities(target: {
-  readonly environmentId: EnvironmentId | null;
-  readonly instanceId: ProviderInstanceId | null;
-  readonly projectId: ProjectId | null;
-  readonly threadId: ThreadId | null;
-  readonly enabled: boolean;
-}) {
-  const result = useEnvironmentQuery(
-    target.enabled &&
-      target.environmentId !== null &&
-      target.instanceId !== null &&
-      target.projectId !== null
-      ? serverEnvironment.providerWorkspaceCapabilities({
-          environmentId: target.environmentId,
-          input: {
-            instanceId: target.instanceId,
-            projectId: target.projectId,
-            ...(target.threadId !== null ? { threadId: target.threadId } : {}),
-          },
-        })
-      : null,
-  );
-
-  return {
-    slashCommands: result.data?.slashCommands ?? null,
-    skills: result.data?.skills ?? null,
-  };
 }
 
 interface ProjectContentSearchTarget {

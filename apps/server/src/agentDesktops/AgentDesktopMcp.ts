@@ -158,8 +158,6 @@ const handlers = {
   ),
 } satisfies McpToolAccess.Handlers<typeof AgentDesktopToolkit.tools>;
 
-export const layer = McpToolAccess.toLayer(AgentDesktopToolkit, handlers);
-
 export const AgentDesktopCaptureToolkit = Toolkit.make(
   AgentDesktopToolkit.tools.agent_desktop_capture,
 );

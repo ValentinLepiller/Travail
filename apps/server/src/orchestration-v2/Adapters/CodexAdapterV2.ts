@@ -1347,7 +1347,7 @@ export class CodexAppServerClientFactory extends Context.Service<
 export const CODEX_THREAD_CONFIG = { "tools.update_plan.enabled": true } as const;
 
 /** MT Code: a thread whose cwd is the home folder is a computer-wide thread. */
-export function isComputerHomeCwd(cwd: string, homeDirectory: string = NodeOS.homedir()): boolean {
+function isComputerHomeCwd(cwd: string, homeDirectory: string = NodeOS.homedir()): boolean {
   const normalizedCwd = normalizeProjectPathForComparison(cwd);
   const normalizedHome = normalizeProjectPathForComparison(homeDirectory);
   return normalizedCwd.length > 0 && normalizedCwd === normalizedHome;
@@ -1358,7 +1358,7 @@ export function isComputerHomeCwd(cwd: string, homeDirectory: string = NodeOS.ho
  * stdio MCP server `mt-desktop`. TOML literal strings keep Windows backslashes;
  * values containing `'` fall back to escaped basic strings.
  */
-export function codexDesktopMcpAppServerArgs(desktopMcp: DesktopMcpLaunch): Array<string> {
+function codexDesktopMcpAppServerArgs(desktopMcp: DesktopMcpLaunch): Array<string> {
   const quoteToml = (value: string): string => {
     if (!value.includes("'") && !value.includes("\n") && !value.includes("\r")) {
       return `'${value}'`;

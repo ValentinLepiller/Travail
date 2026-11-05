@@ -12,8 +12,8 @@ import {
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
 
-export const THREAD_REFERENCE_DEFAULT_MAX_CHARS = 40_000;
-export const THREAD_REFERENCE_MAX_CHARS = 80_000;
+const THREAD_REFERENCE_DEFAULT_MAX_CHARS = 40_000;
+const THREAD_REFERENCE_MAX_CHARS = 80_000;
 
 export const ThreadReferenceCursor = Schema.String.check(
   Schema.isPattern(/^\d+:\d+$/, {

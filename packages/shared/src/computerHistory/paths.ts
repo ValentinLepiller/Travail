@@ -1,15 +1,15 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodePath from "node:path";
-import * as Os from "node:os";
+import * as NodeOS from "node:os";
 
-export const COMPUTER_HISTORY_DIR_NAME = "computer-history";
-export const SEGMENTS_DIR_NAME = "segments";
-export const MEMORIES_DIR_NAME = "memories";
-export const RESOURCES_DIR_NAME = "resources";
-export const CONTROL_FILE_NAME = "control.json";
-export const STATUS_FILE_NAME = "status.json";
-export const INSTRUCTIONS_FILE_NAME = "instructions.md";
-export const CODEX_SKYSIGHT_RELATIVE = NodePath.join("memories", "extensions", "skysight");
+const COMPUTER_HISTORY_DIR_NAME = "computer-history";
+const SEGMENTS_DIR_NAME = "segments";
+const MEMORIES_DIR_NAME = "memories";
+const RESOURCES_DIR_NAME = "resources";
+const CONTROL_FILE_NAME = "control.json";
+const STATUS_FILE_NAME = "status.json";
+const INSTRUCTIONS_FILE_NAME = "instructions.md";
+const CODEX_SKYSIGHT_RELATIVE = NodePath.join("memories", "extensions", "skysight");
 
 export function computerHistoryRoot(stateDir: string): string {
   return NodePath.join(stateDir, COMPUTER_HISTORY_DIR_NAME);
@@ -41,7 +41,7 @@ export function computerHistoryInstructionsPath(root: string): string {
 
 /** Default Codex home; callers should prefer configured CODEX_HOME when known. */
 export function defaultCodexHome(): string {
-  return NodePath.join(Os.homedir(), ".codex");
+  return NodePath.join(NodeOS.homedir(), ".codex");
 }
 
 export function codexSkysightRoot(codexHome: string): string {

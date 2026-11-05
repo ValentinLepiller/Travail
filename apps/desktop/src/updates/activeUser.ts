@@ -21,7 +21,7 @@ export const ACTIVE_USER_HEADER = "x-mtcode-active-user";
 
 export type ProviderAccount = readonly [provider: "claude" | "codex", id: string];
 
-export function activeUserCodes(accounts: ReadonlyArray<ProviderAccount>, day: string): string[] {
+function activeUserCodes(accounts: ReadonlyArray<ProviderAccount>, day: string): string[] {
   return accounts.map(([provider, id]) =>
     NodeCrypto.createHash("sha256")
       .update(`mtcode-active-user/v1/${provider}/${day}/${id}`)

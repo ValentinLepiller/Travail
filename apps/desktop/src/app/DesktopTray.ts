@@ -47,7 +47,7 @@ const {
 /**
  * Effect constructor creating the DesktopTray service.
  */
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const desktopAssets = yield* DesktopAssets.DesktopAssets;
   const desktopWindow = yield* DesktopWindow.DesktopWindow;

@@ -2,7 +2,7 @@ import type { WorkSource } from "@t3tools/contracts";
 import { Input } from "../ui/input";
 import { Button } from "../ui/button";
 
-export const SOURCE_LABELS: Record<WorkSource["kind"], string> = {
+const SOURCE_LABELS: Record<WorkSource["kind"], string> = {
   manual: "Saisie manuelle",
   slack: "Slack",
   email: "Email",

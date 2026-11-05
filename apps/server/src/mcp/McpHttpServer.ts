@@ -901,7 +901,7 @@ export const layerAgentDesktopToolkit = Layer.mergeAll(
 );
 
 // MT Code: fork-only toolkits register through the same access-checked path.
-export const ComputerToolkitRegistrationLive = toolkitRegistration(
+const ComputerToolkitRegistrationLive = toolkitRegistration(
   ComputerToolkit,
   ComputerToolkitHandlersLive,
 );

@@ -692,7 +692,7 @@ interface AcpMcpContext {
 }
 
 /** MT Code: Computer Use (`mt-desktop`) as an ACP stdio MCP server entry. */
-export function acpDesktopMcpServers(
+function acpDesktopMcpServers(
   desktopMcp: DesktopMcpLaunch | undefined,
 ): ReadonlyArray<EffectAcpSchema.McpServer> {
   if (desktopMcp === undefined) return [];

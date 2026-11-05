@@ -235,23 +235,6 @@ export function isLatestRunSettled(
   return runtime?.activeRunId !== latestRun.runId;
 }
 
-export function shouldEscapeUnsettledThreadOnOfflineEnvironment(
-  latestRun: Pick<ThreadRunSummary, "runId" | "startedAt" | "completedAt" | "status"> | null,
-  runtime: Pick<ThreadRuntimeSummary, "status" | "activeRunId"> | null,
-  connectionPhase: EnvironmentConnectionPhase | null | undefined,
-): boolean {
-  if (canCreateProjectInEnvironment(connectionPhase)) return false;
-  return latestRun !== null && !isLatestRunSettled(latestRun, runtime);
-}
-
-export function shouldOpenLatestThreadForProject(
-  latestRun: Pick<ThreadRunSummary, "runId" | "startedAt" | "completedAt" | "status"> | null,
-  runtime: Pick<ThreadRuntimeSummary, "status" | "activeRunId"> | null,
-  connectionPhase: EnvironmentConnectionPhase | null | undefined,
-): boolean {
-  return !shouldEscapeUnsettledThreadOnOfflineEnvironment(latestRun, runtime, connectionPhase);
-}
-
 export function shouldReadProjectFileForNewThreadDefaults(
   projectDefaultThreadEnvMode: string | null | undefined,
   connectionPhase: EnvironmentConnectionPhase | null | undefined,

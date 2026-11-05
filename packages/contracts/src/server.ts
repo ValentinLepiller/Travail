@@ -417,41 +417,6 @@ export type ServerProviders = typeof ServerProviders.Type;
 export const isProviderAvailable = (snapshot: ServerProvider): boolean =>
   snapshot.availability !== "unavailable";
 
-/** Whether a provider snapshot can accept a new turn right now. */
-export const isProviderTurnReady = (snapshot: ServerProvider): boolean =>
-  snapshot.enabled &&
-  isProviderAvailable(snapshot) &&
-  snapshot.status === "ready" &&
-  snapshot.auth.status !== "unauthenticated";
-
-export function providerTurnDisabledReason(snapshot: ServerProvider | undefined): string | null {
-  if (snapshot === undefined) {
-    return "Provider is not configured.";
-  }
-  if (!snapshot.enabled) {
-    return "Enable this provider in Settings → Connections.";
-  }
-  if (!isProviderAvailable(snapshot)) {
-    return snapshot.message ?? "Provider is unavailable on this machine.";
-  }
-  if (snapshot.auth.status === "unauthenticated") {
-    return "Sign in to this provider in Settings → Connections.";
-  }
-  if (snapshot.status === "error") {
-    return snapshot.message ?? "Provider is not ready.";
-  }
-  if (snapshot.status === "warning") {
-    return snapshot.message ?? "Provider is still starting or needs attention.";
-  }
-  if (snapshot.status === "disabled") {
-    return snapshot.message ?? "Provider is disabled.";
-  }
-  if (snapshot.status !== "ready") {
-    return snapshot.message ?? "Provider is not ready.";
-  }
-  return null;
-}
-
 /**
  * Treat an absent `supportsTextGeneration` as supported so legacy
  * producers, which all support application text generation, keep working

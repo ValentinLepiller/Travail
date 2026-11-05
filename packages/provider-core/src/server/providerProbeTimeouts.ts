@@ -57,12 +57,6 @@ export const providerAuthProbeTimeoutMs = Effect.map(
 /** Cursor `agent about` (version + auth). Measured ~8–12s cold on Windows. */
 export const cursorAboutTimeoutMs = Effect.map(HostProcess.isWindows, cursorAboutTimeoutMsFor);
 
-/** Cursor ACP model discovery after about succeeds. */
-export const cursorAcpModelDiscoveryTimeoutMs = Effect.map(
-  HostProcess.isWindows,
-  cursorAcpModelDiscoveryTimeoutMsFor,
-);
-
 /** Grok `agent stdio` ACP initialize for model discovery. */
 export const grokAcpModelDiscoveryTimeoutMs = Effect.map(
   HostProcess.isWindows,

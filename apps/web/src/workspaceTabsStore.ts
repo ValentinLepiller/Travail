@@ -30,7 +30,7 @@ export interface WorkspaceTabsState {
   readonly togglePinTab: (tabKey: string) => void;
 }
 
-export const WORKSPACE_TABS_STORAGE_KEY = "t3code:workspace-tabs:v1";
+const WORKSPACE_TABS_STORAGE_KEY = "t3code:workspace-tabs:v1";
 
 interface PersistedTabsPayload {
   tabs: WorkspaceTab[];

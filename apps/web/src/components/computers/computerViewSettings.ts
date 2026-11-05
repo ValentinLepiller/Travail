@@ -33,7 +33,7 @@ export interface ComputerViewSettings {
 
 export const COMPUTER_VIEW_FRAME_RATES = [2, 5, 8, 15, 30] as const;
 
-export const DEFAULT_COMPUTER_VIEW_SETTINGS: ComputerViewSettings = {
+const DEFAULT_COMPUTER_VIEW_SETTINGS: ComputerViewSettings = {
   scaleToFit: true,
   highDpi: true,
   smoothScaling: true,

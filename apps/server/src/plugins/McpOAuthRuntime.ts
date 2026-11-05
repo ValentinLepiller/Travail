@@ -436,7 +436,7 @@ function sessionKey(harness: McpOAuthHarness, name: string): string {
   return `${harness}:${name.toLocaleLowerCase()}`;
 }
 
-export const make = (options: McpOAuthRuntimeOptions = {}) =>
+const make = (options: McpOAuthRuntimeOptions = {}) =>
   Effect.gen(function* () {
     const runtimeScope = yield* Scope.Scope;
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;

@@ -94,13 +94,6 @@ export function textReferencesInlineVisualizationPath(text: string, path: string
   );
 }
 
-export function stripInlineVisualizations(text: string): string {
-  return splitInlineVisualizations(text)
-    .filter((part) => part.kind === "markdown")
-    .map((part) => part.text)
-    .join("\n");
-}
-
 function isSafeAbsoluteHtmlPath(path: string): boolean {
   const normalized = path.replace(/\\/gu, "/");
   return (

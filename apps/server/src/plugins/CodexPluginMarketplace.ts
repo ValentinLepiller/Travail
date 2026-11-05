@@ -1173,7 +1173,7 @@ export function decodeCodexRuntimeCatalog(
 }
 
 /** Decodes an app-server `plugin/read` payload, skipping invalid inventory entries. */
-export function decodeCodexRuntimePluginDetail(
+function decodeCodexRuntimePluginDetail(
   response: unknown,
 ): Option.Option<CodexRuntimePluginDetail> {
   const decoded = decodeCodexRuntimeReadResponseOption(response);
@@ -4082,7 +4082,7 @@ const makePluginProviderCommands = Effect.gen(function* () {
   return PluginProviderCommands.of({ resolve });
 });
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const serverConfig = yield* ServerConfig;
   const providerCommands = yield* PluginProviderCommands;
   const codexPluginRuntime = yield* CodexPluginRuntime;

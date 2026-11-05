@@ -48,7 +48,7 @@ export interface ServiceLauncherPresence {
 }
 
 /** Boot time is derived from uptime, which drifts by a little between reads. */
-export const SAME_BOOT_TOLERANCE_MS = 60_000;
+const SAME_BOOT_TOLERANCE_MS = 60_000;
 
 export function encodeServiceLauncherPresence(presence: ServiceLauncherPresence): string {
   const child = presence.childPid === undefined ? "" : ` ${presence.childPid}`;

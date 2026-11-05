@@ -59,7 +59,6 @@ it.effect("stores OpenAI API keys server-side and returns only an ephemeral cred
     assert.equal(request.headers.authorization, "Bearer openai-user-key");
     const body = (request.body as { readonly body?: Uint8Array }).body;
     assert.isDefined(body);
-    // @effect-diagnostics-next-line preferSchemaOverJson:off
     assert.deepStrictEqual(JSON.parse(new TextDecoder().decode(body)), {
       expires_after: { anchor: "created_at", seconds: 600 },
       session: {
@@ -176,7 +175,6 @@ it.effect("keeps the Parallel key server-side and maps Search and Extract respon
     assert.isDefined(searchRequest);
     const searchBody = (searchRequest.body as { readonly body?: Uint8Array }).body;
     assert.isDefined(searchBody);
-    // @effect-diagnostics-next-line preferSchemaOverJson:off
     assert.deepStrictEqual(JSON.parse(new TextDecoder().decode(searchBody)), {
       objective: "Find the latest relevant news.",
       search_queries: ["latest relevant news"],

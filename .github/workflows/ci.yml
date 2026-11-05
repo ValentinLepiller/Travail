@@ -200,14 +200,19 @@ jobs:
           exit "$(cat "$RUNNER_TEMP/apt-status")"
 
       - name: Test
+        id: workspace_tests
         run: vp run --parallel --concurrency-limit 4 --filter '!t3' --filter '!@t3tools/monorepo' --filter '!@t3tools/web' test
+
+      - name: Failed test task details
+        if: failure() && steps.workspace_tests.outcome == 'failure'
+        run: vp run --last-details
 
   # The web suite is the largest outside the server. In the shared Test job it
   # started last and ran alone for about 40s after everything else finished.
   test_web:
     name: Test Web
     runs-on: ${{ github.repository == 'ValentinLepiller/Travail' && 'ubuntu-24.04' || 'blacksmith-8vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
+    timeout-minutes: ${{ github.repository == 'ValentinLepiller/Travail' && 20 || 10 }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -236,7 +241,7 @@ jobs:
   test_server:
     name: Test Server ${{ matrix.shard }}
     runs-on: ${{ github.repository == 'ValentinLepiller/Travail' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
+    timeout-minutes: ${{ github.repository == 'ValentinLepiller/Travail' && 20 || 10 }}
     strategy:
       fail-fast: false
       matrix:

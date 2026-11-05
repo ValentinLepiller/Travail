@@ -72,7 +72,7 @@ interface MonitorCommand {
   stopped: boolean;
 }
 
-export function codexMonitorWakeText(input: {
+function codexMonitorWakeText(input: {
   readonly monitorId: string;
   readonly description: string | undefined;
   readonly output: string;

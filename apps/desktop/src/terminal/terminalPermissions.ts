@@ -4,7 +4,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
-export function terminalAutomationApp(terminal: ExternalTerminalId, platform: string) {
+function terminalAutomationApp(terminal: ExternalTerminalId, platform: string) {
   if (platform !== "darwin") return null;
   if (terminal === "system" || terminal === "terminal") return "com.apple.Terminal";
   if (terminal === "iterm2") return "com.googlecode.iterm2";

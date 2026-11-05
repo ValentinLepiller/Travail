@@ -77,9 +77,7 @@ const WINDOWS_DRIVE_PATH_REGEX = /^[A-Za-z]:[\\/]/;
 const SCOPED_PACKAGE_REFERENCE_REGEX =
   /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*(?:\/[^\s@"]+)*$/;
 
-export function collectComposerThreadReferences(
-  text: string,
-): ReadonlyArray<ComposerThreadInlineToken> {
+function collectComposerThreadReferences(text: string): ReadonlyArray<ComposerThreadInlineToken> {
   const matches: ComposerThreadInlineToken[] = [];
   // The bounded label scan still costs a rescan per whitespace; skip it entirely for the
   // common prompt that carries no thread link at all.

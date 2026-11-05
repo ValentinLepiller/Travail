@@ -29,7 +29,7 @@ const pollNative = <A>(
   });
 
 /** Whether the host still has a process with this id. A reaped process is gone. */
-export function isProcessAlive(pid: number): boolean {
+function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;

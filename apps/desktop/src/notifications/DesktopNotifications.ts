@@ -67,13 +67,13 @@ export class DesktopNotificationPlatformService extends Context.Service<
   }
 >()("@t3tools/desktop/notifications/DesktopNotifications/DesktopNotificationPlatformService") {}
 
-export function notificationTargetKey(target: DesktopNotificationTarget): string {
+function notificationTargetKey(target: DesktopNotificationTarget): string {
   return JSON.stringify([target.environmentId, target.threadId]);
 }
 
 const TEST_NOTIFICATION_KEY = "desktop-notification-test";
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const desktopWindow = yield* DesktopWindow.DesktopWindow;
   const platform = yield* DesktopNotificationPlatformService;
   const notifications = new Map<string, NativeNotification>();

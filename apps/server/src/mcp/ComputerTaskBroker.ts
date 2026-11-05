@@ -136,7 +136,7 @@ const pickClientForComputer = (
   );
 };
 
-export const make = Effect.gen(function* ComputerTaskBrokerMake() {
+const make = Effect.gen(function* ComputerTaskBrokerMake() {
   const crypto = yield* Crypto.Crypto;
   const state = yield* SynchronizedRef.make<BrokerState>({
     clients: new Map(),

@@ -1,8 +1,4 @@
-import type {
-  ProviderAccountLoginEvent,
-  ServerProvider,
-  ServerProviderAccountLogin,
-} from "@t3tools/contracts";
+import type { ProviderAccountLoginEvent, ServerProviderAccountLogin } from "@t3tools/contracts";
 
 /**
  * Client-side view of one sign-in attempt. Phases advance only forward
@@ -75,20 +71,3 @@ const FALLBACK_ACCOUNT_LOGIN: Readonly<Record<string, ServerProviderAccountLogin
   claudeAgent: { modes: ["oauth", "apiKey"], supportsLogout: true },
   codex: { modes: ["oauth", "deviceCode", "apiKey"], supportsLogout: true },
 };
-
-/**
- * Prefer a live snapshot's advertisement (so mode lists stay driver-owned),
- * then the Claude/Codex fallback. Returns `undefined` for Cursor and other
- * drivers that do not yet run an in-app login.
- */
-export function advertisedAccountLogin(
-  driver: string,
-  providers: ReadonlyArray<Pick<ServerProvider, "driver" | "accountLogin">>,
-): ServerProviderAccountLogin | undefined {
-  for (const provider of providers) {
-    if (String(provider.driver) === driver && provider.accountLogin !== undefined) {
-      return provider.accountLogin;
-    }
-  }
-  return FALLBACK_ACCOUNT_LOGIN[driver];
-}

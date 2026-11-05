@@ -93,7 +93,7 @@ const mapMenuItems = (
 /**
  * Effect constructor creating the ElectronTray service.
  */
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const platform = yield* HostProcess.Platform;
   const currentTrayRef = yield* Ref.make<Option.Option<Electron.Tray>>(Option.none());
 

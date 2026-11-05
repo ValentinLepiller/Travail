@@ -379,7 +379,7 @@ const drainingMethods = new Set<string>([
   WS_METHODS.sourceControlResolveSshPasswordPrompt,
 ]);
 
-export const requiresRpcAdmission = (method: string, payload: unknown): boolean => {
+const requiresRpcAdmission = (method: string, payload: unknown): boolean => {
   if (drainingMethods.has(method)) return false;
   if (method === WS_METHODS.voiceCodexSession) {
     return decodeVoiceInput(payload).action === "start";

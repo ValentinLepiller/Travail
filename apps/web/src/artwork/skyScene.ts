@@ -10,7 +10,7 @@ import { mixColor, skyPalette, type SkyPalette } from "./skyPalette";
  * Ids carry the `__ID__` placeholder so each mounted copy can make its own.
  */
 
-export const SKY_TILE = 640;
+const SKY_TILE = 640;
 const HEIGHT = 96;
 const REPEATS = Math.ceil(8192 / SKY_TILE);
 

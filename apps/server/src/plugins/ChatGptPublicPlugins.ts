@@ -3,8 +3,8 @@ import * as Schema from "effect/Schema";
 
 export const CHATGPT_PUBLIC_MARKETPLACE_NAME = "ChatGPT Public";
 export const CHATGPT_PUBLIC_MARKETPLACE_SOURCE = "chatgpt-public";
-export const CHATGPT_BACKEND_API_URL = "https://chatgpt.com/backend-api";
-export const CHATGPT_PUBLIC_PLUGIN_LIST_PAGE_LIMIT = 200;
+const CHATGPT_BACKEND_API_URL = "https://chatgpt.com/backend-api";
+const CHATGPT_PUBLIC_PLUGIN_LIST_PAGE_LIMIT = 200;
 export const CHATGPT_PUBLIC_PLUGIN_SEARCH_MAX_PAGES = 3;
 export const CHATGPT_PUBLIC_PLUGIN_SEARCH_MIN_QUERY_LENGTH = 2;
 

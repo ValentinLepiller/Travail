@@ -185,7 +185,7 @@ export const resolveTailscaleLocalTarget = (
   return { localPort: state.port };
 };
 
-export const formatPairOutput = (input: {
+const formatPairOutput = (input: {
   readonly serverLabel: string;
   readonly origin: string;
   readonly pairingUrl: string;
@@ -303,7 +303,7 @@ export const findAliveServerRuntimeCandidates = Effect.fn("pair.findAliveServerR
   },
 );
 
-export const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
+const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
   explicitBaseDir: string | undefined,
 ) {
   const { candidates, checkedStatePaths } =

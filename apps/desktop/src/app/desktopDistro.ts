@@ -28,7 +28,7 @@ function readPackagedDistro(appPath: string | undefined): DesktopDistroId | null
   return null;
 }
 
-export function resolveRuntimeDesktopDistroId(input: {
+function resolveRuntimeDesktopDistroId(input: {
   readonly env: NodeJS.ProcessEnv;
   readonly appPath?: string | undefined;
   readonly isDevelopment: boolean;

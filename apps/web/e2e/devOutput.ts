@@ -15,7 +15,7 @@ export interface DevRunnerPorts {
   readonly baseDir: string;
 }
 
-export function stripAnsi(text: string): string {
+function stripAnsi(text: string): string {
   return text.replaceAll(ANSI_ESCAPE, "");
 }
 

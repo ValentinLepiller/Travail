@@ -31,7 +31,7 @@ export interface MarketplaceFilters {
   readonly category: MarketplaceCategoryFilter;
 }
 
-export function normalizeMarketplaceSearchText(value: string): string {
+function normalizeMarketplaceSearchText(value: string): string {
   return value
     .normalize("NFKD")
     .replace(/[̀-ͯ]/gu, "")
@@ -40,7 +40,7 @@ export function normalizeMarketplaceSearchText(value: string): string {
     .trim();
 }
 
-export function pluginBelongsToSection(
+function pluginBelongsToSection(
   plugin: Pick<MarketplacePlugin, "contents">,
   section: MarketplaceSection,
 ): boolean {
@@ -56,7 +56,7 @@ export function pluginBelongsToSection(
   }
 }
 
-export function pluginSupportsHarness(
+function pluginSupportsHarness(
   plugin: Pick<MarketplacePlugin, "support">,
   harness: MarketplaceHarnessFilter,
 ): boolean {

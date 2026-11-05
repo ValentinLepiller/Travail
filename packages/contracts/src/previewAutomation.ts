@@ -189,7 +189,7 @@ export const PreviewAutomationOpenInput = Schema.Struct({
     }),
   ),
   profileId: Schema.optional(
-    TrimmedNonEmptyString.check(Schema.isMaxLength(64)).annotate({
+    BrowserProfileId.annotate({
       description: PROFILE_GUIDANCE,
     }),
   ).annotate({ description: PROFILE_GUIDANCE }),

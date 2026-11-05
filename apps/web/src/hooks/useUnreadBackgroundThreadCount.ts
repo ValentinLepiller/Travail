@@ -1,12 +1,7 @@
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
-import { useParams } from "@tanstack/react-router";
-import { useMemo } from "react";
 
 import { hasUnseenCompletion } from "~/components/Sidebar.logic";
-import { useThreadShells } from "~/state/entities";
-import { resolveThreadRouteTarget } from "~/threadRoutes";
-import { useUiStateStore } from "~/uiStateStore";
 
 export function isThreadUnreadBackground(
   thread: EnvironmentThreadShell,
@@ -36,25 +31,4 @@ export function countUnreadBackgroundThreads(
     }
   }
   return count;
-}
-
-export function useUnreadBackgroundThreadCount(): number {
-  const threads = useThreadShells();
-  const threadLastVisitedAtById = useUiStateStore((state) => state.threadLastVisitedAtById);
-  const routeTarget = useParams({
-    strict: false,
-    select: (params) => resolveThreadRouteTarget(params),
-  });
-
-  const currentRouteThreadKey = useMemo(() => {
-    if (routeTarget?.kind === "server") {
-      return scopedThreadKey(routeTarget.threadRef);
-    }
-    return null;
-  }, [routeTarget]);
-
-  return useMemo(
-    () => countUnreadBackgroundThreads(threads, threadLastVisitedAtById, currentRouteThreadKey),
-    [threads, threadLastVisitedAtById, currentRouteThreadKey],
-  );
 }

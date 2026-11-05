@@ -19,7 +19,6 @@ import {
   allEnvironmentShellsBootstrappedAtom,
   authoritativeShellEnvironmentIdsAtom,
   connectedShellEnvironmentIdsAtom,
-  allEnvironmentProjectSnapshotsReadyAtom,
 } from "./shell";
 import { environmentThreadDetails, environmentThreadShells } from "./threads";
 import { waitForAtomValue } from "./waitForAtomValue";
@@ -112,10 +111,6 @@ export function useConnectedShellEnvironmentIds(): ReadonlySet<EnvironmentId> {
   return useAtomValue(connectedShellEnvironmentIdsAtom);
 }
 
-export function useAllEnvironmentProjectSnapshotsReady(): boolean {
-  return useAtomValue(allEnvironmentProjectSnapshotsReadyAtom);
-}
-
 export function useThreadShellsForProjectRefs(
   refs: ReadonlyArray<ScopedProjectRef>,
 ): ReadonlyArray<EnvironmentThreadShell> {
@@ -149,17 +144,6 @@ export function useThreadProjection(ref: ScopedThreadRef | null): EnvironmentThr
 export function useThreadStatus(ref: ScopedThreadRef | null): EnvironmentThreadStatus {
   return useAtomValue(
     ref === null ? EMPTY_THREAD_STATUS_ATOM : environmentThreadDetails.statusAtom(ref),
-  );
-}
-
-/**
- * Last unresolved thread-subscription failure, or null. Cleared by the runtime
- * as soon as a snapshot or live event lands, so a non-null value means the
- * stream is still failing its retries right now.
- */
-export function useThreadError(ref: ScopedThreadRef | null): string | null {
-  return useAtomValue(
-    ref === null ? EMPTY_THREAD_ERROR_ATOM : environmentThreadDetails.errorAtom(ref),
   );
 }
 

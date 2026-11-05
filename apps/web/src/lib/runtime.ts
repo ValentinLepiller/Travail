@@ -70,7 +70,7 @@ export function __setPrimaryHttpRunnerForTests(runner?: PrimaryHttpEffectRunner)
   primaryHttpRunner = runner ?? livePrimaryHttpRunner;
 }
 
-export function __setPrimaryRawHttpRunnerForTests(runner?: PrimaryRawHttpEffectRunner): void {
+function __setPrimaryRawHttpRunnerForTests(runner?: PrimaryRawHttpEffectRunner): void {
   primaryRawHttpRunner = runner ?? livePrimaryRawHttpRunner;
 }
 

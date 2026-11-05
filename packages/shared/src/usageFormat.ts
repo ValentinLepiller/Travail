@@ -228,7 +228,7 @@ export const ALL_USAGE_WINDOW_DAYS = 0;
  * enough to cover any realistic Claude / Codex / Cursor / Grok / OpenCode
  * transcript without inventing an unbounded open-ended request.
  */
-export const ALL_USAGE_SINCE_DAY = "2020-01-01";
+const ALL_USAGE_SINCE_DAY = "2020-01-01";
 
 /**
  * The window the page requests, expressed in the viewer's own time zone so days

@@ -36,26 +36,26 @@ import type {
 } from "@t3tools/provider-core/server/driver";
 import { resolveAppDisplayName } from "../../appDisplayName.ts";
 
-export const CLAUDE_OAUTH_TOKEN_ENV_VAR = "CLAUDE_CODE_OAUTH_TOKEN";
-export const CLAUDE_API_KEY_ENV_VAR = "ANTHROPIC_API_KEY";
+const CLAUDE_OAUTH_TOKEN_ENV_VAR = "CLAUDE_CODE_OAUTH_TOKEN";
+const CLAUDE_API_KEY_ENV_VAR = "ANTHROPIC_API_KEY";
 
 /** Wide enough that the OAuth URL never soft-wraps mid-token. */
 const LOGIN_PTY_COLS = 500;
 const LOGIN_PTY_ROWS = 40;
 
 function stripAnsi(text: string): string {
-  // eslint-disable-next-line no-control-regex
+  // eslint-disable-next-line no-control-regex -- Terminal escape sequences include control characters.
   return text.replace(/\x1b\[[0-9;?]*[A-Za-z]|\x1b\].*?(?:\x07|\x1b\\)/g, "");
 }
 
 /** First https URL in the CLI output — the OAuth authorize link. */
-export function extractClaudeLoginUrl(output: string): string | null {
+function extractClaudeLoginUrl(output: string): string | null {
   const match = stripAnsi(output).match(/https:\/\/[^\s"'`)\]]+/);
   return match ? match[0] : null;
 }
 
 /** Long-lived OAuth token printed after a successful code exchange. */
-export function extractClaudeOauthToken(output: string): string | null {
+function extractClaudeOauthToken(output: string): string | null {
   const match = stripAnsi(output).match(/sk-ant-oat[A-Za-z0-9_-]*-[A-Za-z0-9_-]{8,}/);
   return match ? match[0] : null;
 }
@@ -66,7 +66,7 @@ export function extractClaudeOauthToken(output: string): string | null {
  * exists as the legacy provider blob gets claimed with its current config
  * intact rather than a bare envelope.
  */
-export const persistInstanceEnvironmentVariable = Effect.fn("persistInstanceEnvironmentVariable")(
+const persistInstanceEnvironmentVariable = Effect.fn("persistInstanceEnvironmentVariable")(
   function* (input: {
     readonly settings: ServerSettingsService["Service"];
     readonly instanceId: ProviderInstanceId;
@@ -96,7 +96,7 @@ export const persistInstanceEnvironmentVariable = Effect.fn("persistInstanceEnvi
     // claim every driver's default slot and detach them from the legacy
     // `providers.*` mirrors.
     yield* input.settings.updateSettings({
-      providerInstances: { ...(current.providerInstances ?? {}), [input.instanceId]: nextInstance },
+      providerInstances: { ...current.providerInstances, [input.instanceId]: nextInstance },
     });
   },
 );
@@ -132,9 +132,10 @@ export function makeClaudeAccountLogin(
           name: CLAUDE_API_KEY_ENV_VAR,
           value: apiKey.trim(),
         }).pipe(
-          Effect.catchTag("ServerSettingsError", (cause) =>
-            Effect.fail(failure(`Could not store the API key: ${cause.message}`)),
-          ),
+          Effect.catchTags({
+            ServerSettingsError: (cause) =>
+              Effect.fail(failure(`Could not store the API key: ${cause.message}`)),
+          }),
         );
         return {
           events: Stream.make({ type: "complete" } as const satisfies ProviderAccountLoginEvent),
@@ -201,9 +202,10 @@ export function makeClaudeAccountLogin(
           name: CLAUDE_OAUTH_TOKEN_ENV_VAR,
           value: token,
         }).pipe(
-          Effect.catchTag("ServerSettingsError", (cause) =>
-            Effect.fail(failure(`Could not store the sign-in token: ${cause.message}`)),
-          ),
+          Effect.catchTags({
+            ServerSettingsError: (cause) =>
+              Effect.fail(failure(`Could not store the sign-in token: ${cause.message}`)),
+          }),
         );
         return { type: "complete" } as const satisfies ProviderAccountLoginEvent;
       });

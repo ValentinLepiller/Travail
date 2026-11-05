@@ -776,29 +776,26 @@ const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProviders, 
   error: Schema.Union([EnvironmentAuthorizationError, ProviderSetupError]),
 });
 
-export const WsServerLoginProviderAccountRpc = Rpc.make(WS_METHODS.serverLoginProviderAccount, {
+const WsServerLoginProviderAccountRpc = Rpc.make(WS_METHODS.serverLoginProviderAccount, {
   payload: ProviderAccountLoginInput,
   success: ProviderAccountLoginEvent,
   error: Schema.Union([ProviderAccountLoginError, EnvironmentAuthorizationError]),
   stream: true,
 });
 
-export const WsServerSubmitProviderLoginCodeRpc = Rpc.make(
-  WS_METHODS.serverSubmitProviderLoginCode,
-  {
-    payload: ProviderLoginCodeInput,
-    success: Schema.Struct({}),
-    error: Schema.Union([ProviderAccountLoginError, EnvironmentAuthorizationError]),
-  },
-);
+const WsServerSubmitProviderLoginCodeRpc = Rpc.make(WS_METHODS.serverSubmitProviderLoginCode, {
+  payload: ProviderLoginCodeInput,
+  success: Schema.Struct({}),
+  error: Schema.Union([ProviderAccountLoginError, EnvironmentAuthorizationError]),
+});
 
-export const WsServerLogoutProviderAccountRpc = Rpc.make(WS_METHODS.serverLogoutProviderAccount, {
+const WsServerLogoutProviderAccountRpc = Rpc.make(WS_METHODS.serverLogoutProviderAccount, {
   payload: ProviderAccountLogoutInput,
   success: ServerProviderUpdatedPayload,
   error: Schema.Union([ProviderAccountLoginError, EnvironmentAuthorizationError]),
 });
 
-export const WsServerListProviderWorkspaceCapabilitiesRpc = Rpc.make(
+const WsServerListProviderWorkspaceCapabilitiesRpc = Rpc.make(
   WS_METHODS.serverListProviderWorkspaceCapabilities,
   {
     payload: ServerProviderWorkspaceCapabilitiesInput,
@@ -1097,37 +1094,37 @@ const WsServerSignalProcessRpc = Rpc.make(WS_METHODS.serverSignalProcess, {
   error: EnvironmentAuthorizationError,
 });
 
-export const WsVoiceGetCredentialStatusRpc = Rpc.make(WS_METHODS.voiceGetCredentialStatus, {
+const WsVoiceGetCredentialStatusRpc = Rpc.make(WS_METHODS.voiceGetCredentialStatus, {
   payload: Schema.Struct({}),
   success: VoiceCredentialStatus,
   error: Schema.Union([VoiceApiError, EnvironmentAuthorizationError]),
 });
 
-export const WsVoiceSetCredentialRpc = Rpc.make(WS_METHODS.voiceSetCredential, {
+const WsVoiceSetCredentialRpc = Rpc.make(WS_METHODS.voiceSetCredential, {
   payload: VoiceCredentialInput,
   success: VoiceCredentialStatus,
   error: Schema.Union([VoiceApiError, EnvironmentAuthorizationError]),
 });
 
-export const WsVoiceRemoveCredentialRpc = Rpc.make(WS_METHODS.voiceRemoveCredential, {
+const WsVoiceRemoveCredentialRpc = Rpc.make(WS_METHODS.voiceRemoveCredential, {
   payload: Schema.Struct({}),
   success: VoiceCredentialStatus,
   error: Schema.Union([VoiceApiError, EnvironmentAuthorizationError]),
 });
 
-export const WsVoiceCreateSessionRpc = Rpc.make(WS_METHODS.voiceCreateSession, {
+const WsVoiceCreateSessionRpc = Rpc.make(WS_METHODS.voiceCreateSession, {
   payload: VoiceSessionInput,
   success: VoiceSessionAccess,
   error: Schema.Union([VoiceApiError, EnvironmentAuthorizationError]),
 });
 
-export const WsVoiceCodexSessionRpc = Rpc.make(WS_METHODS.voiceCodexSession, {
+const WsVoiceCodexSessionRpc = Rpc.make(WS_METHODS.voiceCodexSession, {
   payload: CodexVoiceSessionInput,
   success: CodexVoiceSessionResult,
   error: Schema.Union([VoiceApiError, EnvironmentAuthorizationError]),
 });
 
-export const WsVoiceGetParallelCredentialStatusRpc = Rpc.make(
+const WsVoiceGetParallelCredentialStatusRpc = Rpc.make(
   WS_METHODS.voiceGetParallelCredentialStatus,
   {
     payload: Schema.Struct({}),
@@ -1136,28 +1133,25 @@ export const WsVoiceGetParallelCredentialStatusRpc = Rpc.make(
   },
 );
 
-export const WsVoiceSetParallelCredentialRpc = Rpc.make(WS_METHODS.voiceSetParallelCredential, {
+const WsVoiceSetParallelCredentialRpc = Rpc.make(WS_METHODS.voiceSetParallelCredential, {
   payload: VoiceCredentialInput,
   success: VoiceCredentialStatus,
   error: Schema.Union([VoiceApiError, EnvironmentAuthorizationError]),
 });
 
-export const WsVoiceRemoveParallelCredentialRpc = Rpc.make(
-  WS_METHODS.voiceRemoveParallelCredential,
-  {
-    payload: Schema.Struct({}),
-    success: VoiceCredentialStatus,
-    error: Schema.Union([VoiceApiError, EnvironmentAuthorizationError]),
-  },
-);
+const WsVoiceRemoveParallelCredentialRpc = Rpc.make(WS_METHODS.voiceRemoveParallelCredential, {
+  payload: Schema.Struct({}),
+  success: VoiceCredentialStatus,
+  error: Schema.Union([VoiceApiError, EnvironmentAuthorizationError]),
+});
 
-export const WsVoiceSearchWebRpc = Rpc.make(WS_METHODS.voiceSearchWeb, {
+const WsVoiceSearchWebRpc = Rpc.make(WS_METHODS.voiceSearchWeb, {
   payload: VoiceWebSearchInput,
   success: VoiceWebSearchResult,
   error: Schema.Union([VoiceApiError, EnvironmentAuthorizationError]),
 });
 
-export const WsVoiceExtractWebRpc = Rpc.make(WS_METHODS.voiceExtractWeb, {
+const WsVoiceExtractWebRpc = Rpc.make(WS_METHODS.voiceExtractWeb, {
   payload: VoiceWebExtractInput,
   success: VoiceWebExtractResult,
   error: Schema.Union([VoiceApiError, EnvironmentAuthorizationError]),
@@ -1220,7 +1214,7 @@ const WsPullRequestsListStatsRpc = Rpc.make(WS_METHODS.pullRequestsListStats, {
  * the listing: it costs a model round trip, so the rows are drawn from the listing first and
  * reorder once this answers.
  */
-export const WsPullRequestsRankRpc = Rpc.make(WS_METHODS.pullRequestsRank, {
+const WsPullRequestsRankRpc = Rpc.make(WS_METHODS.pullRequestsRank, {
   payload: PullRequestRankInput,
   success: PullRequestRankResult,
   error: PullRequestRpcError,
@@ -1232,7 +1226,7 @@ export const WsPullRequestsRankRpc = Rpc.make(WS_METHODS.pullRequestsRank, {
  * what it answers — clean, conflicted, or nothing to take — decides what the thread is asked to
  * do.
  */
-export const WsPullRequestsCherryPickRpc = Rpc.make(WS_METHODS.pullRequestsCherryPick, {
+const WsPullRequestsCherryPickRpc = Rpc.make(WS_METHODS.pullRequestsCherryPick, {
   payload: PullRequestCherryPickInput,
   success: PullRequestCherryPickResult,
   error: PullRequestRpcError,
@@ -1243,14 +1237,14 @@ export const WsPullRequestsCherryPickRpc = Rpc.make(WS_METHODS.pullRequestsCherr
  * part of the listing: a release is not a change request, and the listing must not wait on a
  * second host read to draw the rows it already has.
  */
-export const WsPullRequestsUpstreamReleaseRpc = Rpc.make(WS_METHODS.pullRequestsUpstreamRelease, {
+const WsPullRequestsUpstreamReleaseRpc = Rpc.make(WS_METHODS.pullRequestsUpstreamRelease, {
   payload: PullRequestUpstreamReleaseInput,
   success: PullRequestUpstreamReleaseResult,
   error: PullRequestRpcError,
 });
 
 /** Take that release into a branch of its own, the way a cherry-pick takes a change request's. */
-export const WsPullRequestsMergeUpstreamReleaseRpc = Rpc.make(
+const WsPullRequestsMergeUpstreamReleaseRpc = Rpc.make(
   WS_METHODS.pullRequestsMergeUpstreamRelease,
   {
     payload: PullRequestMergeUpstreamReleaseInput,
@@ -1457,7 +1451,7 @@ const WsSourceControlCloneRepositoryRpc = Rpc.make(WS_METHODS.sourceControlClone
   error: Schema.Union([SourceControlRepositoryError, EnvironmentAuthorizationError]),
 });
 
-export const WsSourceControlCloneRepositoryWithPromptsRpc = Rpc.make(
+const WsSourceControlCloneRepositoryWithPromptsRpc = Rpc.make(
   WS_METHODS.sourceControlCloneRepositoryWithPrompts,
   {
     payload: SourceControlCloneRepositoryInput,
@@ -1503,7 +1497,7 @@ const WsSourceControlPublishRepositoryRpc = Rpc.make(WS_METHODS.sourceControlPub
   error: Schema.Union([SourceControlRepositoryError, EnvironmentAuthorizationError]),
 });
 
-export const WsSourceControlPublishRepositoryWithPromptsRpc = Rpc.make(
+const WsSourceControlPublishRepositoryWithPromptsRpc = Rpc.make(
   WS_METHODS.sourceControlPublishRepositoryWithPrompts,
   {
     payload: SourceControlPublishRepositoryInput,
@@ -1513,7 +1507,7 @@ export const WsSourceControlPublishRepositoryWithPromptsRpc = Rpc.make(
   },
 );
 
-export const WsSourceControlResolveSshPasswordPromptRpc = Rpc.make(
+const WsSourceControlResolveSshPasswordPromptRpc = Rpc.make(
   WS_METHODS.sourceControlResolveSshPasswordPrompt,
   {
     payload: SourceControlSshPasswordPromptResolutionInput,
@@ -1677,7 +1671,7 @@ const WsVcsPullRpc = Rpc.make(WS_METHODS.vcsPull, {
   error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
 });
 
-export const WsVcsPullWithPromptsRpc = Rpc.make(WS_METHODS.vcsPullWithPrompts, {
+const WsVcsPullWithPromptsRpc = Rpc.make(WS_METHODS.vcsPullWithPrompts, {
   payload: VcsPullInput,
   success: VcsPullEvent,
   error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
@@ -1710,15 +1704,12 @@ const WsGitRunStackedActionRpc = Rpc.make(WS_METHODS.gitRunStackedAction, {
   stream: true,
 });
 
-export const WsGitRunStackedActionWithPromptsRpc = Rpc.make(
-  WS_METHODS.gitRunStackedActionWithPrompts,
-  {
-    payload: GitRunStackedActionInput,
-    success: GitActionProgressEvent,
-    error: Schema.Union([GitManagerServiceError, EnvironmentAuthorizationError]),
-    stream: true,
-  },
-);
+const WsGitRunStackedActionWithPromptsRpc = Rpc.make(WS_METHODS.gitRunStackedActionWithPrompts, {
+  payload: GitRunStackedActionInput,
+  success: GitActionProgressEvent,
+  error: Schema.Union([GitManagerServiceError, EnvironmentAuthorizationError]),
+  stream: true,
+});
 
 const WsGitResolvePullRequestRpc = Rpc.make(WS_METHODS.gitResolvePullRequest, {
   payload: GitPullRequestRefInput,
@@ -1884,31 +1875,31 @@ const WsPreviewReportStatusRpc = Rpc.make(WS_METHODS.previewReportStatus, {
   error: Schema.Union([PreviewError, EnvironmentAuthorizationError]),
 });
 
-export const WsComputersConnectRpc = Rpc.make(WS_METHODS.computersConnect, {
+const WsComputersConnectRpc = Rpc.make(WS_METHODS.computersConnect, {
   payload: ComputerTaskHost,
   success: ComputerTaskStreamEvent,
   error: Schema.Union([ComputerTaskError, EnvironmentAuthorizationError]),
   stream: true,
 });
 
-export const WsComputersSyncRpc = Rpc.make(WS_METHODS.computersSync, {
+const WsComputersSyncRpc = Rpc.make(WS_METHODS.computersSync, {
   payload: ComputerTaskHost,
   error: Schema.Union([ComputerTaskError, EnvironmentAuthorizationError]),
 });
 
-export const WsComputersRespondRpc = Rpc.make(WS_METHODS.computersRespond, {
+const WsComputersRespondRpc = Rpc.make(WS_METHODS.computersRespond, {
   payload: ComputerTaskResponse,
   error: Schema.Union([ComputerTaskError, EnvironmentAuthorizationError]),
 });
 
-export const WsComputerViewStreamRpc = Rpc.make(WS_METHODS.computerViewStream, {
+const WsComputerViewStreamRpc = Rpc.make(WS_METHODS.computerViewStream, {
   payload: ComputerViewStreamInput,
   success: ComputerViewStreamEvent,
   error: Schema.Union([ComputerViewError, EnvironmentAuthorizationError]),
   stream: true,
 });
 
-export const WsComputerViewInputRpc = Rpc.make(WS_METHODS.computerViewInput, {
+const WsComputerViewInputRpc = Rpc.make(WS_METHODS.computerViewInput, {
   payload: ComputerViewInput,
   error: Schema.Union([ComputerViewError, EnvironmentAuthorizationError]),
 });

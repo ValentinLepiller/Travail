@@ -50,11 +50,11 @@ export const OPENCODE_API_KEYS_ONLY_MESSAGE =
   "OpenCode is signed in with API keys only; usage windows exist for ChatGPT and Claude subscription sign-ins.";
 export const OPENCODE_CHATGPT_EXPIRED_MESSAGE =
   "OpenCode's ChatGPT sign-in has expired; run a turn in OpenCode to refresh it.";
-export const OPENCODE_CLAUDE_EXPIRED_MESSAGE =
+const OPENCODE_CLAUDE_EXPIRED_MESSAGE =
   "OpenCode's Claude sign-in has expired; run a turn in OpenCode to refresh it.";
 export const OPENCODE_CHATGPT_FETCH_FAILED_MESSAGE =
   "ChatGPT usage could not be read for OpenCode.";
-export const OPENCODE_CLAUDE_FETCH_FAILED_MESSAGE = "Claude usage could not be read for OpenCode.";
+const OPENCODE_CLAUDE_FETCH_FAILED_MESSAGE = "Claude usage could not be read for OpenCode.";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;

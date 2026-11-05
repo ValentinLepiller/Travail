@@ -140,12 +140,6 @@ export const isWithinDirectory = (directory: string, ancestor: string, path: Pat
   );
 };
 
-/** Whether `directory` resolves to a filesystem root for this path implementation. */
-export const isFilesystemRoot = (directory: string, path: Path.Path) => {
-  const resolved = path.resolve(directory);
-  return resolved === path.parse(resolved).root;
-};
-
 /**
  * Why a worktree directory can't be used, or null when it can. The review
  * guard authorizes everything under this directory, so the home directory and

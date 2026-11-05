@@ -25,7 +25,7 @@ import { makeChildStdio, makeTerminationError } from "./_internal/stdio.ts";
  * MCP elicitations that share a `serverName`) should read this instead of a
  * non-unique payload field.
  */
-export const CurrentServerRequestId = Context.Reference<string | number | undefined>(
+const CurrentServerRequestId = Context.Reference<string | number | undefined>(
   "effect-codex-app-server/CurrentServerRequestId",
   { defaultValue: () => undefined },
 );

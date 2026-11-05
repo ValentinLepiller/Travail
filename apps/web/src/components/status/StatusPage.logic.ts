@@ -1,4 +1,4 @@
-import type { RuntimeMode, ServerProvider } from "@t3tools/contracts";
+import type { RuntimeMode } from "@t3tools/contracts";
 
 export type CodexSessionStatus =
   | "idle"
@@ -82,17 +82,7 @@ export function isCodexSessionStatus(status: CodexSessionStatus): boolean {
   );
 }
 
-export function codexProviderStatusLabel(provider: ServerProvider): string {
-  if (!provider.enabled) return "Disabled";
-  if (!provider.installed) return "Not installed";
-  if (provider.auth.status === "unauthenticated") return "Not authenticated";
-  if (provider.status === "error") return "Unavailable";
-  if (provider.status === "warning") return "Needs attention";
-  if (provider.status === "ready") return "Ready";
-  return "Checking";
-}
-
-export function formatStatusTimestamp(value: string): string {
+function formatStatusTimestamp(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString(undefined, {

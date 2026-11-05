@@ -113,7 +113,6 @@ testLayer("CodexPluginMarketplace", (it) => {
       yield* fs.symlink(outside, path.join(root, "skills", "escaped"));
       yield* fs.writeFileString(
         path.join(root, ".codex-plugin", "plugin.json"),
-        // @effect-diagnostics-next-line preferSchemaOverJson:off
         JSON.stringify({
           name: "computer-use",
           version: "1.0.1000633",
@@ -145,7 +144,6 @@ testLayer("CodexPluginMarketplace", (it) => {
       );
       yield* fs.writeFileString(
         path.join(root, ".mcp.json"),
-        // @effect-diagnostics-next-line preferSchemaOverJson:off
         JSON.stringify({
           mcpServers: {
             "computer-use": {
@@ -158,7 +156,6 @@ testLayer("CodexPluginMarketplace", (it) => {
       );
       yield* fs.writeFileString(
         path.join(root, ".app.json"),
-        // @effect-diagnostics-next-line preferSchemaOverJson:off
         JSON.stringify({ apps: { "computer-use": { id: "computer-use-connector" } } }),
       );
       yield* fs.writeFile(path.join(root, "assets", "app-icon.png"), new Uint8Array(60 * 1024));
@@ -175,7 +172,6 @@ testLayer("CodexPluginMarketplace", (it) => {
         installPolicy: "AVAILABLE",
         authPolicy: "ON_INSTALL",
       };
-      // @effect-diagnostics-next-line preferSchemaOverJson:off
       const catalogJson = JSON.stringify({ installed: [record], available: [] });
       let codexCommand = "/tools/custom-codex";
       let codexEnvironment: NodeJS.ProcessEnv | undefined;
@@ -274,12 +270,10 @@ testLayer("CodexPluginMarketplace", (it) => {
       yield* fs.makeDirectory(path.join(root, ".codex-plugin"), { recursive: true });
       yield* fs.writeFileString(
         path.join(root, ".codex-plugin", "plugin.json"),
-        // @effect-diagnostics-next-line preferSchemaOverJson:off
         JSON.stringify({ name: "figma", mcpServers: "./.mcp.json" }),
       );
       yield* fs.writeFileString(
         path.join(root, ".mcp.json"),
-        // @effect-diagnostics-next-line preferSchemaOverJson:off
         JSON.stringify({
           mcpServers: {
             figma: { type: "http", url: "https://mcp.figma.com/mcp" },
@@ -367,9 +361,7 @@ testLayer("CodexPluginMarketplace", (it) => {
         installPolicy: "AVAILABLE",
         authPolicy: "ON_INSTALL",
       };
-      // @effect-diagnostics-next-line preferSchemaOverJson:off
       const codexCatalog = JSON.stringify({ installed: [], available: [codexRecord] });
-      // @effect-diagnostics-next-line preferSchemaOverJson:off
       const claudeCatalog = JSON.stringify({
         installed: [],
         available: [
@@ -428,7 +420,6 @@ testLayer("CodexPluginMarketplace", (it) => {
 
   it.effect("previews remote Claude package skills, MCP servers, hooks, and artwork", () =>
     Effect.gen(function* () {
-      // @effect-diagnostics-next-line preferSchemaOverJson:off
       const claudeCatalog = JSON.stringify({
         installed: [],
         available: [
@@ -453,7 +444,6 @@ testLayer("CodexPluginMarketplace", (it) => {
           return Effect.succeed(unavailableProcessOutput);
         },
       });
-      // @effect-diagnostics-next-line preferSchemaOverJson:off
       const tree = JSON.stringify({
         truncated: false,
         tree: [
@@ -753,9 +743,7 @@ testLayer("CodexPluginMarketplace", (it) => {
         installPolicy: "AVAILABLE",
         authPolicy: "ON_INSTALL",
       };
-      // @effect-diagnostics-next-line preferSchemaOverJson:off
       const catalogJson = JSON.stringify({ installed: [], available: [record] });
-      // @effect-diagnostics-next-line preferSchemaOverJson:off
       const installJson = JSON.stringify({ pluginId: record.pluginId, installed: true });
       const runner = ProcessRunner.ProcessRunner.of({
         run: (input) =>
@@ -801,7 +789,6 @@ testLayer("CodexPluginMarketplace", (it) => {
         installPolicy: "AVAILABLE",
         authPolicy: "ON_INSTALL",
       };
-      // @effect-diagnostics-next-line preferSchemaOverJson:off
       const catalogJson = JSON.stringify({ installed: [record], available: [] });
       const runner = ProcessRunner.ProcessRunner.of({
         run: (input) =>
@@ -845,7 +832,6 @@ testLayer("CodexPluginMarketplace", (it) => {
         installPolicy: "AVAILABLE",
         authPolicy: "ON_INSTALL",
       };
-      // @effect-diagnostics-next-line preferSchemaOverJson:off
       const catalogJson = JSON.stringify({ installed: [record], available: [] });
       let runtimeInstalled = false;
       let failLegacyRemoval = false;
@@ -939,12 +925,10 @@ testLayer("CodexPluginMarketplace", (it) => {
       yield* fs.makeDirectory(path.join(root, ".codex-plugin"), { recursive: true });
       yield* fs.writeFileString(
         path.join(root, ".codex-plugin", "plugin.json"),
-        // @effect-diagnostics-next-line preferSchemaOverJson:off
         JSON.stringify({ name: "documents", interface: { displayName: "Documents" } }),
       );
       const commands: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }> =
         [];
-      // @effect-diagnostics-next-line preferSchemaOverJson:off
       const catalogJson = JSON.stringify({
         installed: [
           {
@@ -1015,7 +999,6 @@ testLayer("CodexPluginMarketplace", (it) => {
 
   it.effect("reports a timed-out harness and still lists the others", () =>
     Effect.gen(function* () {
-      // @effect-diagnostics-next-line preferSchemaOverJson:off
       const claudeJson = JSON.stringify({
         installed: [],
         available: [
@@ -1072,7 +1055,6 @@ testLayer("CodexPluginMarketplace", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-plugin-partial-" });
-      // @effect-diagnostics-next-line preferSchemaOverJson:off
       const codexJson = JSON.stringify({
         installed: [
           {
@@ -1122,7 +1104,6 @@ testLayer("CodexPluginMarketplace", (it) => {
       yield* fs.makeDirectory(path.join(root, ".codex-plugin"), { recursive: true });
       yield* fs.writeFileString(
         path.join(root, ".codex-plugin", "plugin.json"),
-        // @effect-diagnostics-next-line preferSchemaOverJson:off
         JSON.stringify({ name: "build-ios-apps" }),
       );
       const commands: Array<ReadonlyArray<string>> = [];
@@ -1329,7 +1310,6 @@ testLayer("CodexPluginMarketplace", (it) => {
   live("returns the other harnesses while a slow harness keeps syncing", () =>
     Effect.gen(function* () {
       const release = yield* Deferred.make<void>();
-      // @effect-diagnostics-next-line preferSchemaOverJson:off
       const claudeJson = JSON.stringify({
         installed: [],
         available: [
@@ -1382,7 +1362,6 @@ testLayer("CodexPluginMarketplace", (it) => {
     Effect.gen(function* () {
       const commands: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }> =
         [];
-      // @effect-diagnostics-next-line preferSchemaOverJson:off
       const claudeCatalog = JSON.stringify({
         installed: [],
         available: [
@@ -1445,7 +1424,6 @@ testLayer("CodexPluginMarketplace", (it) => {
       yield* fs.makeDirectory(appPath, { recursive: true });
       yield* fs.writeFileString(
         path.join(pluginRoot, ".codex-plugin", "plugin.json"),
-        // @effect-diagnostics-next-line preferSchemaOverJson:off
         JSON.stringify({
           name: "computer-use",
           version: "1.0.1000633",
@@ -1465,7 +1443,6 @@ testLayer("CodexPluginMarketplace", (it) => {
         installPolicy: "AVAILABLE",
         authPolicy: "ON_INSTALL",
       };
-      // @effect-diagnostics-next-line preferSchemaOverJson:off
       const codexCatalog = JSON.stringify({ installed: [record], available: [] });
       const commands: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }> =
         [];

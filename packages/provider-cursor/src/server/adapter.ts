@@ -224,7 +224,7 @@ export function cursorMcpServers(
  * MT Code: the t3-code server plus Computer Use (`mt-desktop`) as a stdio MCP
  * server when the session resolved one.
  */
-export function cursorSessionMcpServers(
+function cursorSessionMcpServers(
   session: McpProviderSession.McpProviderSessionConfig | undefined,
   desktopMcp: DesktopMcpLaunch | undefined,
 ): Record<string, McpServerConfig> | undefined {

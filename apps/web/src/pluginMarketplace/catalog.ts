@@ -18,7 +18,7 @@ export const MARKETPLACE_HARNESS_LABELS: Readonly<Record<MarketplaceHarnessId, s
   cursor: "Cursor",
 };
 
-export const CHATGPT_PUBLIC_MARKETPLACE_NAME = "ChatGPT Public";
+const CHATGPT_PUBLIC_MARKETPLACE_NAME = "ChatGPT Public";
 
 /** Marketplace name as shown to users; older servers only send the raw marketplace id. */
 export function marketplaceDisplayName(
@@ -171,7 +171,7 @@ export function marketplaceContentsSummary(
     .join(" · ");
 }
 
-export function marketplaceListingGroupKey(name: string): string {
+function marketplaceListingGroupKey(name: string): string {
   return name
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/gu, "")
@@ -247,7 +247,7 @@ export function mergeMarketplaceListings(
   });
 }
 
-export function marketplacePluginKinds(
+function marketplacePluginKinds(
   plugin: Pick<MarketplacePlugin, "contents">,
 ): ReadonlyArray<MarketplacePluginKind> {
   return [

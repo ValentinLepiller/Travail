@@ -951,7 +951,7 @@ export const IRIS_THEME: ThemeDefinition = {
  * side untouched. Paired with {@link MT_CODE_LIGHT_THEME_COLORS} by
  * {@link MT_CODE_THEME}.
  */
-export const MT_CODE_DARK_THEME_COLORS: ThemeColors = {
+const MT_CODE_DARK_THEME_COLORS: ThemeColors = {
   canvas: "oklch(0.209036 0 0)",
   chrome: "oklch(0.209036 0 0)",
   toolbar: "oklch(0.209036 0 0)",
@@ -1020,7 +1020,7 @@ export const MT_CODE_DARK_THEME_COLORS: ThemeColors = {
  * OKLCH form every shipped theme is stored in (that constant stays hex: it
  * mirrors the raw index.css tokens the editor seeds drafts from).
  */
-export const MT_CODE_LIGHT_THEME_COLORS: ThemeColors = {
+const MT_CODE_LIGHT_THEME_COLORS: ThemeColors = {
   canvas: "oklch(0.991069 0 0)",
   chrome: "oklch(0.991069 0 0)",
   toolbar: "oklch(0.991069 0 0)",

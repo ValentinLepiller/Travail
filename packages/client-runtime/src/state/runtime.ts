@@ -1,7 +1,7 @@
 import type { QueryPersistence } from "./queryPersistence.ts";
 import { createCommandPermissions } from "./commandPermissions.ts";
 import { followStreamInEnvironment } from "./environmentStreams.ts";
-export { runStreamInEnvironment, followStreamInEnvironment } from "./environmentStreams.ts";
+export { followStreamInEnvironment } from "./environmentStreams.ts";
 import {
   type ClientGuardedRpcTag,
   EnvironmentId,

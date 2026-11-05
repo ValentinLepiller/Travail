@@ -212,7 +212,7 @@ export const remarkChatMath: Plugin<[], Root> = function () {
 };
 
 /** Classes that mark a `code` element as parser-owned math rather than code. */
-export const CHAT_MATH_CLASS_NAMES = ["math-inline", "math-display"] as const;
+const CHAT_MATH_CLASS_NAMES = ["math-inline", "math-display"] as const;
 
 /** Whether hast properties belong to math produced by {@link remarkChatMath}. */
 export function isChatMathHastProperties(properties: { readonly className?: unknown } | undefined) {

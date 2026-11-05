@@ -54,7 +54,7 @@ export const ComputerSendInput = Schema.Struct({
   ),
 });
 
-export const ComputerListTool = Tool.make("computer_list", {
+const ComputerListTool = Tool.make("computer_list", {
   description: `List computers this ${resolveAppDisplayName()} client can run work on: this machine, SSH hosts, T3 Connect machines, and other paired environments. Call this before computer_send when the task belongs on another OS, desktop, GPU, or filesystem. Returns ids, labels, OS, connection kind, and whether each computer is reachable.`,
   parameters: EmptyToolInput,
   success: ComputerListResult,
@@ -66,7 +66,7 @@ export const ComputerListTool = Tool.make("computer_list", {
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true);
 
-export const ComputerSendTool = Tool.make("computer_send", {
+const ComputerSendTool = Tool.make("computer_send", {
   description:
     "Start a new T3 thread on another connected computer (or this one) with the given task. The receiving agent runs on that machine, so it has that computer's files, terminal, and Computer Use desktop. Use computer_list to discover ids and labels. This does not move this chat or share its transcript; include everything the recipient needs.",
   parameters: ComputerSendInput,

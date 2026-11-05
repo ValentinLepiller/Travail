@@ -129,7 +129,7 @@ export function websiteMatchesFilter(
 }
 
 /** Best-effort detection of private / incognito browser surfaces. */
-export function isPrivateBrowsingUrl(url: string): boolean {
+function isPrivateBrowsingUrl(url: string): boolean {
   const lowered = url.toLowerCase();
   return (
     lowered.includes("chrome://newtab") ||

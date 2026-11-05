@@ -38,7 +38,7 @@ export interface ComposerThreadReference {
   readonly title: string;
 }
 
-export const COMPOSER_THREAD_REFERENCE_SCHEME = "t3-thread:";
+const COMPOSER_THREAD_REFERENCE_SCHEME = "t3-thread:";
 
 export function parseComposerThreadLink(
   destination: string,
@@ -59,13 +59,6 @@ export function parseComposerThreadLink(
   } catch {
     return null;
   }
-}
-
-export function serializeComposerThreadLink(reference: ComposerThreadReference): string {
-  const label = escapeMarkdownLinkLabel(reference.title);
-  const environmentId = encodeURIComponent(reference.environmentId);
-  const threadId = encodeURIComponent(reference.threadId);
-  return `[${label}](${COMPOSER_THREAD_REFERENCE_SCHEME}///${environmentId}/${threadId})`;
 }
 
 export function serializeComposerFileLink(path: string): string {

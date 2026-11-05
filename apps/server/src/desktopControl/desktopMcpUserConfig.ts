@@ -189,29 +189,3 @@ export const grokUserDefinesDesktopMcp = Effect.fn("desktopControl.grokUserDefin
     }
   },
 );
-
-/** Captures filesystem services so the Cursor lookup runs with `R = never`. */
-export const makeCursorUserDefinesDesktopMcp = Effect.fn(
-  "desktopControl.makeCursorUserDefinesDesktopMcp",
-)(function* () {
-  const fileSystem = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-  return (input: UserMcpLookup) =>
-    cursorUserDefinesDesktopMcp(input).pipe(
-      Effect.provideService(FileSystem.FileSystem, fileSystem),
-      Effect.provideService(Path.Path, path),
-    );
-});
-
-/** Captures filesystem services so the Grok lookup runs with `R = never`. */
-export const makeGrokUserDefinesDesktopMcp = Effect.fn(
-  "desktopControl.makeGrokUserDefinesDesktopMcp",
-)(function* () {
-  const fileSystem = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-  return (input: UserMcpLookup) =>
-    grokUserDefinesDesktopMcp(input).pipe(
-      Effect.provideService(FileSystem.FileSystem, fileSystem),
-      Effect.provideService(Path.Path, path),
-    );
-});

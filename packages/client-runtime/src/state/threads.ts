@@ -88,24 +88,6 @@ export interface ThreadCapabilityBacking {
   } & { readonly [K in BackedThreadCapability]?: boolean };
 }
 
-export function threadAllows(
-  thread: { readonly backing?: ThreadCapabilityBacking | null | undefined },
-  action: ThreadCapabilityAction,
-): boolean {
-  const backing = thread.backing ?? undefined;
-  if (action === "steer" || action === "followUp") {
-    // Streaming behaviors belong to external backings (Pi). Internal threads
-    // queue or steer through their own turn flow, and the server rejects the
-    // field for them.
-    return backing?.capabilities.streamingBehaviors.includes(action) === true;
-  }
-  if (backing === undefined) return true;
-  if (action === "lifecycle" || action === "approval" || action === "userInput") {
-    return false;
-  }
-  return backing.capabilities[action] === true;
-}
-
 function statusWithoutLiveData(
   data: Option.Option<OrchestrationV2ThreadProjection>,
 ): EnvironmentThreadStatus {

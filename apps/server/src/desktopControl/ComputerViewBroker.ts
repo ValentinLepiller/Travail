@@ -118,7 +118,7 @@ function dispatchLine(pending: Map<number, Deferred.Deferred<McpRpcResponse>>, l
   return Deferred.succeed(deferred, { result: (message.result ?? {}) as McpToolResult });
 }
 
-export const make = Effect.gen(function* ComputerViewBrokerMake() {
+const make = Effect.gen(function* ComputerViewBrokerMake() {
   const resolveMcp = yield* makeResolveEnabledDesktopMcp();
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   // Two helper processes: one captures, one takes input. The helper answers

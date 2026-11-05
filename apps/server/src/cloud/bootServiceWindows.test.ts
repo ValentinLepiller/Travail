@@ -445,7 +445,6 @@ it.layer(NodeServices.layer)("windows boot service", (it) => {
     Effect.gen(function* () {
       const { service, fs, statePath, pidPath } = yield* makeHarness();
       yield* service.install();
-      // @effect-diagnostics-next-line preferSchemaOverJson:off - fixed launcher-owned test document.
       const pendingState = JSON.stringify({
         protocol: SERVICE_LAUNCHER_PROTOCOL,
         activeVersion: "1.2.3",

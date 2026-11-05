@@ -12,7 +12,7 @@ export interface ConnectProviderPublicConfig {
 
 const T3_CONNECT_HOSTED_APP_URL = "https://app.t3.codes";
 
-export const CONNECT_PROVIDER_STORAGE_KEY = "mtcode.connect-provider";
+const CONNECT_PROVIDER_STORAGE_KEY = "mtcode.connect-provider";
 
 export interface ConnectEmbedContext {
   readonly origin: string;
@@ -94,7 +94,7 @@ export function canEmbedClerkProvider(
   return ctx.isElectron || ctx.origin === T3_CONNECT_HOSTED_APP_URL;
 }
 
-export function readStoredConnectProviderId(): ConnectProviderId | null {
+function readStoredConnectProviderId(): ConnectProviderId | null {
   if (typeof window === "undefined") return null;
   try {
     const value = window.localStorage.getItem(CONNECT_PROVIDER_STORAGE_KEY);

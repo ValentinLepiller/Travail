@@ -150,7 +150,7 @@ function resultText(content: unknown): BoundedHistoryText {
 }
 
 /** Skip unsupported transcript records while retaining the rest of the saved conversation. */
-export function claudeHistoryEntries(message: {
+function claudeHistoryEntries(message: {
   readonly type: "user" | "assistant";
   readonly uuid: string;
   readonly message: unknown;
