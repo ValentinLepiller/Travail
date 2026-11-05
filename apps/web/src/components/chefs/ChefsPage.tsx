@@ -422,7 +422,7 @@ function ChefConversation({
             onSubmit={(e) => {
               e.preventDefault();
               const text = draft.trim();
-              if (!text || busy) return;
+              if (!text || busy || !allowed) return;
               const message =
                 pendingMessage?.text === text ? pendingMessage : { text, id: randomUUID() };
               setPendingMessage(message);
@@ -450,6 +450,30 @@ function ChefConversation({
                   maxLength={5000}
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(event) => {
+                    if (
+                      event.key !== "Enter" ||
+                      event.shiftKey ||
+                      event.altKey ||
+                      event.metaKey ||
+                      event.nativeEvent.isComposing ||
+                      event.nativeEvent.keyCode === 229
+                    )
+                      return;
+                    event.preventDefault();
+                    if (event.ctrlKey) {
+                      const input = event.currentTarget;
+                      if (
+                        input.value.length - (input.selectionEnd - input.selectionStart) <
+                        input.maxLength
+                      ) {
+                        input.setRangeText("\n", input.selectionStart, input.selectionEnd, "end");
+                        setDraft(input.value);
+                      }
+                      return;
+                    }
+                    if (!event.repeat) event.currentTarget.form?.requestSubmit();
+                  }}
                   disabled={busy || !allowed}
                 />
               </div>
