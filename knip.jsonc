@@ -13,6 +13,8 @@
         ".coderabbit.config.ts",
         ".github/scripts/thread-transfer-report.cjs",
       ],
+      // The standalone voice smoke CLI resolves its optional RTC implementation dynamically.
+      "ignoreDependencies": ["werift"],
       "vite": { "entry": [".github/**/*.test.cjs"] },
       "vitest": { "entry": [".github/**/*.test.cjs"] },
     },
@@ -25,6 +27,17 @@
         "mobile-native-client.ts",
         "run-desktop-mcp.ts",
         "fetch-munim-computer-use.ts",
+        // Operational CLIs and isolated probes are invoked outside package scripts.
+        "agent-smoke/run.mjs",
+        "voice-smoke/run.mjs",
+        "bump-munim-computer-use.ts",
+        "connectors/cli.ts",
+        "connectors/probe.ts",
+        "context/cli.ts",
+        "harness-remote.ts",
+        "harness-runtime-check.ts",
+        "lib/harness-remote/exercise.ts",
+        "lib/harness-remote/fixture.ts",
       ],
     },
     "apps/server": {
@@ -38,7 +51,7 @@
         "scripts/probe-claude-fork-local-rollback-replay.ts",
         "scripts/update-test-shard-weights.ts",
         "scripts/verify-background-live.ts",
-        "src/provider/testFixtures/*.mjs",
+        "src/provider/testFixtures/*.{mjs,cjs}",
       ],
       // Keep the transitive Effect runtime pinned for standalone npm installs.
       // The Vite+ web build prerequisite.
@@ -97,6 +110,9 @@
     "apps/mobile/modules/t3-source-text": {
       // React Native codegen discovers component specifications by filename.
       "entry": ["src/*NativeComponent.ts!"],
+    },
+    "infra/updates": {
+      "entry": ["src/worker.js!"],
     },
     "infra/relay": {
       "entry": ["alchemy.run.ts!", "src/persistence/schema.ts!"],

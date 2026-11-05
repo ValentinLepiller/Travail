@@ -13,7 +13,7 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 70 }, (_, index) => index + 1),
+        Array.from({ length: 81 }, (_, index) => index + 1),
       );
     }),
   );
@@ -34,6 +34,17 @@ layer("055_OrchestrationV2", (it) => {
         [68, "McpAppModelContext"],
         [69, "ThreadSnapshotWindowIndexes"],
         [70, "PullRequestReviewGuides"],
+        [71, "WorkTasks"],
+        [72, "AgentRequests"],
+        [73, "SlackTaskMessages"],
+        [74, "AutonomousAgents"],
+        [75, "AutonomousAgentWaiting"],
+        [76, "WorkTaskTypes"],
+        [77, "GmailTaskMessages"],
+        [78, "WorkChantiers"],
+        [79, "AgentRequestChats"],
+        [80, "ChefMessages"],
+        [81, "QualificationBatches"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -56,6 +67,17 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 68, name: "McpAppModelContext" },
         { migration_id: 69, name: "ThreadSnapshotWindowIndexes" },
         { migration_id: 70, name: "PullRequestReviewGuides" },
+        { migration_id: 71, name: "WorkTasks" },
+        { migration_id: 72, name: "AgentRequests" },
+        { migration_id: 73, name: "SlackTaskMessages" },
+        { migration_id: 74, name: "AutonomousAgents" },
+        { migration_id: 75, name: "AutonomousAgentWaiting" },
+        { migration_id: 76, name: "WorkTaskTypes" },
+        { migration_id: 77, name: "GmailTaskMessages" },
+        { migration_id: 78, name: "WorkChantiers" },
+        { migration_id: 79, name: "AgentRequestChats" },
+        { migration_id: 80, name: "ChefMessages" },
+        { migration_id: 81, name: "QualificationBatches" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`

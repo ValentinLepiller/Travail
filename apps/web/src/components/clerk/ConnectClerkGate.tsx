@@ -8,9 +8,8 @@ import { isElectron } from "../../env";
 import { clerkAppearance } from "./clerkAppearance";
 
 /**
- * MT Code's Clerk boundary. Mirrors upstream's Browser/ElectronManagedAuthShell
- * split (the Electron provider statically bundles clerk-js, so this module must
- * only ever load lazily) but keeps the fork's connect-provider semantics: the
+ * The Electron provider statically bundles clerk-js, so this boundary must
+ * only ever load lazily. It keeps the fork's connect-provider semantics: the
  * publishable key may come from an embedded provider at runtime, and the relay
  * auth wrapper is only applied when that provider actually has a relay.
  */

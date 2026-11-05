@@ -1786,7 +1786,7 @@ describe("current chat search shortcut", () => {
         resolveShortcutCommand(event({ key: "f", ...modifiers }), DEFAULT_RESOLVED_KEYBINDINGS, {
           platform,
         }),
-        "thread.search",
+        "chat.find",
       );
       // A focused terminal takes the shortcut for its own find bar; the preview
       // keeps the browser's native find.

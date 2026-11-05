@@ -1,3 +1,4 @@
+import { ChildProcessSpawner } from "effect/process";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as Context from "effect/Context";
@@ -251,11 +252,21 @@ const cleanupFixture = Effect.gen(function* () {
   let editBeforeRemoval = false;
   let openSessionCwd: string | null = null;
   let fullStatusCalls = 0;
+  let branchDiagnostic: string | null = null;
   const context = yield* Layer.build(StorageCleanup.layer).pipe(
     Effect.provideService(GitVcsDriver.GitVcsDriver, {
       ...git,
       execute: (input) =>
         Effect.gen(function* () {
+          if (branchDiagnostic !== null && input.operation === "StorageCleanup.branchChanged") {
+            return {
+              exitCode: ChildProcessSpawner.ExitCode(128),
+              stdout: "",
+              stderr: branchDiagnostic,
+              stdoutTruncated: false,
+              stderrTruncated: false,
+            };
+          }
           if (editBeforeRemoval && input.args.includes("remove"))
             yield* fs.writeFileString(`${worktree}/tracked.txt`, "late edit\n");
           return yield* git.execute(input);
@@ -341,6 +352,9 @@ const cleanupFixture = Effect.gen(function* () {
     },
     setOpenSessionCwd: (cwd: string | null) => {
       openSessionCwd = cwd;
+    },
+    setBranchDiagnostic: (diagnostic: string) => {
+      branchDiagnostic = diagnostic;
     },
     fullStatusCalls: () => fullStatusCalls,
   };
@@ -474,6 +488,21 @@ describe("storage cleanup reports and local file policies", () => {
       }),
     ),
   );
+  it.live.each([
+    ["fatal: not a git repository: /missing", "kept"],
+    ["fatal: gitfile does not point to a valid repository: /missing/.git", "kept"],
+    ["fatal: permission denied", "failed"],
+  ] as const)("retains worktrees after Git reports %s", ([diagnostic, outcome]) =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const { service, setBranchDiagnostic, fs, worktree } = yield* cleanupFixture;
+        setBranchDiagnostic(diagnostic);
+        expect((yield* service.runNow).entries[0]).toMatchObject({ outcome });
+        expect(yield* fs.exists(worktree)).toBe(true);
+      }),
+    ),
+  );
+
   it.live("compares the checked-out branch without a full status", () =>
     runCleanupTest(
       Effect.gen(function* () {

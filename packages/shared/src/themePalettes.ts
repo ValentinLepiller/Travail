@@ -995,8 +995,7 @@ export const MT_CODE_DARK_THEME_COLORS: ThemeColors = {
   messageActionHover: "oklch(0.665891 0.165827 259.299)",
   codeBackground: "oklch(0.244036 0.0064 89.876)",
   codeForeground: "oklch(0.949888 0.001075 17.179)",
-  // T3's dark find highlights, with this theme's text on the inactive matches.
-  searchMatchBackground: "oklch(0.378228 0.062815 80.8)",
+  searchMatchBackground: "oklch(0.52 0.1 85)",
   searchMatchForeground: "oklch(0.949888 0.001075 17.179)",
   searchMatchActiveBackground: "oklch(0.774202 0.151946 74.331)",
   searchMatchActiveForeground: "oklch(0.216164 0.028283 77.423)",
@@ -1065,7 +1064,7 @@ export const MT_CODE_LIGHT_THEME_COLORS: ThemeColors = {
   messageActionHover: "oklch(0.531018 0.195488 264.655)",
   codeBackground: "oklch(1 0 0)",
   codeForeground: "oklch(0.273936 0.005477 286.033)",
-  searchMatchBackground: "oklch(0.937158 0.056396 84.523)",
+  searchMatchBackground: "oklch(0.915 0.11 85)",
   searchMatchForeground: "oklch(0.273936 0.005477 286.033)",
   searchMatchActiveBackground: "oklch(0.774202 0.151946 74.331)",
   searchMatchActiveForeground: "oklch(0.216164 0.028283 77.423)",

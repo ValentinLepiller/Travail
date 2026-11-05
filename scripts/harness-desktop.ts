@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// @effect-diagnostics nodeBuiltinImport:off globalConsole:off - Local desktop install/launch boundary; the app and server own their Effect runtimes.
+// @effect-diagnostics nodeBuiltinImport:off globalConsole:off globalDate:off globalFetch:off - Local desktop install/launch boundary and readiness probe; the app and server own their Effect runtimes.
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
@@ -68,7 +68,7 @@ async function prepare() {
     }
   }
   if (!discovery) throw new Error("The harness did not become available.");
-  const metadata = await discovery.json();
+  const metadata = jsonObject(await discovery.text());
   if (!discovery.ok || metadata.environmentId !== config.environmentId) {
     throw new Error("The running harness does not match Travail's configured environment.");
   }

@@ -44,7 +44,7 @@ describe("external terminal launch", () => {
       ["-c", `capture() { printf '%s' "$2"; }; ${launch.args[5]!.replace("/bin/sh", "capture")}`],
       { encoding: "utf8" },
     );
-    const command = `cd() { printf '%s' "$1"; }; exec() { :; }; ${inner}`;
+    const command = `cd() { printf '%s' "$1"; }; capture_exec() { :; }; ${inner.replace("&& exec ", "&& capture_exec ")}`;
     expect(NodeChildProcess.execFileSync("/bin/sh", ["-c", command], { encoding: "utf8" })).toBe(
       cwd,
     );
