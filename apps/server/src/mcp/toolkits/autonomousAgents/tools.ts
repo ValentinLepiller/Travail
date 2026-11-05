@@ -2,6 +2,8 @@ import {
   AutonomousAgent,
   AutonomousAgentCommand,
   AutonomousAgentError,
+  ChefMessage,
+  ChefRules,
   OrchestratorMcpFailure,
   WorkTask,
   WorkTaskSaveInput,
@@ -20,6 +22,24 @@ const dependencies = [
   Invocation.McpInvocationContext,
 ];
 export const AutonomousAgentsToolkit = Toolkit.make(
+  Tool.make("chef_message", {
+    description:
+      "Write a short message to Valentin in Chefs, from your current Chef thread. Reuse the same id on retry. A question requiring a reply must also have a precise Requête; this chat never grants approval of a pending action.",
+    parameters: Schema.Struct({ id: ChefMessage.fields.id, text: ChefMessage.fields.text }),
+    success: Schema.Void,
+    failure: Schema.Union([AutonomousAgentError, OrchestratorMcpFailure]),
+    failureMode: "return",
+    dependencies,
+  }),
+  Tool.make("chef_rules", {
+    description:
+      "Update your own Chef's working rules and fallback interval (seconds), preserving project scope, model, human pauses and approvals. Supply the complete mission. Changes apply to subsequent passes, including after restart.",
+    parameters: ChefRules,
+    success: Schema.Void,
+    failure: Schema.Union([AutonomousAgentError, OrchestratorMcpFailure]),
+    failureMode: "return",
+    dependencies,
+  }),
   Tool.make("autonomous_agents_list", {
     description:
       "List autonomous agents, their ids, scope and current state. Use ids to address questions.",
@@ -31,7 +51,7 @@ export const AutonomousAgentsToolkit = Toolkit.make(
   }).annotate(Tool.Readonly, true),
   Tool.make("autonomous_agent_configure", {
     description:
-      "Create or configure an autonomous agent, pause/resume it, or update memory. New agents start paused. Follow the user's authorized scope.",
+      "Create or configure an autonomous agent, pause/resume it, or update memory. Archive a paused agent to remove it from the visible list while preserving history and pending requests; unarchive restores it paused. Archived agents must be restored before resume. New agents start paused. Follow the user's authorized scope.",
     parameters: Schema.Struct({ command: AutonomousAgentCommand }),
     success: Schema.Void,
     failure: Schema.Union([AutonomousAgentError, OrchestratorMcpFailure]),
@@ -39,7 +59,8 @@ export const AutonomousAgentsToolkit = Toolkit.make(
     dependencies,
   }),
   Tool.make("work_tasks_list", {
-    description: "Read work tasks and their latest versions before qualification or updating them.",
+    description:
+      "Read all work tasks and their latest versions, including chantier tasks for context. Qualifiers and coordinators may read them to recognize incoming clarifications, but cannot modify attached tasks.",
     parameters: Tool.EmptyParams,
     success: Schema.Array(WorkTask),
     failure: Schema.Union([WorkTaskError, OrchestratorMcpFailure]),
@@ -84,7 +105,7 @@ export const AutonomousAgentsToolkit = Toolkit.make(
   }),
   Tool.make("work_task_save", {
     description:
-      "Update a task with optimistic version checking. Qualifiers must create a Requêtes approval with qualification.decision keep and wait for human acceptance before setting todo (À préparer). The coordinator changes todo to ready (À démarrer) only after rewriting, resolving relevant questions and choosing a suitable type or an explicitly approved no-type exception. A qualifier cannot set ready. Only ready tasks can launch a new agent; launch changes the status to doing. Until accepted, leave the task unqualified. The server rejects todo without this approval for the current task. Use merged for duplicates consolidated into a principal task, preserving source notes and a reference to that principal; rejected is for refused tasks. Preserve supplied fields; uncertain rejection also requires a human Requêtes decision first.",
+      "Update a task with optimistic version checking. The Qualifier and Coordinator only modify tasks without chantierId. They may read chantier tasks and sources to recognize an incoming clarification about an unfinished lot and pass it to its orchestrator. Keep the source card separate; after confirmed delivery the coordinator sets only that source to review pending integration, never ready or merged merely for delivery. They cannot edit, merge, attach, detach, claim or launch chantier tasks; those belong to the chantier orchestrator. Qualifiers process a reserved batch of up to 20 cards from one probable project per session, split by concrete request. Reserve additional cards with work_qualification_reserve before editing. They decide autonomously on each reserved task: set todo (À préparer) for relevant requests, or rejected with a reason for clearly irrelevant ones, without systematic Requêtes approval. When uncertain, keep todo with notes for the coordinator and leave projectId null if unknown; ask the human only for indispensable blockers that cannot be handed to the coordinator. Respect existing human decisions. A qualifier cannot edit tasks outside its reservations or set ready. Save each result progressively; on resumption read current statuses and continue only unqualified cards. Before qualification, inspect other unqualified cards and read their sources to find the exact same request. To consolidate the exact same request atomically into any reserved principal task, pass qualificationGroup: [{id, expectedVersion}] and a synthesized title/notes on that task. Sources remain merged and their messages are included in reads of the principal via mergedTaskIds. A shared conversation or theme alone does not justify grouping; preserve distinct requests. Conflicting, already qualified, associated, or cards reserved by another session cannot be absorbed. The coordinator changes todo to ready (À démarrer) only after rewriting, resolving relevant questions and choosing a suitable type or an explicitly approved no-type exception. Only ready tasks can launch a new agent; launch changes the status to doing. Use merged for duplicates consolidated into a principal task, preserving source notes and a reference to that principal; rejected is for refused tasks. Preserve supplied fields.",
     parameters: WorkTaskSaveInput,
     success: WorkTask,
     failure: Schema.Union([WorkTaskError, OrchestratorMcpFailure]),

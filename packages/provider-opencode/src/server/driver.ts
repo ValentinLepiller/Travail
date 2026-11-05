@@ -152,6 +152,11 @@ function selectOpenCodeRuntimeTextGeneration(
   v2: ProviderTextGeneration,
 ): ProviderTextGeneration {
   return {
+    generateChatReply: (input) =>
+      byOpenCodeRuntime(probe.get, {
+        v1: v1.generateChatReply(input),
+        v2: v2.generateChatReply(input),
+      }),
     generateCommitMessage: (input) =>
       byOpenCodeRuntime(probe.get, {
         v1: v1.generateCommitMessage(input),

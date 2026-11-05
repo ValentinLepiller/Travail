@@ -24,6 +24,7 @@ vi.mock("../ChatMarkdown", () => ({ default: () => null }));
 vi.mock("../ProjectFavicon", () => ({ ProjectFavicon: () => null }));
 vi.mock("../ui/button", () => ({ Button: "button" }));
 vi.mock("../ui/textarea", () => ({ Textarea: "textarea" }));
+vi.mock("./RequestTemporaryChat", () => ({ RequestTemporaryChat: () => null }));
 import { RequestCard } from "./AgentRequestsPage";
 
 const environmentId = EnvironmentId.make("draft-test");

@@ -1,4 +1,5 @@
 import { modelSelectionsEqual } from "@t3tools/shared/model";
+import { codexRejectedHistory } from "../provider/codexRejectedHistory.ts";
 import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
 import {
   CommandId,
@@ -665,15 +666,31 @@ export const layer: Layer.Layer<
             handoff.delivery?.nativeThreadId === providerThread.nativeThreadRef?.nativeId &&
             handoff.delivery?.status === "pending",
         );
+        const previousRun = projection.runs
+          .filter((source) => source.ordinal < run.ordinal && source.startedAt !== null)
+          .at(-1);
+        const previousAttempt = projection.attempts.find(
+          (source) => source.id === previousRun?.activeAttemptId,
+        );
+        const rejectedHistory =
+          session.driver === "codex" &&
+          previousRun?.status === "failed" &&
+          previousAttempt?.nativeThreadId === providerThread.nativeThreadRef.nativeId &&
+          codexRejectedHistory(
+            yield* projectionStore.getTurnStartHistory(input.threadId, [previousRun.id]),
+            previousRun.id,
+          );
         const resumed = yield* Effect.result(
-          uncertainDelivery
+          uncertainDelivery || rejectedHistory
             ? Effect.fail(
                 new ProviderAdapter.ProviderAdapterTurnStartError({
                   driver: session.driver,
                   threadId: projection.thread.id,
                   providerThreadId: providerThread.id,
                   runId,
-                  cause: "Uncertain native history injection",
+                  cause: rejectedHistory
+                    ? "Codex rejected native history"
+                    : "Uncertain native history injection",
                 }),
               )
             : session.resumeThread({
@@ -691,7 +708,11 @@ export const layer: Layer.Layer<
           driver: session.driver,
           providerThreadId: providerThread.id,
           runId,
-          reason: uncertainDelivery ? "uncertain_history_delivery" : "resume_failed",
+          reason: rejectedHistory
+            ? "rejected_native_history"
+            : uncertainDelivery
+              ? "uncertain_history_delivery"
+              : "resume_failed",
           errorTag: resumed.failure._tag,
         });
         const replacement = yield* loadFromProvider(

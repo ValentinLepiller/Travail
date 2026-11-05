@@ -17,3 +17,20 @@ export const retryRequestDelivery = createEnvironmentRpcCommand(connectionAtomRu
   label: "requests:retry-delivery",
   tag: WS_METHODS.agentRequestsRetryDelivery,
 });
+export const requestChat = createEnvironmentRpcSubscriptionAtomFamily(connectionAtomRuntime, {
+  label: "requests:chat",
+  tag: WS_METHODS.agentRequestChatSubscribe,
+  idleTtlMs: 0,
+});
+export const sendRequestChat = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "requests:chat:send",
+  tag: WS_METHODS.agentRequestChatSend,
+});
+export const stopRequestChat = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "requests:chat:stop",
+  tag: WS_METHODS.agentRequestChatStop,
+});
+export const clearRequestChat = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "requests:chat:clear",
+  tag: WS_METHODS.agentRequestChatClear,
+});

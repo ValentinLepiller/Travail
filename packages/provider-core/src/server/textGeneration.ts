@@ -144,6 +144,13 @@ export type ReviewGuideGenerationResult = Omit<
 
 /** Commit, change request, branch, and title generation backed by one provider instance. */
 export interface ProviderTextGeneration {
+  /** Answer an isolated conversation whose complete context is supplied in the prompt. */
+  readonly generateChatReply: (input: {
+    readonly cwd: string;
+    readonly prompt: string;
+    readonly attachments?: ReadonlyArray<ChatAttachment> | undefined;
+    readonly modelSelection: ModelSelection;
+  }) => Effect.Effect<{ readonly text: string }, TextGenerationError>;
   /**
    * Generate a commit message from staged change context.
    */

@@ -1,3 +1,4 @@
+import * as TaskAgents from "../workTasks/WorkTaskAgentService.ts";
 import * as Autonomous from "../autonomousAgents/AutonomousAgentService.ts";
 import * as WorkTasks from "../workTasks/WorkTaskService.ts";
 import * as Requests from "../agentRequests/AgentRequestService.ts";
@@ -1010,6 +1011,7 @@ it.effect("HTTP tool discovery only advertises monitors to monitoring credential
         Layer.provide(Layer.mock(Requests.AgentRequestService)({})),
         Layer.provide(Layer.mock(Autonomous.AutonomousAgentService)({})),
         Layer.provide(Layer.mock(WorkTasks.WorkTaskService)({})),
+        Layer.provide(Layer.mock(TaskAgents.WorkTaskAgentService)({})),
         Layer.provide(Layer.mock(SlackTasks.SlackTaskCollector)({})),
       ),
       {

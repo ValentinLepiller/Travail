@@ -79,6 +79,7 @@ const makeUnsupportedTextGeneration = (): ProviderTextGeneration => {
       }),
     );
   return {
+    generateChatReply: () => unsupported("generateChatReply"),
     generateCommitMessage: () => unsupported("generateCommitMessage"),
     generatePrContent: () => unsupported("generatePrContent"),
     generateBranchName: () => unsupported("generateBranchName"),

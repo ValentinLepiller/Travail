@@ -1,3 +1,6 @@
+import Migration0082 from "./Migrations/082_QualificationBatches.ts";
+import Migration0081 from "./Migrations/081_ChefMessages.ts";
+import Migration0080 from "./Migrations/080_AgentRequestChats.ts";
 import Migration0079 from "./Migrations/079_WorkChantiers.ts";
 import Migration0078 from "./Migrations/078_GmailTaskMessages.ts";
 import Migration0076 from "./Migrations/076_AutonomousAgentWaiting.ts";
@@ -202,6 +205,9 @@ export const migrationEntries = [
   [76, "WorkTaskTypes", Migration0077],
   [77, "GmailTaskMessages", Migration0078],
   [78, "WorkChantiers", Migration0079],
+  [79, "AgentRequestChats", Migration0080],
+  [80, "ChefMessages", Migration0081],
+  [81, "QualificationBatches", Migration0082],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

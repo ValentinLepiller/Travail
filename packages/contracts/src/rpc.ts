@@ -14,6 +14,12 @@ import {
   AgentRequestRetry,
 } from "./agentRequest.ts";
 import {
+  AgentRequestChat,
+  AgentRequestChatInput,
+  AgentRequestChatSend,
+  AgentRequestChatError,
+} from "./agentRequestChat.ts";
+import {
   WorkTask,
   WorkTaskError,
   WorkTaskSaveInput,
@@ -609,6 +615,10 @@ export const WS_METHODS = {
   agentRequestsSubscribe: "agentRequests.subscribe",
   agentRequestsRespond: "agentRequests.respond",
   agentRequestsRetryDelivery: "agentRequests.retryDelivery",
+  agentRequestChatSubscribe: "agentRequestChat.subscribe",
+  agentRequestChatSend: "agentRequestChat.send",
+  agentRequestChatStop: "agentRequestChat.stop",
+  agentRequestChatClear: "agentRequestChat.clear",
   autonomousAgentsSubscribe: "autonomousAgents.subscribe",
   autonomousAgentsCommand: "autonomousAgents.command",
   autonomousAgentsRead: "autonomousAgents.read",
@@ -2151,6 +2161,27 @@ const WsAgentRequestsRetryDeliveryRpc = Rpc.make(WS_METHODS.agentRequestsRetryDe
   success: Schema.Void,
   error: Schema.Union([AgentRequestError, EnvironmentAuthorizationError]),
 });
+const WsAgentRequestChatSubscribeRpc = Rpc.make(WS_METHODS.agentRequestChatSubscribe, {
+  payload: AgentRequestChatInput,
+  success: AgentRequestChat,
+  error: Schema.Union([AgentRequestChatError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+const WsAgentRequestChatSendRpc = Rpc.make(WS_METHODS.agentRequestChatSend, {
+  payload: AgentRequestChatSend,
+  success: Schema.Void,
+  error: Schema.Union([AgentRequestChatError, EnvironmentAuthorizationError]),
+});
+const WsAgentRequestChatStopRpc = Rpc.make(WS_METHODS.agentRequestChatStop, {
+  payload: AgentRequestChatInput,
+  success: Schema.Void,
+  error: Schema.Union([AgentRequestChatError, EnvironmentAuthorizationError]),
+});
+const WsAgentRequestChatClearRpc = Rpc.make(WS_METHODS.agentRequestChatClear, {
+  payload: AgentRequestChatInput,
+  success: Schema.Void,
+  error: Schema.Union([AgentRequestChatError, EnvironmentAuthorizationError]),
+});
 const WsAutonomousAgentsSubscribeRpc = Rpc.make(WS_METHODS.autonomousAgentsSubscribe, {
   payload: Schema.Struct({}),
   success: Schema.Array(AutonomousAgent),
@@ -2400,6 +2431,10 @@ export const WsRpcGroupFirst = RpcGroup.make(
   WsAgentRequestsSubscribeRpc,
   WsAgentRequestsRespondRpc,
   WsAgentRequestsRetryDeliveryRpc,
+  WsAgentRequestChatSubscribeRpc,
+  WsAgentRequestChatSendRpc,
+  WsAgentRequestChatStopRpc,
+  WsAgentRequestChatClearRpc,
   WsAutonomousAgentsSubscribeRpc,
   WsAutonomousAgentsCommandRpc,
   WsAutonomousAgentsReadRpc,

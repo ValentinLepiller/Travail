@@ -1,6 +1,10 @@
 import type { PluginMarketplacePlugin } from "@t3tools/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
+
+vi.mock("~/pluginMarketplace/PluginMarketplaceContext", () => ({
+  usePluginMarketplaceApi: () => ({}),
+}));
 
 import {
   groupMarketplaceSections,

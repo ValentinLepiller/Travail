@@ -1,3 +1,4 @@
+import * as TaskAgents from "../../../workTasks/WorkTaskAgentService.ts";
 import * as Autonomous from "../../../autonomousAgents/AutonomousAgentService.ts";
 import * as WorkTasks from "../../../workTasks/WorkTaskService.ts";
 import * as Requests from "../../../agentRequests/AgentRequestService.ts";
@@ -54,6 +55,7 @@ const layerStubServices = Layer.mergeAll(
   Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
   Layer.mock(Autonomous.AutonomousAgentService)({}),
   Layer.mock(WorkTasks.WorkTaskService)({}),
+  Layer.mock(TaskAgents.WorkTaskAgentService)({}),
   Layer.mock(SecretRequests.SecretRequests)({}),
   Layer.mock(ProjectService.ProjectService)({}),
   Layer.mock(PullRequestReviewGuideService.PullRequestReviewGuideService)({}),

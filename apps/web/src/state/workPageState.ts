@@ -29,13 +29,13 @@ function localPageState<T, E>(name: string, schema: Schema.Codec<T, E>, initial:
   };
 }
 
+const RequestDraft = Schema.Struct({ version: Schema.Number, text: Schema.String });
 const RequestPageState = Schema.Struct({
+  discussion: Schema.optionalKey(Schema.NullOr(Schema.Literals(["source", "temporary"]))),
+  temporaryDrafts: Schema.optionalKey(Schema.Record(Schema.String, RequestDraft)),
   archive: Schema.Boolean,
   selected: Schema.NullOr(Schema.String),
-  drafts: Schema.Record(
-    Schema.String,
-    Schema.Struct({ version: Schema.Number, text: Schema.String }),
-  ),
+  drafts: Schema.Record(Schema.String, RequestDraft),
 });
 export const requestPageState = localPageState("request-page", RequestPageState, {
   archive: false,

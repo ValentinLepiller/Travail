@@ -210,6 +210,12 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
   });
 
   return {
+    generateChatReply: (input) =>
+      run({
+        ...input,
+        operation: "generateChatReply",
+        outputSchema: Schema.Struct({ text: Schema.String.check(Schema.isMinLength(1)) }),
+      }),
     generateCommitMessage,
     generatePrContent,
     generateBranchName,

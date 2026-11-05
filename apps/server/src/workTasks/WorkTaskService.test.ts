@@ -9,14 +9,12 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as TestClock from "effect/testing/TestClock";
 import * as SqlClient from "effect/sql/SqlClient";
-import { ProviderInstanceId, ThreadId, WorkTaskSaveInput } from "@t3tools/contracts";
+import { ProjectId, ProviderInstanceId, ThreadId, WorkTaskSaveInput } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as Tasks from "./WorkTaskService.ts";
 import * as Agents from "./WorkTaskAgentService.ts";
 import * as Launch from "../orchestration-v2/ThreadLaunchService.ts";
-import * as Requests from "../agentRequests/AgentRequestService.ts";
-import * as RequestEffects from "../agentRequests/RequestEffects.ts";
 import type { SlackTaskMessage } from "@t3tools/contracts";
 
 const decodeInput = Schema.decodeUnknownEffect(WorkTaskSaveInput);
@@ -32,119 +30,251 @@ const message = (fields: Partial<SlackTaskMessage> = {}): SlackTaskMessage => ({
   ...fields,
 });
 
-it.effect("requires an accepted keep request for the qualifier's own task before todo", () =>
-  Effect.gen(function* () {
-    const service = yield* Tasks.WorkTaskService;
-    const requests = yield* Requests.AgentRequestService;
-    const sql = yield* SqlClient.SqlClient;
-    const threadId = ThreadId.make("qualifier-thread");
-    yield* service.ingestSlack(message());
-    const task = (yield* service.list())[0]!;
-    yield* sql`INSERT INTO autonomous_agents (id, payload_json)
+it.effect(
+  "qualifiers decide their own task without approval and leave preparation to the coordinator",
+  () =>
+    Effect.gen(function* () {
+      const service = yield* Tasks.WorkTaskService;
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`INSERT INTO autonomous_agents (id, payload_json)
       VALUES ('qualifier', '{"trigger":"unqualified"}')`;
-    yield* sql`INSERT INTO autonomous_agent_runs
-      (thread_id, agent_id, title, prompt, started_at, task_id)
-      VALUES (${threadId}, 'qualifier', 'Qualification', '', '', ${task.id})`;
-    const save = () =>
-      service.save({ ...task, status: "todo", expectedVersion: task.version }, threadId);
-    const denied = Effect.gen(function* () {
-      expect((yield* save().pipe(Effect.flip)).reason).toBe("approval");
-      expect(yield* service.read(task.id)).toEqual(task);
-    });
-    yield* denied;
-    const proposal = {
-      context: "Une demande client",
-      question: "Conserver cette tâche",
-      details: "Proposition de qualification",
-      kind: "approval" as const,
-      qualification: { decision: "keep" as const, source: "Slack - #cotily" },
-      action: null,
-    };
-    const other = yield* requests.create(ThreadId.make("other-thread"), {
-      ...proposal,
-      id: "other",
-    });
-    yield* requests.respond({
-      id: other.id,
-      expectedVersion: other.version,
-      decision: "accept",
-      text: "",
-    });
-    yield* denied;
-    const refusal = yield* requests.create(threadId, {
-      ...proposal,
-      id: "refusal",
-      qualification: { ...proposal.qualification, decision: "reject" },
-    });
-    yield* requests.respond({
-      id: refusal.id,
-      expectedVersion: refusal.version,
-      decision: "accept",
-      text: "",
-    });
-    yield* denied;
-    const question = yield* requests.create(threadId, {
-      ...proposal,
-      id: "question",
-      kind: "text",
-    });
-    yield* requests.respond({
-      id: question.id,
-      expectedVersion: question.version,
-      decision: "answer",
-      text: "Oui",
-    });
-    yield* denied;
-    for (const decision of ["ignore", "reject", "revise", "accept"] as const) {
-      const request = yield* requests.create(threadId, { ...proposal, id: decision });
-      yield* denied;
-      yield* requests.respond({
-        id: request.id,
-        expectedVersion: request.version,
-        decision,
-        text: "Décision",
-      });
-      if (decision !== "accept") yield* denied;
-    }
-    yield* service.ingestSlack(message({ channelId: "COTHER" }));
-    const otherTask = (yield* service.list())[0]!;
-    expect(
-      (yield* service
-        .save({ ...otherTask, status: "todo", expectedVersion: otherTask.version }, threadId)
-        .pipe(Effect.flip)).reason,
-    ).toBe("approval");
-    const qualified = yield* save();
-    expect(qualified.status).toBe("todo");
-    expect(
-      (yield* service
-        .save({ ...qualified, status: "ready", expectedVersion: qualified.version }, threadId)
-        .pipe(Effect.flip)).reason,
-    ).toBe("preparation");
-    expect((yield* service.read(task.id)).status).toBe("todo");
-    const prepared = yield* service.save(
-      { ...qualified, status: "ready", expectedVersion: qualified.version },
-      ThreadId.make("coordinator-thread"),
+      yield* service.ingestSlack(message({ channelId: "COTHER" }));
+      const otherTask = (yield* service.list())[0]!;
+      for (const status of ["todo", "rejected"] as const) {
+        const threadId = ThreadId.make(`qualifier-${status}`);
+        yield* service.ingestSlack(message({ channelId: `C${status.toUpperCase()}` }));
+        const task = (yield* service.list()).find(
+          (task) => task.id !== otherTask.id && task.status === "unqualified",
+        )!;
+        yield* sql`INSERT INTO autonomous_agent_runs
+        (thread_id, agent_id, title, prompt, started_at, task_id)
+        VALUES (${threadId}, 'qualifier', 'Qualification', '', '', ${task.id})`;
+        expect(
+          (yield* service
+            .save({ ...otherTask, status, expectedVersion: otherTask.version }, threadId)
+            .pipe(Effect.flip)).reason,
+        ).toBe("conflict");
+        expect(yield* service.read(otherTask.id)).toEqual(otherTask);
+        const qualified = yield* service.save(
+          { ...task, status, expectedVersion: task.version },
+          threadId,
+        );
+        expect(yield* service.read(task.id)).toEqual(qualified);
+        expect(qualified.status).toBe(status);
+        if (status === "todo") {
+          expect(qualified.qualifiedAt).toBeTruthy();
+          expect(
+            (yield* service
+              .save({ ...qualified, status: "ready", expectedVersion: qualified.version }, threadId)
+              .pipe(Effect.flip)).reason,
+          ).toBe("preparation");
+          expect(yield* service.read(task.id)).toEqual(qualified);
+          const prepared = yield* service.save(
+            { ...qualified, status: "ready", expectedVersion: qualified.version },
+            ThreadId.make("coordinator-thread"),
+          );
+          expect((yield* service.read(task.id)).status).toBe("ready");
+          expect(prepared.qualifiedAt).toBe(qualified.qualifiedAt);
+        }
+      }
+      // Manual changes remain available without an autonomous caller.
+      expect(
+        (yield* service.save({ ...otherTask, status: "todo", expectedVersion: otherTask.version }))
+          .status,
+      ).toBe("todo");
+    }).pipe(Effect.provide(Tasks.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
+);
+
+const qualificationFixture = Effect.gen(function* () {
+  const service = yield* Tasks.WorkTaskService;
+  const sql = yield* SqlClient.SqlClient;
+  for (let index = 0; index < 20; index++) {
+    const ts = `17932780${String(index).padStart(2, "0")}.000001`;
+    yield* service.ingestSlack(
+      message({ ts, threadTs: ts, text: `${index < 15 ? "A" : "B"}${index}` }),
     );
-    expect((yield* service.read(task.id)).status).toBe("ready");
-    expect(prepared.qualifiedAt).toBe(qualified.qualifiedAt);
-    // Manual changes remain available without an autonomous caller.
+  }
+  const tasks = yield* service.list();
+  const seed = tasks.find((task) => task.title.endsWith(" — A0"))!;
+  const members = tasks.filter((task) => task.title.includes(" — A") && task.id !== seed.id);
+  const threadId = ThreadId.make("qualifying-group");
+  yield* sql`INSERT INTO autonomous_agents (id, payload_json) VALUES ('qualifier', ${JSON.stringify({ trigger: "unqualified", projectId: null, paused: false, currentThreadId: threadId })})`;
+  yield* sql`INSERT INTO autonomous_agent_runs (thread_id,agent_id,title,prompt,started_at,task_id) VALUES (${threadId},'qualifier','Qualification','','',${seed.id})`;
+  const input = {
+    ...seed,
+    title: "Demande A consolidée",
+    notes: "Les quinze messages décrivent la même action.",
+    status: "todo" as const,
+    expectedVersion: seed.version,
+    qualificationGroup: members.map(({ id, version }) => ({ id, expectedVersion: version })),
+  };
+  return { service, sql, tasks, seed, members, threadId, input };
+});
+
+it.effect(
+  "qualifies several requests from a reserved project batch without losing their sources",
+  () =>
+    Effect.gen(function* () {
+      const { service, tasks, seed, members, threadId, input } = yield* qualificationFixture;
+      const refs = tasks.map(({ id, version }) => ({ id, expectedVersion: version }));
+      expect(yield* service.reserveQualification({ tasks: refs }, threadId)).toHaveLength(20);
+      expect(yield* service.reserveQualification({ tasks: refs }, threadId)).toHaveLength(20);
+      const first = yield* service.save(input, threadId);
+      const other = tasks.filter((task) => task.title.includes(" — B"));
+      const principal = other[0]!;
+      const second = yield* service.save(
+        {
+          ...principal,
+          title: "Demande B distincte",
+          status: "todo",
+          expectedVersion: principal.version,
+          qualificationGroup: other
+            .slice(1)
+            .map(({ id, version }) => ({ id, expectedVersion: version })),
+        },
+        threadId,
+      );
+      expect(first.mergedTaskIds).toEqual(expect.arrayContaining(members.map((task) => task.id)));
+      expect(second.mergedTaskIds).toHaveLength(4);
+      expect(yield* service.messages(seed.id)).toHaveLength(15);
+      expect(yield* service.messages(principal.id)).toHaveLength(5);
+      expect((yield* service.list()).filter((task) => task.status === "todo")).toHaveLength(2);
+      expect((yield* service.list()).filter((task) => task.status === "unqualified")).toHaveLength(
+        0,
+      );
+      expect(
+        (yield* service
+          .save({ ...second, status: "ready", expectedVersion: second.version }, threadId)
+          .pipe(Effect.flip)).reason,
+      ).toBe("preparation");
+    }).pipe(Effect.provide(Tasks.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
+);
+
+it.effect.each([
+  "version",
+  "reserved",
+  "qualified",
+  "associated",
+  "project",
+  "limit",
+  "paused",
+  "caller",
+  "chantier",
+] as const)("reserves a batch atomically and refuses unavailable cards (%s)", (reason) =>
+  Effect.gen(function* () {
+    const { service, sql, members, seed, threadId } = yield* qualificationFixture;
+    const candidate = members[0]!;
+    if (reason === "version")
+      yield* service.save({
+        ...candidate,
+        notes: "Nouveau message",
+        expectedVersion: candidate.version,
+      });
+    if (reason === "qualified")
+      yield* service.save({ ...candidate, status: "todo", expectedVersion: candidate.version });
+    if (reason === "associated" || reason === "chantier")
+      yield* sql`UPDATE work_tasks SET payload_json = json_set(payload_json, ${reason === "associated" ? "$.agentThreadId" : "$.chantierId"}, 'other') WHERE id = ${candidate.id}`;
+    if (reason === "project") {
+      yield* sql`UPDATE work_tasks SET payload_json = json_set(payload_json, '$.projectId', 'project-a') WHERE id = ${seed.id}`;
+      yield* sql`UPDATE work_tasks SET payload_json = json_set(payload_json, '$.projectId', 'project-b') WHERE id = ${candidate.id}`;
+    }
+    if (reason === "reserved") {
+      yield* sql`INSERT INTO autonomous_agent_runs (thread_id,agent_id,title,prompt,started_at,task_id,task_ids_json,finished_at) VALUES ('parked','qualifier','Other','','','different',${JSON.stringify([candidate.id])},'yesterday')`;
+      yield* sql`INSERT INTO agent_requests (id,payload_json) VALUES ('waiting','{"threadId":"parked","status":"pending"}')`;
+    }
+    if (reason === "paused")
+      yield* sql`UPDATE autonomous_agents SET payload_json = json_set(payload_json, '$.paused', 1) WHERE id = 'qualifier'`;
+    const refs = [members[1]!, candidate].map(({ id, version }) => ({
+      id,
+      expectedVersion: version,
+    }));
+    if (reason === "limit") {
+      for (let i = 0; i < 19; i++) {
+        const task = yield* service.save({ ...seed, id: `extra-${i}`, expectedVersion: 0 });
+        refs.push({ id: task.id, expectedVersion: task.version });
+      }
+    }
+    const before = yield* service.list();
+    const error = yield* service
+      .reserveQualification(
+        { tasks: refs },
+        reason === "caller" ? ThreadId.make("unknown") : threadId,
+      )
+      .pipe(Effect.flip);
+    expect(error.reason).toBe(
+      reason === "project"
+        ? "project"
+        : reason === "paused" || reason === "caller"
+          ? "agent"
+          : "conflict",
+    );
+    expect(yield* service.list()).toEqual(before);
     expect(
-      (yield* service.save({ ...otherTask, status: "todo", expectedVersion: otherTask.version }))
-        .status,
-    ).toBe("todo");
-  }).pipe(
-    Effect.provide(
-      Layer.mergeAll(Tasks.layer, Requests.layer).pipe(
-        Layer.provide(
-          Layer.succeed(RequestEffects.RequestEffects, {
-            execute: () => Effect.succeed(true),
-            notify: () => Effect.void,
-          }),
-        ),
-        Layer.provideMerge(Sqlite.layerMemory),
-      ),
-    ),
-  ),
+      (yield* sql<{
+        task_ids_json: string;
+      }>`SELECT task_ids_json FROM autonomous_agent_runs WHERE thread_id = ${threadId}`)[0]
+        ?.task_ids_json,
+    ).toBe("[]");
+  }).pipe(Effect.provide(Tasks.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
+);
+
+it.effect("consolidates one request from a mixed DM and preserves every source", () =>
+  Effect.gen(function* () {
+    const { service, members, seed, threadId, input } = yield* qualificationFixture;
+    const principal = yield* service.save(input, threadId);
+    expect(principal.status).toBe("todo");
+    expect(principal.qualifiedAt).toBeTruthy();
+    expect(principal.mergedTaskIds).toHaveLength(14);
+    expect((yield* service.messages(seed.id)).map((entry) => entry.text)).toEqual(
+      Array.from({ length: 15 }, (_, index) => `A${index}`),
+    );
+    for (const source of members) {
+      const stored = yield* service.read(source.id);
+      expect(stored.status).toBe("merged");
+      expect(stored.notes).toBe(
+        `Fusionnée dans : ${principal.title} — ID : ${principal.id}\n\n${source.notes}`,
+      );
+      expect(yield* service.messages(source.id)).toHaveLength(1);
+    }
+    expect(
+      (yield* service.list())
+        .filter((task) => task.status === "unqualified")
+        .map((task) => task.title)
+        .sort(),
+    ).toEqual(["cotily — B15", "cotily — B16", "cotily — B17", "cotily — B18", "cotily — B19"]);
+    expect((yield* service.save(input, threadId).pipe(Effect.flip)).reason).toBe("conflict");
+    expect(yield* service.read(seed.id)).toEqual(principal);
+    expect(yield* service.ingestSlack(message())).toBe("duplicate");
+  }).pipe(Effect.provide(Tasks.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
+);
+
+it.effect.each(["version", "reserved", "qualified", "associated", "dependency", "caller"] as const)(
+  "refuses unsafe group (%s) without partial writes",
+  (reason) =>
+    Effect.gen(function* () {
+      const { service, sql, seed, members, threadId, input } = yield* qualificationFixture;
+      const member = members[0]!;
+      if (reason === "version")
+        yield* service.save({
+          ...member,
+          notes: "Nouvelle précision",
+          expectedVersion: member.version,
+        });
+      if (reason === "qualified")
+        yield* service.save({ ...member, status: "todo", expectedVersion: member.version });
+      if (reason === "reserved")
+        yield* sql`INSERT INTO autonomous_agent_runs (thread_id,agent_id,title,prompt,started_at,task_id) VALUES ('another-thread','qualifier','Other','','',${member.id})`;
+      if (reason === "associated")
+        yield* sql`UPDATE work_tasks SET payload_json = json_set(payload_json, '$.agentThreadId', 'associated') WHERE id = ${member.id}`;
+      if (reason === "dependency")
+        yield* sql`UPDATE work_tasks SET payload_json = json_set(payload_json, '$.dependsOn', json(${JSON.stringify([member.id])})) WHERE id = ${seed.id}`;
+      const before = yield* service.list();
+      const result = yield* service
+        .save(input, reason === "caller" ? ThreadId.make("unrelated") : threadId)
+        .pipe(Effect.flip);
+      expect(result.reason).toBe("conflict");
+      expect(yield* service.list()).toEqual(before);
+    }).pipe(Effect.provide(Tasks.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
 );
 
 it.effect("groups replies only while a task is unqualified and preserves edited notes", () =>
@@ -617,4 +747,55 @@ it.effect(
       yield* service.completeForSettledThread(ThreadId.make("agent"));
       expect(yield* service.list()).toEqual(once);
     }).pipe(Effect.provide(Tasks.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
+);
+
+it.effect("limits a Chef's task execution to its project and respects its pause", () =>
+  Effect.gen(function* () {
+    const service = yield* Tasks.WorkTaskService;
+    const sql = yield* SqlClient.SqlClient;
+    const threadId = ThreadId.make("chef-thread");
+    const payload = JSON.stringify({
+      kind: "chef",
+      trigger: "interval",
+      projectId: "chef-project",
+      paused: false,
+    });
+    yield* sql`INSERT INTO autonomous_agents (id, payload_json) VALUES ('chef', ${payload})`;
+    yield* sql`INSERT INTO autonomous_agent_runs (thread_id, agent_id, title, prompt, started_at) VALUES (${threadId}, 'chef', 'Chef', '', '')`;
+    const task = {
+      ...(yield* decodeInput({
+        id: "task",
+        title: "Prête",
+        notes: "",
+        status: "ready",
+        projectId: "chef-project",
+        agentThreadId: null,
+        dueDate: null,
+        expectedVersion: 0,
+      })),
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+    };
+    yield* service.assertCanStart(task, threadId);
+    expect(
+      (yield* service.assertCanStart({ ...task, projectId: null }, threadId).pipe(Effect.flip))
+        .reason,
+    ).toBe("project");
+    expect(
+      (yield* service
+        .assertCanStart({ ...task, projectId: ProjectId.make("other-project") }, threadId)
+        .pipe(Effect.flip)).reason,
+    ).toBe("project");
+    expect(
+      (yield* service
+        .assertCanStart({ ...task, chantierId: "chantier" }, threadId)
+        .pipe(Effect.flip)).reason,
+    ).toBe("chantierScope");
+    yield* sql`UPDATE autonomous_agents SET payload_json = json_set(payload_json, '$.paused', 1) WHERE id = 'chef'`;
+    expect((yield* service.assertCanStart(task, threadId).pipe(Effect.flip)).reason).toBe(
+      "project",
+    );
+    yield* service.assertCanStart(task);
+  }).pipe(Effect.provide(Tasks.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
 );

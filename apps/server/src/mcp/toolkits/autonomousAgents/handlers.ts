@@ -12,11 +12,28 @@ const ownThread = Effect.gen(function* () {
   return caller.thread.threadId;
 });
 export const layer = Access.toLayer(AutonomousAgentsToolkit, {
+  chef_message: Access.writes((input) =>
+    Effect.gen(function* () {
+      yield* (yield* Agents.AutonomousAgentService).chefMessage(
+        yield* ownThread,
+        input.id,
+        input.text,
+      );
+    }),
+  ),
+  chef_rules: Access.writes((input) =>
+    Effect.gen(function* () {
+      yield* (yield* Agents.AutonomousAgentService).chefRules(yield* ownThread, input);
+    }),
+  ),
   autonomous_agents_list: Access.reads(() =>
     Effect.flatMap(Agents.AutonomousAgentService, (s) => s.list()),
   ),
   autonomous_agent_configure: Access.writes((input) =>
-    Effect.flatMap(Agents.AutonomousAgentService, (s) => s.command(input.command)),
+    Effect.gen(function* () {
+      const caller = yield* Invocation.McpInvocationContext;
+      yield* (yield* Agents.AutonomousAgentService).command(input.command, caller.thread?.threadId);
+    }),
   ),
   work_tasks_list: Access.reads(() => Effect.flatMap(Tasks.WorkTaskService, (s) => s.list())),
   autonomous_agent_reply: Access.writes((input) =>

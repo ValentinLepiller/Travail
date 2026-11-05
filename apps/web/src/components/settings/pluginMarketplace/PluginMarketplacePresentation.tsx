@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 
 import { ClaudeAI, CursorIcon, OpenAI, type Icon } from "~/components/Icons";
-import { Badge } from "~/components/ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
 import {
@@ -10,7 +9,8 @@ import {
   type MarketplaceHarnessSupport,
   type MarketplacePlugin,
 } from "~/pluginMarketplace/catalog";
-import { fetchPluginMarketplaceLogo } from "~/pluginMarketplace/api";
+import type { PluginMarketplaceApi } from "~/pluginMarketplace/api";
+import { usePluginMarketplaceApi } from "~/pluginMarketplace/PluginMarketplaceContext";
 
 const HARNESS_ICONS: Readonly<Record<MarketplaceHarnessId, Icon>> = {
   codex: OpenAI,
@@ -27,21 +27,28 @@ const FALLBACK_LOGO_STYLES = [
   "bg-cyan-500/16 text-cyan-700 dark:text-cyan-300",
 ] as const;
 
-const localLogoRequests = new Map<string, Promise<string | null>>();
+const localLogoRequests = new WeakMap<PluginMarketplaceApi, Map<string, Promise<string | null>>>();
 
-function loadLocalPluginLogo(pluginId: string): Promise<string | null> {
-  const existing = localLogoRequests.get(pluginId);
+function loadLocalPluginLogo(api: PluginMarketplaceApi, pluginId: string): Promise<string | null> {
+  let requests = localLogoRequests.get(api);
+  if (!requests) {
+    requests = new Map();
+    localLogoRequests.set(api, requests);
+  }
+  const cache = requests;
+  const existing = cache.get(pluginId);
   if (existing) return existing;
-  const request = fetchPluginMarketplaceLogo(pluginId)
+  const request = api
+    .fetchPluginMarketplaceLogo(pluginId)
     .then((result) => {
-      if (result.dataUrl === null) localLogoRequests.delete(pluginId);
+      if (result.dataUrl === null) cache.delete(pluginId);
       return result.dataUrl;
     })
     .catch(() => {
-      localLogoRequests.delete(pluginId);
+      cache.delete(pluginId);
       return null;
     });
-  localLogoRequests.set(pluginId, request);
+  cache.set(pluginId, request);
   return request;
 }
 
@@ -110,6 +117,7 @@ export function PluginLogo({
   readonly size?: "small" | "default" | "large";
   readonly className?: string;
 }) {
+  const api = usePluginMarketplaceApi();
   const [localLogo, setLocalLogo] = useState<{
     readonly pluginId: string;
     readonly dataUrl: string | null;
@@ -121,13 +129,13 @@ export function PluginLogo({
   useEffect(() => {
     if (!plugin.hasLocalLogo || plugin.logoDataUrl) return;
     let active = true;
-    void loadLocalPluginLogo(plugin.id).then((dataUrl) => {
+    void loadLocalPluginLogo(api, plugin.id).then((dataUrl) => {
       if (active) setLocalLogo({ pluginId: plugin.id, dataUrl });
     });
     return () => {
       active = false;
     };
-  }, [plugin.hasLocalLogo, plugin.id, plugin.logoDataUrl]);
+  }, [api, plugin.hasLocalLogo, plugin.id, plugin.logoDataUrl]);
 
   const localLogoResolved = localLogo?.pluginId === plugin.id;
   const failedSources = failedImages?.pluginId === plugin.id ? failedImages.sources : [];
@@ -212,13 +220,11 @@ export function HarnessSupportBadges({
           <Tooltip key={entry.harness}>
             <TooltipTrigger
               render={
-                <Badge
-                  size="sm"
-                  variant="outline"
+                <span
                   role="img"
                   aria-label={label}
                   className={cn(
-                    "overflow-visible bg-background/68 text-muted-foreground",
+                    "inline-flex items-center justify-center gap-1 rounded border border-input bg-background/68 text-xs text-muted-foreground",
                     compact
                       ? "size-5 min-w-5 px-0 sm:size-5 sm:h-5 sm:min-w-5"
                       : "h-auto min-h-5 py-1 pr-2 pl-1 sm:h-auto",

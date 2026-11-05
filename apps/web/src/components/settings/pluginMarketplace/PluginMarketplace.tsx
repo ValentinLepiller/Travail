@@ -60,16 +60,14 @@ import {
   type MarketplaceSectionCounts,
   type MarketplaceStatusFilter,
 } from "~/pluginMarketplace/filter";
-import {
-  pluginMarketplaceErrorMessage,
-  usePluginMarketplaceStore,
-} from "~/pluginMarketplace/store";
+import { pluginMarketplaceErrorMessage } from "~/pluginMarketplace/store";
+import { usePluginMarketplaceStore } from "~/pluginMarketplace/PluginMarketplaceContext";
 import { searchableSetting } from "../settingsSearch";
 import { SettingsPageContainer, SettingsSection } from "../settingsLayout";
 import { HarnessIcon, HarnessSupportBadges, PluginLogo } from "./PluginMarketplacePresentation";
 import {
   InstalledSkillsSection,
-  usePrimarySkillInventory,
+  useMarketplaceSkillInventory,
   visibleSkills,
 } from "./PluginMarketplaceSkills";
 
@@ -335,7 +333,7 @@ function MarketplacePluginCard({
 }) {
   const contents = marketplaceContentsSummary(plugin, section === "plugins" ? null : section);
   return (
-    <article className="relative flex min-w-0 items-center gap-3 rounded-xl border border-foreground/8 bg-card/24 p-3 transition-colors has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-ring has-[a:focus-visible]:ring-offset-2 has-[a:focus-visible]:ring-offset-background hover:bg-foreground/4 dark:bg-card/40">
+    <article className="relative flex min-w-0 items-center gap-3 rounded-xl border border-foreground/8 bg-card/24 p-3 transition-colors has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-inset has-[a:focus-visible]:ring-ring has-[a:focus-visible]:ring-offset-2 has-[a:focus-visible]:ring-offset-background hover:bg-foreground/4 dark:bg-card/40">
       <PluginLogo plugin={plugin} />
       <div className="min-w-0 flex-1">
         <h3 className="truncate font-medium text-sm text-foreground">
@@ -601,7 +599,7 @@ export function PluginMarketplace({
   const error = usePluginMarketplaceStore((state) => state.catalogError);
   const loadCatalog = usePluginMarketplaceStore((state) => state.loadCatalog);
   const searchCatalog = usePluginMarketplaceStore((state) => state.searchCatalog);
-  const skillInventory = usePrimarySkillInventory(skillsRefreshKey);
+  const skillInventory = useMarketplaceSkillInventory(skillsRefreshKey);
   const refresh = () => void loadCatalog(true).catch(() => undefined);
 
   useEffect(() => {

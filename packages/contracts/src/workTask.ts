@@ -41,6 +41,9 @@ export const WorkTaskTypesConfig = Schema.Struct({
 });
 export type WorkTaskTypesConfig = typeof WorkTaskTypesConfig.Type;
 export const WorkTaskFields = Schema.Struct({
+  mergedTaskIds: Schema.optionalKey(
+    Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(200)),
+  ),
   chantierId: Schema.optionalKey(Schema.NullOr(TrimmedNonEmptyString)),
   sources: Schema.optionalKey(Schema.Array(WorkSource).check(Schema.isMaxLength(50))),
   dependsOn: Schema.optionalKey(Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(100))),
@@ -79,8 +82,16 @@ export const WorkTaskClaimInput = Schema.Struct({
 });
 export type WorkTaskClaimInput = typeof WorkTaskClaimInput.Type;
 
+export const WorkQualificationReserveInput = Schema.Struct({
+  tasks: Schema.Array(WorkTaskClaimInput).check(Schema.isMinLength(1), Schema.isMaxLength(20)),
+});
+export type WorkQualificationReserveInput = typeof WorkQualificationReserveInput.Type;
+
 export const WorkTaskMessagesInput = Schema.Struct({ id: WorkTask.fields.id });
 export const WorkTaskSaveInput = Schema.Struct({
+  qualificationGroup: Schema.optionalKey(
+    Schema.Array(WorkTaskClaimInput).check(Schema.isMinLength(1), Schema.isMaxLength(100)),
+  ),
   ...WorkTaskFields.fields,
   id: WorkTask.fields.id,
   expectedVersion: NonNegativeInt,
@@ -107,15 +118,17 @@ export class WorkTaskError extends Schema.TaggedError<WorkTaskError>()("WorkTask
     "conflict",
     "project",
     "agent",
-    "approval",
     "preparation",
     "dependencies",
     "cycle",
     "referenced",
+    "chantierScope",
   ]),
 }) {
   override get message(): string {
     switch (this.reason) {
+      case "chantierScope":
+        return "Les tâches des chantiers sont gérées par leur orchestrateur. Le Qualifieur et le Coordinateur interviennent uniquement sur les tâches sans chantier.";
       case "dependencies":
         return "Les prérequis doivent appartenir au même chantier et être terminés avant de démarrer ou terminer cette tâche.";
       case "cycle":
@@ -124,8 +137,6 @@ export class WorkTaskError extends Schema.TaggedError<WorkTaskError>()("WorkTask
         return "Cette tâche est un prérequis. Retire ses dépendances avant de la supprimer ou de changer son cadre.";
       case "preparation":
         return "Cette tâche doit être préparée et passée à À démarrer avant de lancer un agent.";
-      case "approval":
-        return "Le passage à À préparer exige une proposition Conserver acceptée dans Requêtes pour cette tâche.";
       case "conflict":
         return "Cette tâche a changé. Actualise la liste avant de réessayer.";
       case "project":

@@ -1,8 +1,12 @@
 import { useStore } from "zustand";
 import { taskPageState } from "../../state/workPageState";
+import { STATUS_LABELS, STATUS_PRESENTATION } from "./workTaskPresentation";
+import { WorkChantiersView } from "./WorkChantiersView";
+import { WorkSourceEditor } from "./WorkSourceEditor";
+import { workTaskBlockers, workTaskSources } from "@t3tools/contracts";
 import { randomUUID } from "../../lib/utils";
 import { useAtomValue } from "@effect/atom-react";
-import { Link } from "@tanstack/react-router";
+import { Link, useSearch, useNavigate } from "@tanstack/react-router";
 import {
   ProjectId,
   isClosedWorkTaskStatus,
@@ -18,12 +22,20 @@ import { resolveDefaultProviderModelSelection } from "../../providerInstances";
 import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { ListTodoIcon, PlusIcon, BotIcon } from "lucide-react";
-import { useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  type ComponentProps,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { useProjects, useThreadShells } from "../../state/entities";
 import { useWorkPageEnvironmentSelection } from "../../hooks/useWorkPageEnvironmentSelection";
 import { useEnvironmentQuery } from "../../state/query";
 import {
   workTasks,
+  workChantiers,
   saveWorkTask,
   deleteWorkTask,
   workTaskMessages,
@@ -99,26 +111,6 @@ function TaskProjectSelect({
   );
 }
 
-const STATUS_LABELS = {
-  unqualified: "À qualifier",
-  todo: "À préparer",
-  ready: "À démarrer",
-  doing: "En cours",
-  review: "À valider",
-  done: "Terminée",
-  rejected: "Refusée",
-  merged: "Fusionnée",
-} satisfies Record<WorkTask["status"], string>;
-const STATUS_PRESENTATION = {
-  done: { rank: 0, color: "#34b583" },
-  review: { rank: 1, color: "#b696e8" },
-  doing: { rank: 2, color: "#64a6e8" },
-  ready: { rank: 3, color: "#91bc63" },
-  todo: { rank: 4, color: "#d4ac63" },
-  unqualified: { rank: 5, color: "#94a3b8" },
-  merged: { rank: 6, color: "#69b8ba" },
-  rejected: { rank: 7, color: "#dd929e" },
-} satisfies Record<WorkTask["status"], { rank: number; color: string }>;
 const FILTERS = [
   { id: "all", label: "Tout" },
   { id: "unqualified", label: "À qualifier" },
@@ -152,8 +144,17 @@ function TaskField({ label, children }: { label: string; children: ReactNode }) 
 }
 
 export function WorkTasksPage() {
-  const { environments, isReady, environmentId, setEnvironmentId } =
-    useWorkPageEnvironmentSelection("tasks");
+  const search = useSearch({ from: "/_chat/tasks" });
+  const navigate = useNavigate({ from: "/tasks" });
+  const {
+    environments,
+    isReady,
+    environmentId: selectedEnvironmentId,
+    setEnvironmentId,
+  } = useWorkPageEnvironmentSelection("tasks");
+  const environmentId = search.environment
+    ? (environments.find((e) => e.environmentId === search.environment)?.environmentId ?? null)
+    : selectedEnvironmentId;
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden">
       <WorkspacePageHeader electron={isElectron}>
@@ -161,12 +162,42 @@ export function WorkTasksPage() {
         <h1 className="text-sm font-medium">Tâches</h1>
       </WorkspacePageHeader>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <WorkspacePageContainer width="wide">
+        <WorkspacePageContainer width="expanded" className="max-w-none">
+          <div
+            className="grid grid-cols-2 gap-1 rounded-xl bg-foreground/3 p-1 text-center"
+            aria-label="Sections des tâches"
+          >
+            <Link
+              to="/tasks"
+              search={{ tab: "tasks", environment: environmentId ?? undefined }}
+              className={
+                search.tab !== "chantiers"
+                  ? "rounded-lg bg-primary/8 px-3 py-2 text-sm font-medium text-primary"
+                  : "rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-foreground/4"
+              }
+            >
+              Tâches
+            </Link>
+            <Link
+              to="/tasks"
+              search={{ tab: "chantiers", environment: environmentId ?? undefined }}
+              className={
+                search.tab === "chantiers"
+                  ? "rounded-lg bg-primary/8 px-3 py-2 text-sm font-medium text-primary"
+                  : "rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-foreground/4"
+              }
+            >
+              Chantiers
+            </Link>
+          </div>
           {environments.length > 1 && (
             <TaskField label="Machine">
               <TaskSelect
                 value={environmentId ?? ""}
                 onChange={(event) => {
+                  void navigate({
+                    search: { tab: search.tab ?? "tasks", environment: event.target.value },
+                  });
                   setEnvironmentId(
                     environments.find((entry) => entry.environmentId === event.target.value)
                       ?.environmentId ?? null,
@@ -182,7 +213,17 @@ export function WorkTasksPage() {
             </TaskField>
           )}
           {environmentId ? (
-            <EnvironmentTasks key={environmentId} environmentId={environmentId} />
+            search.tab === "chantiers" ? (
+              <WorkChantiersView
+                key={environmentId}
+                environmentId={environmentId}
+                renderTasks={(id) => (
+                  <EnvironmentTasks key={id} environmentId={environmentId} chantierId={id} />
+                )}
+              />
+            ) : (
+              <EnvironmentTasks key={environmentId} environmentId={environmentId} />
+            )
           ) : (
             <p>
               {isReady
@@ -196,7 +237,17 @@ export function WorkTasksPage() {
   );
 }
 
-function EnvironmentTasks({ environmentId }: { environmentId: EnvironmentId }) {
+export function EnvironmentTasks({
+  environmentId,
+  chantierId,
+}: {
+  environmentId: EnvironmentId;
+  chantierId?: string;
+}) {
+  const searchParams = useSearch({ from: "/_chat/tasks" });
+  const chantierQuery = useEnvironmentQuery(workChantiers({ environmentId, input: {} }));
+  const chantiers = chantierQuery.data ?? [];
+  const chantier = chantiers.find((c) => c.id === chantierId);
   const settings = useEnvironmentSettings(environmentId);
   const { environments } = useEnvironments();
   const providers =
@@ -221,7 +272,9 @@ function EnvironmentTasks({ environmentId }: { environmentId: EnvironmentId }) {
   const canDelete = useAtomValue(deleteWorkTask.permissionAtom(environmentId));
   const save = useAtomCommand(saveWorkTask);
   const remove = useAtomCommand(deleteWorkTask);
-  const page = taskPageState(environmentId);
+  const page = taskPageState(
+    chantierId ? JSON.stringify([environmentId, chantierId]) : environmentId,
+  );
   const { filter, search, projectFilter, editing } = useStore(page);
   const setFilter = (filter: Filter) => page.setState({ filter });
   const setSearch = (search: string) => page.setState({ search });
@@ -233,6 +286,7 @@ function EnvironmentTasks({ environmentId }: { environmentId: EnvironmentId }) {
   const tasks = query.data ?? [];
   const visible = tasks
     .filter((task) => {
+      if ((task.chantierId ?? null) !== (chantierId ?? null)) return false;
       if (projectFilter && task.projectId !== projectFilter) return false;
       if (
         search &&
@@ -272,12 +326,30 @@ function EnvironmentTasks({ environmentId }: { environmentId: EnvironmentId }) {
             title: "",
             notes: "",
             status: "todo",
-            projectId: projectFilter ? ProjectId.make(projectFilter) : null,
+            chantierId: chantierId ?? null,
+            projectId:
+              chantier?.projectId ?? (projectFilter ? ProjectId.make(projectFilter) : null),
             agentThreadId: null,
             dueDate: null,
           },
     );
   };
+  const openedTask = useRef<string | null>(null);
+  useEffect(() => {
+    if (!searchParams.task) {
+      openedTask.current = null;
+      return;
+    }
+    if (openedTask.current === searchParams.task) return;
+    const task = tasks.find(
+      (t) => t.id === searchParams.task && (!chantierId || t.chantierId === chantierId),
+    );
+    if (task) {
+      openedTask.current = task.id;
+      if (editing?.id !== task.id)
+        page.setState({ editing: { ...task, expectedVersion: task.version } });
+    }
+  }, [searchParams.task, tasks, chantierId, editing?.id, page]);
   const persist = async (input: WorkTaskSaveInput, closeEditor: boolean) => {
     if (busy) return;
     setBusy(true);
@@ -321,7 +393,9 @@ function EnvironmentTasks({ environmentId }: { environmentId: EnvironmentId }) {
     <>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-xl font-semibold">Les choses à faire</h2>
+          <h2 className="text-xl font-semibold">
+            {chantierId ? "Tâches du chantier" : "Les choses à faire"}
+          </h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Tes tâches et celles confiées aux agents, au même endroit.
           </p>
@@ -463,12 +537,12 @@ function EnvironmentTasks({ environmentId }: { environmentId: EnvironmentId }) {
           emptyLabel="Tous les projets"
         />
       </div>
-      {(error || query.error || typesQuery.error) && (
+      {(error || query.error || typesQuery.error || chantierQuery.error) && (
         <div
           role="alert"
           className="flex flex-wrap items-center gap-3 text-sm text-destructive-foreground"
         >
-          <span>{error ?? query.error ?? typesQuery.error}</span>
+          <span>{error ?? query.error ?? typesQuery.error ?? chantierQuery.error}</span>
           <Button variant="outline" size="sm" onClick={query.refresh}>
             Actualiser
           </Button>
@@ -495,6 +569,92 @@ function EnvironmentTasks({ environmentId }: { environmentId: EnvironmentId }) {
                 onChange={(event) => setEditing({ ...editing, title: event.target.value })}
               />
             </TaskField>
+            <TaskField label="Cadre">
+              <TaskSelect
+                value={editing.chantierId ?? ""}
+                onChange={(event) => {
+                  const selected = chantiers.find((c) => c.id === event.target.value);
+                  setEditing({
+                    ...editing,
+                    chantierId: selected?.id ?? null,
+                    projectId: selected?.projectId ?? editing.projectId,
+                    dependsOn: [],
+                    externalDependsOn: [],
+                  });
+                }}
+              >
+                <option value="">Ponctuelle</option>
+                {chantiers.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.title}
+                  </option>
+                ))}
+              </TaskSelect>
+            </TaskField>
+            <WorkSourceEditor
+              sources={editing.sources ?? workTaskSources(editing)}
+              onChange={(sources) => setEditing({ ...editing, sources })}
+            />
+            {editing.chantierId && (
+              <>
+                <TaskField label="Lot / jalon">
+                  <Input
+                    maxLength={240}
+                    value={editing.milestone ?? ""}
+                    onChange={(e) => setEditing({ ...editing, milestone: e.target.value })}
+                    placeholder="Premier lot"
+                  />
+                </TaskField>
+                <TaskField label="Critères de validation">
+                  <Textarea
+                    maxLength={10000}
+                    value={editing.acceptanceCriteria ?? ""}
+                    onChange={(e) => setEditing({ ...editing, acceptanceCriteria: e.target.value })}
+                  />
+                </TaskField>
+                <fieldset className="space-y-2 rounded-lg border p-3">
+                  <legend className="px-1 text-sm">Prérequis</legend>
+                  {tasks
+                    .filter((t) => t.chantierId === editing.chantierId && t.id !== editing.id)
+                    .map((t) => (
+                      <label key={t.id} className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={editing.dependsOn?.includes(t.id) ?? false}
+                          onChange={(e) =>
+                            setEditing({
+                              ...editing,
+                              dependsOn: e.target.checked
+                                ? [...(editing.dependsOn ?? []), t.id]
+                                : (editing.dependsOn?.filter((id) => id !== t.id) ?? []),
+                            })
+                          }
+                        />
+                        {t.title} · {STATUS_LABELS[t.status]}
+                      </label>
+                    ))}
+                  {chantiers
+                    .find((c) => c.id === editing.chantierId)
+                    ?.externalDependencies.map((d) => (
+                      <label key={d.id} className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={editing.externalDependsOn?.includes(d.id) ?? false}
+                          onChange={(e) =>
+                            setEditing({
+                              ...editing,
+                              externalDependsOn: e.target.checked
+                                ? [...(editing.externalDependsOn ?? []), d.id]
+                                : (editing.externalDependsOn?.filter((id) => id !== d.id) ?? []),
+                            })
+                          }
+                        />
+                        {d.title} · {d.done ? "Livré" : d.owner || "Autre équipe"}
+                      </label>
+                    ))}
+                </fieldset>
+              </>
+            )}
             <TaskField label="Notes">
               <Textarea
                 maxLength={20_000}
@@ -596,7 +756,8 @@ function EnvironmentTasks({ environmentId }: { environmentId: EnvironmentId }) {
             </div>
             <p className="text-xs text-muted-foreground">
               Lancer un agent utilise les réglages de modèle T3 Code et le prompt du type choisi. Le
-              titre, les notes et les messages Slack sont transmis. Le statut reste manuel.
+              titre, les notes et les messages Slack sont transmis. Les prérequis doivent être
+              terminés ; les tâches de chantier passent à valider après clôture de leur discussion.
             </p>
           </fieldset>
           {editing.expectedVersion > 0 && (
@@ -744,6 +905,55 @@ function EnvironmentTasks({ environmentId }: { environmentId: EnvironmentId }) {
                   </div>
                 </div>
                 <Badge variant="label">{STATUS_LABELS[task.status]}</Badge>
+                <div className="col-span-2 col-start-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  {task.chantierId ? (
+                    <Link
+                      to="/tasks"
+                      search={{
+                        tab: "chantiers",
+                        chantier: task.chantierId,
+                        view: "discussion",
+                        environment: environmentId,
+                      }}
+                      className="text-primary hover:underline"
+                    >
+                      Cadre · {chantiers.find((c) => c.id === task.chantierId)?.title ?? "Chantier"}{" "}
+                      · Orchestrateur
+                    </Link>
+                  ) : (
+                    <span>Ponctuelle</span>
+                  )}
+                  {workTaskSources(task).map((source, index) =>
+                    source.url ? (
+                      <a
+                        key={index}
+                        href={source.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="hover:underline"
+                      >
+                        {source.label}
+                      </a>
+                    ) : (
+                      <span key={index}>{source.label}</span>
+                    ),
+                  )}
+                  {task.milestone && <span>Lot · {task.milestone}</span>}
+                  {workTaskBlockers(
+                    task,
+                    tasks,
+                    chantiers.find((c) => c.id === task.chantierId)?.externalDependencies,
+                  ).length > 0 && (
+                    <span className="text-warning">
+                      En attente :{" "}
+                      {workTaskBlockers(
+                        task,
+                        tasks,
+                        chantiers.find((c) => c.id === task.chantierId)?.externalDependencies,
+                      ).join(", ")}
+                    </span>
+                  )}
+                </div>
                 <div className="col-span-2 col-start-2 flex flex-wrap items-center gap-3 pt-2">
                   <span className="text-xs text-muted-foreground">
                     {typesQuery.data?.types.find((t) => t.id === task.typeId)?.name ?? "Aucun"}
@@ -767,7 +977,14 @@ function EnvironmentTasks({ environmentId }: { environmentId: EnvironmentId }) {
                           !canLaunch ||
                           !task.projectId ||
                           !modelSelection ||
-                          task.status !== "ready"
+                          task.status !== "ready" ||
+                          workTaskBlockers(
+                            task,
+                            tasks,
+                            chantiers.find((c) => c.id === task.chantierId)?.externalDependencies,
+                          ).length > 0 ||
+                          (!!task.chantierId &&
+                            chantiers.find((c) => c.id === task.chantierId)?.status !== "active")
                         }
                         title={launchUnavailableReason}
                         onClick={async () => {

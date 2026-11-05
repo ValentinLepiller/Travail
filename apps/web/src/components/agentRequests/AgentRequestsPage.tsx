@@ -1,3 +1,4 @@
+import { useRequestDraft } from "../../hooks/useRequestDraft";
 import { useStore } from "zustand";
 import { requestPageState } from "../../state/workPageState";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -23,6 +24,7 @@ import { requestQueue } from "./requestQueue";
 import ChatMarkdown from "../ChatMarkdown";
 import { useResizableWidth } from "../../hooks/useResizableWidth";
 import { RightPanelResizeHandle } from "../preview/RightPanelResizeHandle";
+import { RequestTemporaryChat } from "./RequestTemporaryChat";
 
 const ChatView = lazy(() => import("../ChatView"));
 
@@ -130,8 +132,10 @@ export function AgentRequestsPage() {
 }
 function RequestInbox({ environmentId }: { environmentId: EnvironmentId }) {
   const query = useEnvironmentQuery(agentRequests({ environmentId, input: {} }));
-  const [discussionOpen, setDiscussionOpen] = useState(false);
   const page = requestPageState(environmentId);
+  const discussion = useStore(page, (state) => state.discussion ?? null);
+  const setDiscussion = (discussion: "source" | "temporary" | null) =>
+    page.setState({ discussion });
   const archive = useStore(page, (state) => state.archive);
   const selected = useStore(page, (state) => state.selected);
   const requests = query.data ?? [];
@@ -217,7 +221,8 @@ function RequestInbox({ environmentId }: { environmentId: EnvironmentId }) {
               request={current}
               environmentId={environmentId}
               project={project}
-              onOpenDiscussion={() => setDiscussionOpen(true)}
+              onOpenDiscussion={() => setDiscussion("source")}
+              onOpenTemporaryDiscussion={() => setDiscussion("temporary")}
             />
           ) : (
             <div className="mx-auto max-w-xl py-20 text-center text-muted-foreground">
@@ -232,12 +237,20 @@ function RequestInbox({ environmentId }: { environmentId: EnvironmentId }) {
             </div>
           )}
         </main>
-        {discussionOpen && current && (
+        {discussion && current && (
           <RequestDiscussion
-            key={current.threadId}
+            key={current.id}
             request={current}
             environmentId={environmentId}
-            onClose={() => setDiscussionOpen(false)}
+            mode={discussion}
+            onModeChange={setDiscussion}
+            onUseDraft={(text) => {
+              page.setState((state) => ({
+                drafts: { ...state.drafts, [current.id]: { version: current.version, text } },
+              }));
+              setDiscussion(null);
+            }}
+            onClose={() => setDiscussion(null)}
           />
         )}
       </div>
@@ -248,10 +261,16 @@ function RequestDiscussion({
   request,
   environmentId,
   onClose,
+  mode,
+  onModeChange,
+  onUseDraft,
 }: {
   request: AgentRequest;
   environmentId: EnvironmentId;
   onClose: () => void;
+  mode: "source" | "temporary";
+  onModeChange: (mode: "source" | "temporary") => void;
+  onUseDraft: (text: string) => void;
 }) {
   const thread = useThreadShell(scopeThreadRef(environmentId, request.threadId));
   const { width, handlers } = useResizableWidth({
@@ -269,8 +288,35 @@ function RequestDiscussion({
     >
       <RightPanelResizeHandle handlers={handlers} className="hidden xl:block" />
       <div className="flex shrink-0 items-center justify-between gap-3 border-b p-3">
-        <span className="truncate text-sm font-medium">{thread?.title ?? "Discussion"}</span>
-        <div className="flex shrink-0 items-center gap-3">
+        <div
+          className="flex min-w-0 flex-wrap items-center gap-1"
+          role="group"
+          aria-label="Discussion affichée"
+        >
+          <Button
+            variant={mode === "temporary" ? "secondary" : "ghost"}
+            size="sm"
+            aria-pressed={mode === "temporary"}
+            onClick={() => onModeChange("temporary")}
+          >
+            Discussion temporaire
+          </Button>
+          <Button
+            variant={mode === "source" ? "secondary" : "ghost"}
+            size="sm"
+            aria-pressed={mode === "source"}
+            onClick={() => onModeChange("source")}
+          >
+            Discussion d’origine
+          </Button>
+        </div>
+        <Button variant="ghost" size="icon" aria-label="Fermer la discussion" onClick={onClose}>
+          <XIcon className="size-4" />
+        </Button>
+      </div>
+      {mode === "source" && (
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b p-3">
+          <span className="truncate text-sm font-medium">{thread?.title ?? "Discussion"}</span>
           <Link
             to="/$environmentId/$threadId"
             params={{ environmentId, threadId: request.threadId }}
@@ -278,12 +324,15 @@ function RequestDiscussion({
           >
             Ouvrir la discussion
           </Link>
-          <Button variant="ghost" size="icon" aria-label="Fermer la discussion" onClick={onClose}>
-            <XIcon className="size-4" />
-          </Button>
         </div>
-      </div>
-      {thread && !thread.deletedAt ? (
+      )}
+      {mode === "temporary" ? (
+        <RequestTemporaryChat
+          request={request}
+          environmentId={environmentId}
+          onUseDraft={onUseDraft}
+        />
+      ) : thread && !thread.deletedAt ? (
         <div className="relative flex min-h-0 min-w-0 flex-1 [transform:translate(0)]">
           <Suspense
             fallback={
@@ -313,23 +362,18 @@ export function RequestCard({
   project,
   inline = false,
   onOpenDiscussion,
+  onOpenTemporaryDiscussion,
 }: {
   request: AgentRequest;
   environmentId: EnvironmentId;
   project?: ProjectFaviconProject | null;
   inline?: boolean;
   onOpenDiscussion?: () => void;
+  onOpenTemporaryDiscussion?: () => void;
 }) {
   const compact = request.autonomousAgent?.qualifier === true && request.action?.kind !== "command";
   const source = request.qualification?.source ?? request.autonomousAgent?.source;
-  const page = requestPageState(environmentId);
-  const draft = useStore(page, (state) => state.drafts[request.id]);
-  const text = draft?.version === request.version ? draft.text : "";
-  const setText = (text: string) => {
-    page.setState((state) => ({
-      drafts: { ...state.drafts, [request.id]: { version: request.version, text } },
-    }));
-  };
+  const { text, setText, clearSubmitted } = useRequestDraft(environmentId, request);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const canRespond = useAtomValue(respondToRequest.permissionAtom(environmentId));
@@ -347,12 +391,7 @@ export function RequestCard({
       if (result._tag === "Failure") {
         setError(String(squashAtomCommandFailure(result)));
       } else {
-        page.setState((state) => {
-          const draft = state.drafts[request.id];
-          if (draft?.version !== request.version || draft.text !== text) return state;
-          const { [request.id]: _, ...drafts } = state.drafts;
-          return { drafts };
-        });
+        clearSubmitted();
       }
     } finally {
       setBusy(false);
@@ -410,19 +449,26 @@ export function RequestCard({
         ))}
       <div className="flex items-center justify-between gap-4 text-sm text-muted-foreground">
         <span>{statusLabels[request.status]}</span>
-        {!inline &&
-          (onOpenDiscussion ? (
-            <Button variant="ghost" onClick={onOpenDiscussion}>
-              Voir la discussion
+        <div className="flex flex-wrap items-center justify-end gap-1">
+          {!inline && onOpenTemporaryDiscussion && (
+            <Button variant="outline" onClick={onOpenTemporaryDiscussion}>
+              Discussion temporaire
             </Button>
-          ) : (
-            <Link
-              to="/$environmentId/$threadId"
-              params={{ environmentId, threadId: request.threadId }}
-            >
-              Voir la discussion
-            </Link>
-          ))}
+          )}
+          {!inline &&
+            (onOpenDiscussion ? (
+              <Button variant="ghost" onClick={onOpenDiscussion}>
+                Voir la discussion
+              </Button>
+            ) : (
+              <Link
+                to="/$environmentId/$threadId"
+                params={{ environmentId, threadId: request.threadId }}
+              >
+                Voir la discussion
+              </Link>
+            ))}
+        </div>
       </div>
       <div>
         {source && <p className="mb-3 text-sm text-muted-foreground">{source}</p>}

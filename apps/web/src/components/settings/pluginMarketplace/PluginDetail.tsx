@@ -45,23 +45,17 @@ import { Input } from "~/components/ui/input";
 import { Switch } from "~/components/ui/switch";
 import { toastManager } from "~/components/ui/toast";
 import { readLocalApi } from "~/localApi";
-import { usePrimaryEnvironment } from "~/state/environments";
 import {
-  completePluginMcpAuth,
-  disconnectPluginMcpAuth,
-  fetchPluginMcpAuth,
-  openPluginSetup,
-  startPluginMcpAuth,
-} from "~/pluginMarketplace/api";
+  usePluginMarketplaceApi,
+  usePluginMarketplaceStore,
+} from "~/pluginMarketplace/PluginMarketplaceContext";
 import {
   MARKETPLACE_HARNESS_LABELS,
   marketplaceDisplayName,
   marketplacePluginIncludeLabels,
 } from "~/pluginMarketplace/catalog";
-import {
-  pluginMarketplaceErrorMessage,
-  usePluginMarketplaceStore,
-} from "~/pluginMarketplace/store";
+import { pluginMarketplaceErrorMessage } from "~/pluginMarketplace/store";
+import { useSettingsScope } from "../SettingsScopeContext";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "../settingsLayout";
 import { HarnessIcon, HarnessSupportBadges, PluginLogo } from "./PluginMarketplacePresentation";
 import { APP_DISPLAY_NAME } from "~/branding";
@@ -71,13 +65,13 @@ function LoadingPlugin() {
     <SettingsPageContainer className="max-w-4xl gap-10">
       <Skeleton className="h-8 w-24" />
       <div className="flex items-start gap-4">
-        <Skeleton className="size-16 rounded-2xl" />
+        <Skeleton shape="card" className="size-16" />
         <div className="flex-1 space-y-3">
           <Skeleton className="h-8 w-56" />
           <Skeleton className="h-4 w-3/4" />
         </div>
       </div>
-      <Skeleton className="h-36 w-full rounded-xl" />
+      <Skeleton shape="card" className="h-36 w-full" />
     </SettingsPageContainer>
   );
 }
@@ -91,25 +85,29 @@ function MissingPlugin({
 }) {
   return (
     <SettingsPageContainer>
-      <Empty className="min-h-80 border border-dashed border-foreground/10">
-        <EmptyMedia variant="icon">
-          <PackageOpenIcon />
-        </EmptyMedia>
-        <EmptyHeader>
-          <EmptyTitle>Plugin unavailable</EmptyTitle>
-          <EmptyDescription>{error ?? "This Codex plugin could not be loaded."}</EmptyDescription>
-        </EmptyHeader>
-        <EmptyContent className="flex-row flex-wrap justify-center gap-2">
-          <Button size="sm" variant="outline" render={<Link to="/settings/plugins" replace />}>
-            <ArrowLeftIcon />
-            Back to plugins
-          </Button>
-          <Button size="sm" variant="outline" onClick={onRetry}>
-            <RefreshCwIcon />
-            Try again
-          </Button>
-        </EmptyContent>
-      </Empty>
+      <div className="border border-dashed border-foreground/10">
+        <Empty className="min-h-80">
+          <EmptyMedia variant="icon">
+            <PackageOpenIcon />
+          </EmptyMedia>
+          <EmptyHeader>
+            <EmptyTitle>Plugin unavailable</EmptyTitle>
+            <EmptyDescription>{error ?? "This Codex plugin could not be loaded."}</EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <div className="flex flex-wrap justify-center gap-2">
+              <Button size="sm" variant="outline" render={<Link to="/settings/plugins" replace />}>
+                <ArrowLeftIcon />
+                Back to plugins
+              </Button>
+              <Button size="sm" variant="outline" onClick={onRetry}>
+                <RefreshCwIcon />
+                Try again
+              </Button>
+            </div>
+          </EmptyContent>
+        </Empty>
+      </div>
     </SettingsPageContainer>
   );
 }
@@ -321,6 +319,8 @@ function McpAuthStatusBadge({
 }
 
 function McpAuthentication({ plugin }: { readonly plugin: PluginMarketplaceDetail }) {
+  const { fetchPluginMcpAuth, startPluginMcpAuth, completePluginMcpAuth, disconnectPluginMcpAuth } =
+    usePluginMarketplaceApi();
   const [authState, setAuthState] = useState<PluginMarketplaceMcpAuthState | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadingAuth, setLoadingAuth] = useState(false);
@@ -354,7 +354,7 @@ function McpAuthentication({ plugin }: { readonly plugin: PluginMarketplaceDetai
     } finally {
       if (requestGeneration.current === generation) setLoadingAuth(false);
     }
-  }, [hasInstalledMcp, plugin.id]);
+  }, [fetchPluginMcpAuth, hasInstalledMcp, plugin.id]);
 
   useEffect(() => {
     requestGeneration.current += 1;
@@ -646,6 +646,7 @@ function McpAuthentication({ plugin }: { readonly plugin: PluginMarketplaceDetai
 }
 
 function ComputerUsePermissions({ plugin }: { readonly plugin: PluginMarketplaceDetail }) {
+  const { openPluginSetup } = usePluginMarketplaceApi();
   const [pendingAction, setPendingAction] = useState<PluginMarketplaceSetupAction | null>(null);
   const openSetup = (action: PluginMarketplaceSetupAction) => {
     setPendingAction(action);
@@ -745,7 +746,7 @@ function DetailLine({
 function McpServerRow({ server }: { readonly server: PluginMarketplaceMcpServer }) {
   return (
     <Collapsible>
-      <CollapsibleTrigger className="group/mcp flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-4">
+      <CollapsibleTrigger className="group/mcp flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-4">
         <ServerIcon className="size-4 shrink-0" />
         <span className="min-w-0 flex-1">
           <span className="block truncate font-medium text-sm text-foreground">{server.name}</span>
@@ -793,7 +794,7 @@ function McpServerRow({ server }: { readonly server: PluginMarketplaceMcpServer 
 function SkillRow({ skill }: { readonly skill: PluginMarketplaceSkill }) {
   return (
     <Collapsible>
-      <CollapsibleTrigger className="group/skill flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-4">
+      <CollapsibleTrigger className="group/skill flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-4">
         <SparklesIcon className="size-4 shrink-0" />
         <span className="min-w-0 flex-1">
           <span className="block font-medium text-sm text-foreground">{skill.name}</span>
@@ -855,7 +856,7 @@ function ExtensionIcon({ kind }: { readonly kind: PluginMarketplaceExtension["ki
 function ExtensionRow({ extension }: { readonly extension: PluginMarketplaceExtension }) {
   return (
     <Collapsible>
-      <CollapsibleTrigger className="group/extension flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-4">
+      <CollapsibleTrigger className="group/extension flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-4">
         <ExtensionIcon kind={extension.kind} />
         <span className="min-w-0 flex-1">
           <span className="block truncate font-medium text-sm text-foreground">
@@ -962,85 +963,87 @@ function PluginInformation({ plugin }: { readonly plugin: PluginMarketplaceDetai
   const includes = marketplacePluginIncludeLabels(plugin);
   return (
     <SettingsSection title="Details" variant="plain" contentClassName="space-y-2">
-      <Collapsible className="rounded-xl border border-foreground/8 bg-card/24 dark:bg-card/40">
-        <CollapsibleTrigger className="group/details flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-4">
-          <div className="min-w-0 flex-1">
-            <p className="font-medium text-base text-foreground sm:text-sm">Advanced details</p>
-            <p className="truncate text-base/7 text-muted-foreground sm:text-sm/5">
-              {plugin.developer} · {marketplaceDisplayName(plugin)} · {plugin.version}
-            </p>
-          </div>
-          <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform group-data-panel-open/details:rotate-180" />
-        </CollapsibleTrigger>
-        <CollapsiblePanel>
-          <dl className="grid gap-x-8 gap-y-4 border-t border-foreground/8 p-4 sm:grid-cols-[10rem_minmax(0,1fr)]">
-            <dt className="font-medium text-base text-foreground sm:text-sm">Developer</dt>
-            <dd className="min-w-0 text-base text-muted-foreground sm:text-sm">
-              {plugin.developer}
-            </dd>
-            {plugin.description !== plugin.summary ? (
-              <>
-                <dt className="font-medium text-base text-foreground sm:text-sm">Description</dt>
-                <dd className="min-w-0 text-pretty text-base/7 text-muted-foreground sm:text-sm/6">
-                  {plugin.description}
-                </dd>
-              </>
-            ) : null}
-            <dt className="font-medium text-base text-foreground sm:text-sm">Category</dt>
-            <dd className="min-w-0 text-base text-muted-foreground sm:text-sm">
-              {plugin.category}
-            </dd>
-            <dt className="font-medium text-base text-foreground sm:text-sm">Version</dt>
-            <dd className="min-w-0 tabular-nums text-base text-muted-foreground sm:text-sm">
-              {plugin.version}
-            </dd>
-            <dt className="font-medium text-base text-foreground sm:text-sm">Includes</dt>
-            <dd className="flex min-w-0 flex-wrap gap-1">
-              {includes.map((label) => (
-                <Badge key={label} variant="secondary">
-                  {label}
-                </Badge>
-              ))}
-            </dd>
-            <dt className="font-medium text-base text-foreground sm:text-sm">Marketplace</dt>
-            <dd className="min-w-0 text-base text-muted-foreground sm:text-sm">
-              {marketplaceDisplayName(plugin)} · {plugin.marketplaceName} ·{" "}
-              {plugin.marketplaceSourceType}
-            </dd>
-            <dt className="font-medium text-base text-foreground sm:text-sm">Package</dt>
-            <dd className="min-w-0 break-all text-base text-muted-foreground sm:text-sm">
-              {plugin.id}
-            </dd>
-            {plugin.capabilities.length > 0 ? (
-              <>
-                <dt className="font-medium text-base text-foreground sm:text-sm">Capabilities</dt>
-                <dd className="flex min-w-0 flex-wrap gap-1">
-                  {plugin.capabilities.map((capability) => (
-                    <Badge key={capability} variant="outline">
-                      {capability}
-                    </Badge>
-                  ))}
-                </dd>
-              </>
-            ) : null}
-            {plugin.homepage ? (
-              <>
-                <dt className="font-medium text-base text-foreground sm:text-sm">Website</dt>
-                <dd className="min-w-0 break-all text-base sm:text-sm">
-                  <a
-                    href={plugin.homepage}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="font-medium text-foreground underline-offset-4 hover:underline"
-                  >
-                    {plugin.homepage}
-                  </a>
-                </dd>
-              </>
-            ) : null}
-          </dl>
-        </CollapsiblePanel>
-      </Collapsible>
+      <div className="rounded-xl border border-foreground/8 bg-card/24 dark:bg-card/40">
+        <Collapsible>
+          <CollapsibleTrigger className="group/details flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-4">
+            <div className="min-w-0 flex-1">
+              <p className="font-medium text-base text-foreground sm:text-sm">Advanced details</p>
+              <p className="truncate text-base/7 text-muted-foreground sm:text-sm/5">
+                {plugin.developer} · {marketplaceDisplayName(plugin)} · {plugin.version}
+              </p>
+            </div>
+            <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform group-data-panel-open/details:rotate-180" />
+          </CollapsibleTrigger>
+          <CollapsiblePanel>
+            <dl className="grid gap-x-8 gap-y-4 border-t border-foreground/8 p-4 sm:grid-cols-[10rem_minmax(0,1fr)]">
+              <dt className="font-medium text-base text-foreground sm:text-sm">Developer</dt>
+              <dd className="min-w-0 text-base text-muted-foreground sm:text-sm">
+                {plugin.developer}
+              </dd>
+              {plugin.description !== plugin.summary ? (
+                <>
+                  <dt className="font-medium text-base text-foreground sm:text-sm">Description</dt>
+                  <dd className="min-w-0 text-pretty text-base/7 text-muted-foreground sm:text-sm/6">
+                    {plugin.description}
+                  </dd>
+                </>
+              ) : null}
+              <dt className="font-medium text-base text-foreground sm:text-sm">Category</dt>
+              <dd className="min-w-0 text-base text-muted-foreground sm:text-sm">
+                {plugin.category}
+              </dd>
+              <dt className="font-medium text-base text-foreground sm:text-sm">Version</dt>
+              <dd className="min-w-0 tabular-nums text-base text-muted-foreground sm:text-sm">
+                {plugin.version}
+              </dd>
+              <dt className="font-medium text-base text-foreground sm:text-sm">Includes</dt>
+              <dd className="flex min-w-0 flex-wrap gap-1">
+                {includes.map((label) => (
+                  <Badge key={label} variant="secondary">
+                    {label}
+                  </Badge>
+                ))}
+              </dd>
+              <dt className="font-medium text-base text-foreground sm:text-sm">Marketplace</dt>
+              <dd className="min-w-0 text-base text-muted-foreground sm:text-sm">
+                {marketplaceDisplayName(plugin)} · {plugin.marketplaceName} ·{" "}
+                {plugin.marketplaceSourceType}
+              </dd>
+              <dt className="font-medium text-base text-foreground sm:text-sm">Package</dt>
+              <dd className="min-w-0 break-all text-base text-muted-foreground sm:text-sm">
+                {plugin.id}
+              </dd>
+              {plugin.capabilities.length > 0 ? (
+                <>
+                  <dt className="font-medium text-base text-foreground sm:text-sm">Capabilities</dt>
+                  <dd className="flex min-w-0 flex-wrap gap-1">
+                    {plugin.capabilities.map((capability) => (
+                      <Badge key={capability} variant="outline">
+                        {capability}
+                      </Badge>
+                    ))}
+                  </dd>
+                </>
+              ) : null}
+              {plugin.homepage ? (
+                <>
+                  <dt className="font-medium text-base text-foreground sm:text-sm">Website</dt>
+                  <dd className="min-w-0 break-all text-base sm:text-sm">
+                    <a
+                      href={plugin.homepage}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-medium text-foreground underline-offset-4 hover:underline"
+                    >
+                      {plugin.homepage}
+                    </a>
+                  </dd>
+                </>
+              ) : null}
+            </dl>
+          </CollapsiblePanel>
+        </Collapsible>
+      </div>
     </SettingsSection>
   );
 }
@@ -1048,7 +1051,7 @@ function PluginInformation({ plugin }: { readonly plugin: PluginMarketplaceDetai
 export function PluginDetail({ pluginId }: { readonly pluginId: string }) {
   const canGoBack = useCanGoBack();
   const navigate = useNavigate();
-  const primaryEnvironment = usePrimaryEnvironment();
+  const { environment } = useSettingsScope();
   const state = usePluginMarketplaceStore((store) => store.details[pluginId]);
   const loadDetail = usePluginMarketplaceStore((store) => store.loadDetail);
   const handleBackToPlugins = useCallback(() => {
@@ -1078,7 +1081,7 @@ export function PluginDetail({ pluginId }: { readonly pluginId: string }) {
     (target) => target.installPolicy !== "EXTERNAL" && target.installed,
   ).length;
   const hasInstalledCodexComputerUse =
-    primaryEnvironment?.serverConfig?.environment.platform.os === "darwin" &&
+    environment?.serverConfig?.environment.platform.os === "darwin" &&
     plugin.packageName === "computer-use" &&
     plugin.installTargets.some((target) => target.harness === "codex" && target.installed);
   return (

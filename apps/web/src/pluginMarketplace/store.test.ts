@@ -1,20 +1,29 @@
 import type { PluginMarketplaceDetail, PluginMarketplacePlugin } from "@t3tools/contracts";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-vi.mock("./api", () => ({
-  fetchPluginMarketplaceCatalog: vi.fn(),
-  fetchPluginMarketplaceDetail: vi.fn(),
-  installPlugin: vi.fn(),
-  removePlugin: vi.fn(),
-}));
+import type { PluginMarketplaceApi } from "./api";
+import { createPluginMarketplaceStore } from "./store";
 
-import {
+const fetchPluginMarketplaceCatalog =
+  vi.fn<PluginMarketplaceApi["fetchPluginMarketplaceCatalog"]>();
+const fetchPluginMarketplaceDetail = vi.fn<PluginMarketplaceApi["fetchPluginMarketplaceDetail"]>();
+const installPlugin = vi.fn<PluginMarketplaceApi["installPlugin"]>();
+const removePlugin = vi.fn<PluginMarketplaceApi["removePlugin"]>();
+const api = {
   fetchPluginMarketplaceCatalog,
   fetchPluginMarketplaceDetail,
   installPlugin,
   removePlugin,
-} from "./api";
-import { usePluginMarketplaceStore } from "./store";
+};
+let store = createPluginMarketplaceStore(api);
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((complete) => {
+    resolve = complete;
+  });
+  return { promise, resolve };
+}
 
 const summary: PluginMarketplacePlugin = {
   id: "computer-use@openai-bundled",
@@ -98,25 +107,52 @@ const detail: PluginMarketplaceDetail = {
 describe("plugin marketplace store", () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    usePluginMarketplaceStore.setState({
-      catalogStatus: "idle",
-      plugins: [],
-      searchHits: [],
-      notices: [],
-      catalogError: null,
-      details: {},
-      pending: {},
-    });
+    store = createPluginMarketplaceStore(api);
   });
 
   it("loads the Codex catalog from the environment API", async () => {
     vi.mocked(fetchPluginMarketplaceCatalog).mockResolvedValue({ plugins: [summary] });
 
-    await usePluginMarketplaceStore.getState().loadCatalog();
+    await store.getState().loadCatalog();
 
     expect(fetchPluginMarketplaceCatalog).toHaveBeenCalledOnce();
-    expect(usePluginMarketplaceStore.getState().plugins).toEqual([summary]);
-    expect(usePluginMarketplaceStore.getState().catalogStatus).toBe("ready");
+    expect(store.getState().plugins).toEqual([summary]);
+    expect(store.getState().catalogStatus).toBe("ready");
+  });
+
+  it("keeps a late catalog response on its original environment", async () => {
+    const first = deferred<{ plugins: PluginMarketplacePlugin[] }>();
+    fetchPluginMarketplaceCatalog.mockReturnValueOnce(first.promise);
+    const loading = store.getState().loadCatalog();
+    const otherPlugin = { ...summary, name: "Other environment", installed: true };
+    const other = createPluginMarketplaceStore({
+      ...api,
+      fetchPluginMarketplaceCatalog: vi.fn().mockResolvedValue({ plugins: [otherPlugin] }),
+    });
+
+    await other.getState().loadCatalog();
+    first.resolve({ plugins: [summary] });
+    await loading;
+
+    expect(store.getState().plugins).toEqual([summary]);
+    expect(other.getState().plugins).toEqual([otherPlugin]);
+  });
+
+  it("keeps installation progress and detail caches separate between environments", async () => {
+    const installed = deferred<{ pluginId: string; installed: boolean }>();
+    installPlugin.mockReturnValueOnce(installed.promise);
+    fetchPluginMarketplaceCatalog.mockResolvedValue({ plugins: [summary] });
+    fetchPluginMarketplaceDetail.mockResolvedValue(detail);
+    const other = createPluginMarketplaceStore(api);
+    const mutation = store.getState().setInstalled(summary.id, true);
+
+    expect(store.getState().pending[summary.id]).toBe(true);
+    expect(other.getState().pending[summary.id]).toBeUndefined();
+    installed.resolve({ pluginId: summary.id, installed: true });
+    await mutation;
+
+    expect(store.getState().details[summary.id]?.plugin).toEqual(detail);
+    expect(other.getState().details).toEqual({});
   });
 
   it("keeps per-harness notices from the catalog and clears them when a server omits them", async () => {
@@ -129,11 +165,11 @@ describe("plugin marketplace store", () => {
       .mockResolvedValueOnce({ plugins: [summary], notices: [notice] })
       .mockResolvedValueOnce({ plugins: [summary] });
 
-    await usePluginMarketplaceStore.getState().loadCatalog();
-    expect(usePluginMarketplaceStore.getState().notices).toEqual([notice]);
+    await store.getState().loadCatalog();
+    expect(store.getState().notices).toEqual([notice]);
 
-    await usePluginMarketplaceStore.getState().loadCatalog(true);
-    expect(usePluginMarketplaceStore.getState().notices).toEqual([]);
+    await store.getState().loadCatalog(true);
+    expect(store.getState().notices).toEqual([]);
   });
 
   it("queues forced catalog refreshes behind an in-flight request", async () => {
@@ -147,13 +183,13 @@ describe("plugin marketplace store", () => {
       )
       .mockResolvedValueOnce({ plugins: [{ ...summary, installed: true, enabled: true }] });
 
-    const first = usePluginMarketplaceStore.getState().loadCatalog(true);
-    const forced = usePluginMarketplaceStore.getState().loadCatalog(true);
+    const first = store.getState().loadCatalog(true);
+    const forced = store.getState().loadCatalog(true);
     resolveFirst?.({ plugins: [summary] });
     await Promise.all([first, forced]);
 
     expect(fetchPluginMarketplaceCatalog).toHaveBeenCalledTimes(2);
-    expect(usePluginMarketplaceStore.getState().plugins[0]?.installed).toBe(true);
+    expect(store.getState().plugins[0]?.installed).toBe(true);
   });
 
   it("runs a real install mutation and refreshes catalog and details", async () => {
@@ -163,12 +199,12 @@ describe("plugin marketplace store", () => {
     });
     vi.mocked(fetchPluginMarketplaceDetail).mockResolvedValue(detail);
 
-    await usePluginMarketplaceStore.getState().setInstalled(summary.id, true);
+    await store.getState().setInstalled(summary.id, true);
 
     expect(installPlugin).toHaveBeenCalledWith(summary.id);
-    expect(usePluginMarketplaceStore.getState().plugins[0]?.installed).toBe(true);
-    expect(usePluginMarketplaceStore.getState().details[summary.id]?.plugin).toEqual(detail);
-    expect(usePluginMarketplaceStore.getState().pending[summary.id]).toBe(false);
+    expect(store.getState().plugins[0]?.installed).toBe(true);
+    expect(store.getState().details[summary.id]?.plugin).toEqual(detail);
+    expect(store.getState().pending[summary.id]).toBe(false);
   });
 
   it("runs remove through Codex", async () => {
@@ -180,10 +216,10 @@ describe("plugin marketplace store", () => {
       enabled: false,
     });
 
-    await usePluginMarketplaceStore.getState().setInstalled(summary.id, false);
+    await store.getState().setInstalled(summary.id, false);
 
     expect(removePlugin).toHaveBeenCalledWith(summary.id);
-    expect(usePluginMarketplaceStore.getState().details[summary.id]?.plugin?.installed).toBe(false);
+    expect(store.getState().details[summary.id]?.plugin?.installed).toBe(false);
   });
 
   it("keeps ChatGPT public search hits that the browse catalog omitted", async () => {
@@ -198,13 +234,13 @@ describe("plugin marketplace store", () => {
       .mockResolvedValueOnce({ plugins: [summary] })
       .mockResolvedValueOnce({ plugins: [summary, tickTick] });
 
-    await usePluginMarketplaceStore.getState().loadCatalog();
-    await usePluginMarketplaceStore.getState().searchCatalog("tick");
+    await store.getState().loadCatalog();
+    await store.getState().searchCatalog("tick");
 
     expect(fetchPluginMarketplaceCatalog).toHaveBeenNthCalledWith(2, "tick");
-    expect(usePluginMarketplaceStore.getState().searchHits).toEqual([tickTick]);
+    expect(store.getState().searchHits).toEqual([tickTick]);
 
-    await usePluginMarketplaceStore.getState().searchCatalog("t");
-    expect(usePluginMarketplaceStore.getState().searchHits).toEqual([]);
+    await store.getState().searchCatalog("t");
+    expect(store.getState().searchHits).toEqual([]);
   });
 });

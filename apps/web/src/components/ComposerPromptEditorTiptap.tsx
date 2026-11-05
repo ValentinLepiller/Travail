@@ -1531,7 +1531,8 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
 
   // Controlled value/cursor from the store (history recall, chip insertion…).
   useLayoutEffect(() => {
-    if (!editor) return;
+    // Suspense can reveal a discussion before Tiptap remounts its editor view.
+    if (!editor || editor.isDestroyed) return;
     const initialSelection = !hasAppliedControlledSelectionRef.current;
     hasAppliedControlledSelectionRef.current = true;
     const normalizedCursor = clampEditorCursor(value, cursor);

@@ -137,6 +137,8 @@ import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
 import * as AuthHttp from "./auth/http.ts";
 import * as ReplayMarkers from "./auth/replayMarkers.ts";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
+import * as SmsCodes from "./smsCodes/SmsCodes.ts";
+import * as SmsCodeHttp from "./smsCodes/http.ts";
 import * as WebhookRoute from "./scheduledTasks/webhookRoute.ts";
 import * as RelayDeliveryProof from "./scheduledTasks/RelayDeliveryProof.ts";
 import * as HeldHooksWaker from "./relay/HeldHooksWaker.ts";
@@ -709,6 +711,7 @@ const layerRuntimeCoreDependencies = layerRuntimeCoreDependenciesBase.pipe(
   Layer.provideMerge(layerRepositoryIdentityResolver),
   Layer.provideMerge(layerServerEnvironment),
   Layer.provideMerge(layerAuth),
+  Layer.provideMerge(SmsCodes.layer),
   Layer.provideMerge(ServerSecretStore.layer),
   Layer.provideMerge(VoiceSessionService.layer.pipe(Layer.provide(ServerSecretStore.layer))),
   Layer.provideMerge(
@@ -783,6 +786,7 @@ const layerMakeRoutes = Layer.mergeAll(
     ServerHttp.layerAttachmentUploadRoute,
     DeviceHubProxy.layer,
     AgentDesktopHttp.layer,
+    SmsCodeHttp.layer,
     MaintenanceHttp.layer,
     HttpAdmission.layer,
     Layer.effectDiscard(RuntimeAdmission.registerHook("rpc")),

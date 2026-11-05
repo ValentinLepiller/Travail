@@ -22,7 +22,7 @@ import {
 } from "~/components/ui/dialog";
 import { runtime } from "~/lib/runtime";
 import { skillMatchesHarness, type MarketplaceHarnessFilter } from "~/pluginMarketplace/filter";
-import { usePrimaryEnvironmentId } from "~/state/environments";
+import { useSettingsScope } from "../SettingsScopeContext";
 import { usePreparedConnection } from "~/state/session";
 import { SkillFileDetail } from "../SkillsSettings";
 
@@ -35,8 +35,9 @@ export type SkillInventoryState =
   | { readonly status: "error"; readonly message: string };
 
 /** Standalone skills installed on the environment whose plugin catalog the page shows. */
-export function usePrimarySkillInventory(refreshKey: number): SkillInventoryState {
-  const prepared = usePreparedConnection(usePrimaryEnvironmentId());
+export function useMarketplaceSkillInventory(refreshKey: number): SkillInventoryState {
+  const { environment } = useSettingsScope();
+  const prepared = usePreparedConnection(environment?.environmentId ?? null);
   const [state, setState] = useState<SkillInventoryState>({ status: "loading" });
 
   useEffect(() => {
@@ -90,7 +91,7 @@ function SkillCard({
       type="button"
       onClick={onOpen}
       aria-label={`View ${skill.name} skill`}
-      className="flex min-w-0 items-center gap-3 rounded-xl border border-foreground/8 bg-card/24 p-3 text-left outline-none transition-colors hover:bg-foreground/4 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:bg-card/40"
+      className="flex min-w-0 items-center gap-3 rounded-xl border border-foreground/8 bg-card/24 p-3 text-left outline-none transition-colors hover:bg-foreground/4 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:bg-card/40"
     >
       <span
         aria-hidden="true"

@@ -2,6 +2,7 @@ import * as GmailTasks from "../workTasks/GmailTaskCollector.ts";
 import * as GmailSource from "../workTasks/GmailTaskSource.ts";
 import * as Autonomous from "../autonomousAgents/AutonomousAgentService.ts";
 import * as Requests from "../agentRequests/AgentRequestService.ts";
+import * as RequestChat from "../agentRequests/AgentRequestChatService.ts";
 import * as RequestEffects from "../agentRequests/RequestEffects.ts";
 import * as TaskAgents from "../workTasks/WorkTaskAgentService.ts";
 import * as WorkTasks from "../workTasks/WorkTaskService.ts";
@@ -402,6 +403,9 @@ export const layerProduction = Layer.mergeAll(
   layerSlackTasksProvided,
   SlackTasks.workerLayer.pipe(Layer.provide(layerSlackTasksProvided)),
   layerRequestsProvided,
+  RequestChat.layer.pipe(
+    Layer.provide(Layer.mergeAll(ProjectionStore.layer, ProjectStore.layer, TextGeneration.layer)),
+  ),
   Requests.workerLayer.pipe(Layer.provide(layerRequestsProvided)),
   layerSecretRequestsProvided,
   UsageLimitRecoveryWorker.layer.pipe(

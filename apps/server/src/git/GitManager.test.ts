@@ -329,6 +329,7 @@ function createTextGeneration(
   overrides: Partial<FakeGitTextGeneration> = {},
 ): TextGeneration.TextGeneration["Service"] {
   const implementation: FakeGitTextGeneration = {
+    generateChatReply: () => Effect.die("No chat generation expected"),
     generateCommitMessage: (input) =>
       Effect.succeed({
         subject: "Implement stacked git actions",
@@ -354,6 +355,7 @@ function createTextGeneration(
   };
 
   return {
+    generateChatReply: (input) => implementation.generateChatReply(input),
     generateCommitMessage: (input) =>
       implementation.generateCommitMessage(input).pipe(
         Effect.mapError(
@@ -4411,66 +4413,64 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
     }),
   );
 
-  for (const draft of [false, true]) {
-    it.effect(
-      `create_pr pushes committed changes while preserving a dirty worktree (draft=${draft})`,
-      () =>
-        Effect.gen(function* () {
-          const repoDir = yield* makeTempDir("t3code-git-manager-");
-          yield* initRepo(repoDir);
-          yield* runGit(repoDir, ["checkout", "-b", "feature/create-pr-only"]);
-          const remoteDir = yield* createBareRemote();
-          yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
-          NodeFS.writeFileSync(NodePath.join(repoDir, "create-pr-only.txt"), "create pr\n");
-          yield* runGit(repoDir, ["add", "create-pr-only.txt"]);
-          yield* runGit(repoDir, ["commit", "-m", "Create PR only branch"]);
-          const headBefore = (yield* runGit(repoDir, ["rev-parse", "HEAD"])).stdout.trim();
-          NodeFS.writeFileSync(NodePath.join(repoDir, "README.md"), "uncommitted readme\n");
-          NodeFS.writeFileSync(NodePath.join(repoDir, "untracked.txt"), "untracked work\n");
-          const statusBefore = (yield* runGit(repoDir, ["status", "--porcelain"])).stdout;
+  it.effect.each([false, true])(
+    "create_pr pushes committed changes while preserving a dirty worktree (draft=%s)",
+    (draft) =>
+      Effect.gen(function* () {
+        const repoDir = yield* makeTempDir("t3code-git-manager-");
+        yield* initRepo(repoDir);
+        yield* runGit(repoDir, ["checkout", "-b", "feature/create-pr-only"]);
+        const remoteDir = yield* createBareRemote();
+        yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+        NodeFS.writeFileSync(NodePath.join(repoDir, "create-pr-only.txt"), "create pr\n");
+        yield* runGit(repoDir, ["add", "create-pr-only.txt"]);
+        yield* runGit(repoDir, ["commit", "-m", "Create PR only branch"]);
+        const headBefore = (yield* runGit(repoDir, ["rev-parse", "HEAD"])).stdout.trim();
+        NodeFS.writeFileSync(NodePath.join(repoDir, "README.md"), "uncommitted readme\n");
+        NodeFS.writeFileSync(NodePath.join(repoDir, "untracked.txt"), "untracked work\n");
+        const statusBefore = (yield* runGit(repoDir, ["status", "--porcelain"])).stdout;
 
-          const { manager, ghCalls } = yield* makeManager({
-            serverSettings: { createGitHubPullRequestsAsDraft: draft },
-            ghScenario: {
-              prListSequence: [
-                "[]",
-                JSON.stringify([
-                  {
-                    number: 303,
-                    title: "Create PR only branch",
-                    url: "https://github.com/pingdotgg/codething-mvp/pull/303",
-                    baseRefName: "main",
-                    headRefName: "feature/create-pr-only",
-                  },
-                ]),
-              ],
-            },
-          });
+        const { manager, ghCalls } = yield* makeManager({
+          serverSettings: { createGitHubPullRequestsAsDraft: draft },
+          ghScenario: {
+            prListSequence: [
+              "[]",
+              JSON.stringify([
+                {
+                  number: 303,
+                  title: "Create PR only branch",
+                  url: "https://github.com/pingdotgg/codething-mvp/pull/303",
+                  baseRefName: "main",
+                  headRefName: "feature/create-pr-only",
+                },
+              ]),
+            ],
+          },
+        });
 
-          const result = yield* runStackedAction(manager, {
-            cwd: repoDir,
-            action: "create_pr",
-          });
+        const result = yield* runStackedAction(manager, {
+          cwd: repoDir,
+          action: "create_pr",
+        });
 
-          expect(result.commit.status).toBe("skipped_not_requested");
-          expect(result.push.status).toBe("pushed");
-          expect(result.push.setUpstream).toBe(true);
-          expect(result.pr.status).toBe("created");
-          expect(result.pr.number).toBe(303);
-          expect((yield* runGit(repoDir, ["status", "--porcelain"])).stdout).toBe(statusBefore);
-          expect(
-            (yield* runGit(remoteDir, ["rev-parse", "feature/create-pr-only"])).stdout.trim(),
-          ).toBe(headBefore);
-          expect(
-            ghCalls.some((call) =>
-              call.includes(
-                `pr create ${draft ? "--draft " : ""}--base main --head feature/create-pr-only`,
-              ),
+        expect(result.commit.status).toBe("skipped_not_requested");
+        expect(result.push.status).toBe("pushed");
+        expect(result.push.setUpstream).toBe(true);
+        expect(result.pr.status).toBe("created");
+        expect(result.pr.number).toBe(303);
+        expect((yield* runGit(repoDir, ["status", "--porcelain"])).stdout).toBe(statusBefore);
+        expect(
+          (yield* runGit(remoteDir, ["rev-parse", "feature/create-pr-only"])).stdout.trim(),
+        ).toBe(headBefore);
+        expect(
+          ghCalls.some((call) =>
+            call.includes(
+              `pr create ${draft ? "--draft " : ""}--base main --head feature/create-pr-only`,
             ),
-          ).toBe(true);
-        }),
-    );
-  }
+          ),
+        ).toBe(true);
+      }),
+  );
 
   it.effect("create_pr falls back to main when source control provider detection fails", () =>
     Effect.gen(function* () {

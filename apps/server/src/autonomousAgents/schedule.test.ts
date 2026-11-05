@@ -30,10 +30,11 @@ it.each([
     ),
   ).toBe(expected);
 });
-it("keeps existing interval and task-trigger behavior", () => {
+it("keeps interval schedules and makes task-triggered work immediately eligible", () => {
   const { dailySchedule: _dailySchedule, ...intervalConfig } = config;
   expect(nextAgentRunAt(intervalConfig, 1000)).toBe(86401000);
-  expect(nextAgentRunAt({ ...config, trigger: "todo" }, 1000)).toBe(86401000);
+  expect(nextAgentRunAt({ ...config, trigger: "todo" }, 1000)).toBe(1000);
+  expect(nextAgentRunAt({ ...config, trigger: "unqualified" }, 1000)).toBe(1000);
 });
 it("rejects invalid daily configuration", () => {
   for (const dailySchedule of [

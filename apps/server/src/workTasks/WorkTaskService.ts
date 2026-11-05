@@ -1,5 +1,6 @@
 import { validateTaskDependencies } from "./taskDependencies.ts";
 import { GmailTaskMessage } from "./gmailTaskRules.ts";
+import { reservedWorkTasks } from "./reservations.ts";
 import {
   WorkTask,
   WorkChantier,
@@ -11,6 +12,7 @@ import {
   ProjectId,
   type ThreadId,
   type WorkTaskClaimInput,
+  type WorkQualificationReserveInput,
   WorkTaskTypesConfig,
   WorkTaskError,
   SlackTaskMessage,
@@ -34,6 +36,7 @@ export class WorkTaskService extends Context.Service<
     readonly readChantier: (id: string) => Effect.Effect<WorkChantier, WorkTaskError>;
     readonly saveChantier: (
       input: WorkChantierSaveInput,
+      callerThreadId?: ThreadId,
     ) => Effect.Effect<WorkChantier, WorkTaskError>;
     readonly claimChantier: (
       threadId: ThreadId,
@@ -44,7 +47,10 @@ export class WorkTaskService extends Context.Service<
       input: WorkChantierPlanInput,
       callerThreadId?: ThreadId,
     ) => Effect.Effect<WorkChantier, WorkTaskError>;
-    readonly assertCanStart: (task: WorkTask) => Effect.Effect<void, WorkTaskError>;
+    readonly assertCanStart: (
+      task: WorkTask,
+      callerThreadId?: ThreadId,
+    ) => Effect.Effect<void, WorkTaskError>;
     readonly read: (id: string) => Effect.Effect<WorkTask, WorkTaskError>;
     readonly claim: (
       threadId: ThreadId,
@@ -66,6 +72,10 @@ export class WorkTaskService extends Context.Service<
       input: WorkTaskSaveInput,
       callerThreadId?: ThreadId,
     ) => Effect.Effect<WorkTask, WorkTaskError>;
+    readonly reserveQualification: (
+      input: WorkQualificationReserveInput,
+      callerThreadId: ThreadId,
+    ) => Effect.Effect<ReadonlyArray<WorkTaskClaimInput>, WorkTaskError>;
     readonly completeForSettledThread: (threadId: ThreadId) => Effect.Effect<void, WorkTaskError>;
     readonly delete: (input: WorkTaskDeleteInput) => Effect.Effect<void, WorkTaskError>;
     readonly ingestGmail: (
@@ -80,9 +90,13 @@ export class WorkTaskService extends Context.Service<
 const isWorkTaskError = Schema.is(WorkTaskError);
 const validateGmailMessage = Schema.decodeEffect(GmailTaskMessage);
 const validateMessage = Schema.decodeEffect(SlackTaskMessage);
+const taskIdsCodec = Schema.fromJsonString(Schema.Array(Schema.String));
+const decodeTaskIds = Schema.decodeUnknownEffect(taskIdsCodec);
+const encodeTaskIds = Schema.encodeEffect(taskIdsCodec);
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  const reservations = reservedWorkTasks.pipe(Effect.provideService(SqlClient.SqlClient, sql));
   const revision = yield* SubscriptionRef.make(0);
   const codec = Schema.fromJsonString(WorkTask);
   const decode = Schema.decodeUnknownEffect(codec);
@@ -92,6 +106,17 @@ const make = Effect.gen(function* () {
   const encodeMessage = Schema.encodeEffect(messageCodec);
   const storageError = () => new WorkTaskError({ reason: "storage" });
   const changed = SubscriptionRef.update(revision, (value) => value + 1);
+
+  const assertChantierAccess = Effect.fn(function* (callerThreadId?: ThreadId) {
+    if (!callerThreadId) return;
+    const runs = yield* sql`SELECT r.thread_id FROM autonomous_agent_runs r
+      JOIN autonomous_agents a ON a.id = r.agent_id
+      WHERE r.thread_id = ${callerThreadId}
+        AND (json_extract(a.payload_json, '$.trigger') IN ('unqualified', 'todo') OR json_extract(a.payload_json, '$.kind') = 'chef') LIMIT 1`.pipe(
+      Effect.mapError(storageError),
+    );
+    if (runs.length) return yield* new WorkTaskError({ reason: "chantierScope" });
+  });
 
   const typesCodec = Schema.fromJsonString(WorkTaskTypesConfig);
   const decodeTypes = Schema.decodeEffect(typesCodec);
@@ -128,7 +153,9 @@ const make = Effect.gen(function* () {
     const rows = yield* sql<{
       payload_json: string;
     }>`SELECT payload_json FROM work_task_slack_messages
-      WHERE task_id = ${id} AND EXISTS (SELECT 1 FROM work_tasks WHERE id = ${id})
+      WHERE task_id IN (
+        SELECT ${id} UNION SELECT value FROM work_tasks, json_each(work_tasks.payload_json, '$.mergedTaskIds') WHERE work_tasks.id = ${id}
+      ) AND EXISTS (SELECT 1 FROM work_tasks WHERE id = ${id})
       ORDER BY message_ts`.pipe(Effect.mapError(storageError));
     return yield* Effect.forEach(rows, (row) =>
       decodeMessage(row.payload_json).pipe(Effect.mapError(storageError)),
@@ -146,6 +173,60 @@ const make = Effect.gen(function* () {
   const decodeChantier = Schema.decodeUnknownEffect(chantierCodec);
   const encodeChantier = Schema.encodeEffect(chantierCodec);
   const domainError = (cause: unknown) => (isWorkTaskError(cause) ? cause : storageError());
+  const reserveQualification = Effect.fn("WorkTaskService.reserveQualification")(function* (
+    input: WorkQualificationReserveInput,
+    callerThreadId: ThreadId,
+  ) {
+    return yield* sql
+      .withTransaction(
+        Effect.gen(function* () {
+          const runs = yield* sql<{
+            task_id: string | null;
+            task_ids_json: string;
+            project_id: string | null;
+          }>`SELECT r.task_id, r.task_ids_json, json_extract(a.payload_json, '$.projectId') AS project_id
+        FROM autonomous_agent_runs r JOIN autonomous_agents a ON a.id = r.agent_id
+        WHERE r.thread_id = ${callerThreadId} AND r.finished_at IS NULL
+          AND json_extract(a.payload_json, '$.trigger') = 'unqualified'
+          AND json_extract(a.payload_json, '$.currentThreadId') = ${callerThreadId}
+          AND json_extract(a.payload_json, '$.paused') = 0`;
+          const run = runs[0];
+          if (!run?.task_id) return yield* new WorkTaskError({ reason: "agent" });
+          const previous = yield* decodeTaskIds(run.task_ids_json);
+          const ids = [
+            ...new Set([run.task_id, ...previous, ...input.tasks.map((task) => task.id)]),
+          ];
+          if (
+            !input.tasks.length ||
+            ids.length > 20 ||
+            new Set(input.tasks.map((task) => task.id)).size !== input.tasks.length
+          )
+            return yield* new WorkTaskError({ reason: "conflict" });
+          const reserved = yield* reservations;
+          const projects = new Set<string>();
+          if (run.project_id) projects.add(run.project_id);
+          const cards = yield* Effect.forEach(ids, (id) => read(id));
+          for (const task of cards) {
+            if (task.projectId) projects.add(task.projectId);
+            const expected = input.tasks.find((item) => item.id === task.id);
+            if (
+              task.chantierId ||
+              task.agentThreadId ||
+              (expected &&
+                (task.status !== "unqualified" || task.version !== expected.expectedVersion)) ||
+              reserved.some((item) => item.task_id === task.id && item.thread_id !== callerThreadId)
+            )
+              return yield* new WorkTaskError({ reason: "conflict" });
+          }
+          if (projects.size > 1) return yield* new WorkTaskError({ reason: "project" });
+          const payload = yield* encodeTaskIds(ids);
+          if (payload !== run.task_ids_json)
+            yield* sql`UPDATE autonomous_agent_runs SET task_ids_json = ${payload} WHERE thread_id = ${callerThreadId}`;
+          return cards.map((task) => ({ id: task.id, expectedVersion: task.version }));
+        }),
+      )
+      .pipe(Effect.mapError(domainError));
+  });
   const listChantiers = Effect.fn("WorkTaskService.listChantiers")(function* () {
     const rows = yield* sql<{
       payload_json: string;
@@ -209,12 +290,19 @@ const make = Effect.gen(function* () {
     if (!plan) yield* changed;
     return next;
   });
-  const saveChantier = (input: WorkChantierSaveInput) => saveChantierInternal(input);
+  const saveChantier = Effect.fn(function* (
+    input: WorkChantierSaveInput,
+    callerThreadId?: ThreadId,
+  ) {
+    yield* assertChantierAccess(callerThreadId);
+    return yield* saveChantierInternal(input);
+  });
   const claimChantier = Effect.fn("WorkTaskService.claimChantier")(function* (
     threadId: ThreadId,
     input: typeof WorkChantierClaimInput.Type,
     release = false,
   ) {
+    yield* assertChantierAccess(threadId);
     const result = yield* sql
       .withTransaction(
         Effect.gen(function* () {
@@ -240,7 +328,29 @@ const make = Effect.gen(function* () {
     yield* changed;
     return result;
   });
-  const assertCanStart = Effect.fn("WorkTaskService.assertCanStart")(function* (task: WorkTask) {
+  const assertChefScope = Effect.fn(function* (
+    projectId: WorkTask["projectId"],
+    callerThreadId?: ThreadId,
+  ) {
+    if (callerThreadId) {
+      const chefs = yield* sql<{
+        project_id: string | null;
+        paused: number;
+      }>`SELECT json_extract(a.payload_json, '$.projectId') AS project_id, json_extract(a.payload_json, '$.paused') AS paused
+        FROM autonomous_agent_runs r JOIN autonomous_agents a ON a.id = r.agent_id
+        WHERE r.thread_id = ${callerThreadId} AND json_extract(a.payload_json, '$.kind') = 'chef'`.pipe(
+        Effect.mapError(storageError),
+      );
+      if (chefs.some((chef) => chef.paused || !chef.project_id || chef.project_id !== projectId))
+        return yield* new WorkTaskError({ reason: "project" });
+    }
+  });
+  const assertCanStart = Effect.fn("WorkTaskService.assertCanStart")(function* (
+    task: WorkTask,
+    callerThreadId?: ThreadId,
+  ) {
+    yield* assertChefScope(task.projectId, callerThreadId);
+    if (task.chantierId) yield* assertChantierAccess(callerThreadId);
     if (!task.chantierId && !task.dependsOn?.length && !task.externalDependsOn?.length) return;
     const chantier = task.chantierId ? yield* readChantier(task.chantierId) : null;
     if (chantier && chantier.status !== "active")
@@ -252,6 +362,7 @@ const make = Effect.gen(function* () {
     input: WorkChantierPlanInput,
     callerThreadId?: ThreadId,
   ) {
+    yield* assertChantierAccess(callerThreadId);
     const result = yield* sql
       .withTransaction(
         Effect.gen(function* () {
@@ -293,24 +404,17 @@ const make = Effect.gen(function* () {
     const task = yield* sql
       .withTransaction(
         Effect.gen(function* () {
-          if (callerThreadId && (input.status === "todo" || input.status === "ready")) {
-            const runs = yield* sql<{ task_id: string | null }>`SELECT r.task_id
+          if (callerThreadId) {
+            const runs = yield* sql<{
+              owns_task: number;
+            }>`SELECT (r.task_id = ${input.id} OR EXISTS (SELECT 1 FROM json_each(r.task_ids_json) WHERE value = ${input.id})) AS owns_task
               FROM autonomous_agent_runs r JOIN autonomous_agents a ON a.id = r.agent_id
               WHERE r.thread_id = ${callerThreadId}
                 AND json_extract(a.payload_json, '$.trigger') = 'unqualified'`;
             if (runs[0]) {
               if (input.status === "ready")
                 return yield* new WorkTaskError({ reason: "preparation" });
-              const requests = yield* sql<{ approved: number }>`SELECT
-                  (json_extract(payload_json, '$.kind') = 'approval'
-                    AND json_extract(payload_json, '$.status') = 'accepted'
-                    AND json_extract(payload_json, '$.qualification.decision') = 'keep') AS approved
-                FROM agent_requests
-                WHERE json_extract(payload_json, '$.threadId') = ${callerThreadId}
-                  AND json_extract(payload_json, '$.qualification.decision') IS NOT NULL
-                ORDER BY rowid DESC LIMIT 1`;
-              if (runs[0].task_id !== input.id || requests[0]?.approved !== 1)
-                return yield* new WorkTaskError({ reason: "approval" });
+              if (!runs[0].owns_task) return yield* new WorkTaskError({ reason: "conflict" });
             }
           }
           if (input.projectId !== null) {
@@ -328,6 +432,9 @@ const make = Effect.gen(function* () {
             payload_json: string;
           }>`SELECT payload_json FROM work_tasks WHERE id = ${input.id}`;
           const previous = rows[0] ? yield* decode(rows[0].payload_json) : null;
+          yield* assertChefScope(input.projectId, callerThreadId);
+          if (previous) yield* assertChefScope(previous.projectId, callerThreadId);
+          if (previous?.chantierId || input.chantierId) yield* assertChantierAccess(callerThreadId);
           if (
             (previous?.version ?? 0) !== input.expectedVersion ||
             (!previous && input.expectedVersion !== 0)
@@ -338,6 +445,7 @@ const make = Effect.gen(function* () {
           const next: WorkTask = {
             id: input.id,
             typeId: input.typeId ?? null,
+            mergedTaskIds: input.mergedTaskIds ?? previous?.mergedTaskIds ?? [],
             chantierId:
               input.chantierId === undefined ? (previous?.chantierId ?? null) : input.chantierId,
             sources: input.sources ?? previous?.sources ?? [],
@@ -372,9 +480,11 @@ const make = Effect.gen(function* () {
           }
           if (
             (next.status === "doing" || next.status === "done") &&
-            (previous?.status !== next.status || previous.agentThreadId !== next.agentThreadId)
+            previous?.status !== next.status
           ) {
             const chantier = next.chantierId ? yield* readChantier(next.chantierId) : null;
+            if (next.status === "doing" && chantier && chantier.status !== "active")
+              return yield* new WorkTaskError({ reason: "preparation" });
             if (workTaskBlockers(next, all, chantier?.externalDependencies).length)
               return yield* new WorkTaskError({ reason: "dependencies" });
           }
@@ -387,8 +497,140 @@ const make = Effect.gen(function* () {
     if (!plannedTasks) yield* changed;
     return task;
   });
+  const groupQualification = Effect.fn("WorkTaskService.groupQualification")(function* (
+    input: WorkTaskSaveInput,
+    callerThreadId?: ThreadId,
+  ) {
+    const result = yield* sql
+      .withTransaction(
+        Effect.gen(function* () {
+          if (!callerThreadId) return yield* new WorkTaskError({ reason: "agent" });
+          const runs = yield* sql<{
+            task_id: string | null;
+            project_id: string | null;
+          }>`SELECT r.task_id, json_extract(a.payload_json, '$.projectId') AS project_id
+        FROM autonomous_agent_runs r JOIN autonomous_agents a ON a.id = r.agent_id
+        WHERE r.thread_id = ${callerThreadId} AND json_extract(a.payload_json, '$.trigger') = 'unqualified'
+          AND (r.task_id = ${input.id} OR EXISTS (SELECT 1 FROM json_each(r.task_ids_json) WHERE value = ${input.id}))
+          AND json_extract(a.payload_json, '$.currentThreadId') = ${callerThreadId}
+          AND json_extract(a.payload_json, '$.paused') = 0`;
+          if (!runs[0] || !["unqualified", "todo", "rejected"].includes(input.status))
+            return yield* new WorkTaskError({ reason: "conflict" });
+          const members = input.qualificationGroup ?? [];
+          const ids = [input.id, ...members.map((member) => member.id)];
+          if (new Set(ids).size !== ids.length)
+            return yield* new WorkTaskError({ reason: "conflict" });
+          const all = yield* list();
+          const seed = yield* read(input.id);
+          const grouped = yield* Effect.forEach(members, (member) => read(member.id));
+          const versions = [
+            input.expectedVersion,
+            ...members.map((member) => member.expectedVersion),
+          ];
+          const tasks = [seed, ...grouped];
+          if (input.chantierId || tasks.some((task) => task.chantierId))
+            yield* assertChantierAccess(callerThreadId);
+          for (const [index, task] of tasks.entries()) {
+            if (
+              task.status !== "unqualified" ||
+              task.version !== versions[index] ||
+              task.agentThreadId ||
+              (runs[0].project_id !== null && task.projectId !== runs[0].project_id) ||
+              (task.projectId !== null && task.projectId !== input.projectId) ||
+              (task.chantierId ?? null) !== (seed.chantierId ?? null)
+            )
+              return yield* new WorkTaskError({ reason: "conflict" });
+          }
+          const reserved = yield* reservations;
+          for (const member of grouped) {
+            if (
+              reserved.some(
+                (item) => item.task_id === member.id && item.thread_id !== callerThreadId,
+              ) ||
+              all.some((task) => task.dependsOn?.includes(member.id))
+            )
+              return yield* new WorkTaskError({ reason: "conflict" });
+          }
+          const sources = [
+            ...new Map(
+              tasks
+                .flatMap((task) => task.sources ?? [])
+                .concat(input.sources ?? [])
+                .map((source) => [JSON.stringify(source), source]),
+            ).values(),
+          ];
+          const mergedTaskIds = [
+            ...new Set(
+              tasks
+                .flatMap((task) => task.mergedTaskIds ?? [])
+                .concat(grouped.map((task) => task.id)),
+            ),
+          ];
+          const dueDates = [
+            ...new Set(tasks.map((task) => task.dueDate).filter((date) => date !== null)),
+          ];
+          const typeIds = [
+            ...new Set(tasks.map((task) => task.typeId).filter((type) => type != null)),
+          ];
+          const milestones = [...new Set(tasks.map((task) => task.milestone).filter(Boolean))];
+          const acceptanceCriteria = [
+            ...new Set(tasks.map((task) => task.acceptanceCriteria).filter(Boolean)),
+          ].join("\n\n");
+          if (
+            sources.length > 50 ||
+            mergedTaskIds.length > 200 ||
+            acceptanceCriteria.length > 10000
+          )
+            return yield* new WorkTaskError({ reason: "conflict" });
+          if (dueDates.length > 1 || typeIds.length > 1 || milestones.length > 1)
+            return yield* new WorkTaskError({ reason: "conflict" });
+          const principal = {
+            ...seed,
+            title: input.title,
+            notes: input.notes,
+            status: input.status,
+            projectId: input.projectId,
+            expectedVersion: input.expectedVersion,
+            sources,
+            mergedTaskIds,
+            dueDate: dueDates[0] ?? null,
+            typeId: typeIds[0] ?? null,
+            milestone: milestones[0] ?? "",
+            acceptanceCriteria,
+            dependsOn: [...new Set(tasks.flatMap((task) => task.dependsOn ?? []))],
+            externalDependsOn: [...new Set(tasks.flatMap((task) => task.externalDependsOn ?? []))],
+          };
+          const absorbed = grouped.map((task) => ({
+            ...task,
+            status: "merged" as const,
+            notes: `Fusionnée dans : ${principal.title} — ID : ${principal.id}\n\n${task.notes}`,
+            expectedVersion: task.version,
+          }));
+          if (absorbed.some((task) => task.notes.length > 20000))
+            return yield* new WorkTaskError({ reason: "conflict" });
+          const graph = all.map((task) =>
+            task.id === seed.id
+              ? principal
+              : (absorbed.find((member) => member.id === task.id) ?? {
+                  ...task,
+                  expectedVersion: task.version,
+                }),
+          );
+          const error = validateTaskDependencies(graph, yield* listChantiers());
+          if (error) return yield* error;
+          const saved = yield* saveInternal(principal, callerThreadId, graph);
+          for (const member of absorbed) yield* saveInternal(member, undefined, graph);
+          return saved;
+        }),
+      )
+      .pipe(Effect.mapError((cause) => (isWorkTaskError(cause) ? cause : storageError())));
+    yield* changed;
+    return result;
+  });
   const save = (input: WorkTaskSaveInput, callerThreadId?: ThreadId) =>
-    saveInternal(input, callerThreadId);
+    input.qualificationGroup
+      ? groupQualification(input, callerThreadId)
+      : saveInternal(input, callerThreadId);
 
   const completeForSettledThread = Effect.fn("WorkTaskService.completeForSettledThread")(function* (
     threadId: ThreadId,
@@ -409,6 +651,7 @@ const make = Effect.gen(function* () {
     release = false,
   ) {
     const task = yield* read(input.id);
+    if (task.chantierId) yield* assertChantierAccess(threadId);
     const callers = yield* sql<{
       project_id: string;
     }>`SELECT project_id FROM orchestration_v2_projection_threads WHERE thread_id = ${threadId} AND deleted_at IS NULL`.pipe(
@@ -424,12 +667,15 @@ const make = Effect.gen(function* () {
     if (task.version !== input.expectedVersion || (!release && isClosedWorkTaskStatus(task.status)))
       return yield* new WorkTaskError({ reason: "conflict" });
     if (!release) yield* assertCanStart(task);
-    return yield* save({
-      ...task,
-      projectId: task.projectId ?? ProjectId.make(caller.project_id),
-      agentThreadId: release ? null : threadId,
-      expectedVersion: input.expectedVersion,
-    });
+    return yield* save(
+      {
+        ...task,
+        projectId: task.projectId ?? ProjectId.make(caller.project_id),
+        agentThreadId: release ? null : threadId,
+        expectedVersion: input.expectedVersion,
+      },
+      threadId,
+    );
   });
   const deleteTask = Effect.fn("WorkTaskService.delete")(function* (input: WorkTaskDeleteInput) {
     yield* sql
@@ -572,6 +818,7 @@ const make = Effect.gen(function* () {
       SubscriptionRef.changes(revision).pipe(Stream.mapEffect(() => messages(id))),
     subscribe: () => SubscriptionRef.changes(revision).pipe(Stream.mapEffect(list)),
     save,
+    reserveQualification,
     delete: deleteTask,
     ingestSlack,
     ingestGmail,

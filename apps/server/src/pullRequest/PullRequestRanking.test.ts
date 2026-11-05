@@ -35,6 +35,7 @@ const makeRanking = (options: {
       Layer.succeed(
         TextGeneration.TextGeneration,
         TextGeneration.TextGeneration.of({
+          generateChatReply: () => Effect.die("No chat generation expected"),
           generateCommitMessage: () => Effect.die("not used"),
           generatePrContent: () => Effect.die("not used"),
           generateBranchName: () => Effect.die("not used"),
@@ -104,6 +105,7 @@ it.effect("ignores a score for a pull request nobody asked about", () =>
         Layer.succeed(
           TextGeneration.TextGeneration,
           TextGeneration.TextGeneration.of({
+            generateChatReply: () => Effect.die("No chat generation expected"),
             generateCommitMessage: () => Effect.die("not used"),
             generatePrContent: () => Effect.die("not used"),
             generateBranchName: () => Effect.die("not used"),

@@ -59,6 +59,7 @@ export type EnvironmentSubscriptionRpcTag =
   | typeof WS_METHODS.subscribeServerConfig
   | typeof WS_METHODS.subscribeServerLifecycle
   | typeof WS_METHODS.agentRequestsSubscribe
+  | typeof WS_METHODS.agentRequestChatSubscribe
   | typeof WS_METHODS.autonomousAgentsSubscribe
   | typeof WS_METHODS.autonomousAgentsRead
   | typeof WS_METHODS.workChantiersSubscribe

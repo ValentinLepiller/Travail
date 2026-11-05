@@ -319,6 +319,31 @@ it.layer(layerCodexTextGenerationTest)("CodexTextGeneration", (it) => {
     ),
   );
 
+  it.effect("answers an isolated chat using the selected reasoning and supplied context", () =>
+    withFakeCodexEnv(
+      {
+        output: JSON.stringify({ text: "Il manque la référence de l’offre." }),
+        requireReasoningEffort: "medium",
+        requireArg: "--ephemeral",
+        stdinMustContain: "Contexte ancien et requête actuelle",
+      },
+      (textGeneration) =>
+        textGeneration
+          .generateChatReply({
+            cwd: process.cwd(),
+            prompt: "Contexte ancien et requête actuelle",
+            modelSelection: createModelSelection(
+              ProviderInstanceId.make("codex"),
+              "gpt-6.1-terra",
+              [{ id: "reasoningEffort", value: "medium" }],
+            ),
+          })
+          .pipe(
+            Effect.tap((reply) => Effect.sync(() => expect(reply.text).toContain("référence"))),
+          ),
+    ),
+  );
+
   it.effect("generates titles with the user's MCP servers and plugins off", () =>
     withFakeCodexEnv(
       {

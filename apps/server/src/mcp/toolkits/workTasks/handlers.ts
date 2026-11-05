@@ -27,7 +27,10 @@ export const layer = Access.toLayer(WorkTasksToolkit, {
     }),
   ),
   work_chantier_save: Access.writes((input) =>
-    Effect.flatMap(Tasks.WorkTaskService, (service) => service.saveChantier(input)),
+    Effect.gen(function* () {
+      const { caller } = yield* readCaller();
+      return yield* (yield* Tasks.WorkTaskService).saveChantier(input, caller?.id);
+    }),
   ),
   work_chantier_apply_plan: Access.writes((input) =>
     Effect.gen(function* () {
@@ -46,7 +49,10 @@ export const layer = Access.toLayer(WorkTasksToolkit, {
     }),
   ),
   work_task_launch: Access.writes((input) =>
-    Effect.flatMap(Agents.WorkTaskAgentService, (service) => service.launch(input)),
+    Effect.gen(function* () {
+      const { caller } = yield* readCaller();
+      return yield* (yield* Agents.WorkTaskAgentService).launch(input, caller?.id);
+    }),
   ),
   work_tasks_list: Access.reads(() =>
     Effect.flatMap(Tasks.WorkTaskService, (service) => service.list()),
@@ -65,6 +71,11 @@ export const layer = Access.toLayer(WorkTasksToolkit, {
     Effect.gen(function* () {
       const threadId = yield* callerThread;
       return yield* (yield* Tasks.WorkTaskService).claim(threadId, input);
+    }),
+  ),
+  work_qualification_reserve: Access.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      return yield* (yield* Tasks.WorkTaskService).reserveQualification(input, yield* callerThread);
     }),
   ),
   work_task_release: Access.actsAsCaller((input) =>

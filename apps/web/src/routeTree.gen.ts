@@ -42,6 +42,7 @@ import { Route as ChatTasksRouteImport } from './routes/_chat.tasks'
 import { Route as ChatRequestsRouteImport } from './routes/_chat.requests'
 import { Route as ChatPullRequestsRouteImport } from './routes/_chat.pull-requests'
 import { Route as ChatNewRouteImport } from './routes/_chat.new'
+import { Route as ChatChefsRouteImport } from './routes/_chat.chefs'
 import { Route as ChatAgentsRouteImport } from './routes/_chat.agents'
 import { Route as SettingsPluginsPluginIdRouteImport } from './routes/settings.plugins_.$pluginId'
 import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
@@ -212,6 +213,11 @@ const ChatNewRoute = ChatNewRouteImport.update({
   path: '/new',
   getParentRoute: () => ChatRoute,
 } as any)
+const ChatChefsRoute = ChatChefsRouteImport.update({
+  id: '/chefs',
+  path: '/chefs',
+  getParentRoute: () => ChatRoute,
+} as any)
 const ChatAgentsRoute = ChatAgentsRouteImport.update({
   id: '/agents',
   path: '/agents',
@@ -244,6 +250,7 @@ export interface FileRoutesByFullPath {
   '/usage': typeof UsageRoute
   '/welcome': typeof WelcomeRoute
   '/agents': typeof ChatAgentsRoute
+  '/chefs': typeof ChatChefsRoute
   '/new': typeof ChatNewRoute
   '/pull-requests': typeof ChatPullRequestsRoute
   '/requests': typeof ChatRequestsRoute
@@ -281,6 +288,7 @@ export interface FileRoutesByTo {
   '/usage': typeof UsageRoute
   '/welcome': typeof WelcomeRoute
   '/agents': typeof ChatAgentsRoute
+  '/chefs': typeof ChatChefsRoute
   '/new': typeof ChatNewRoute
   '/pull-requests': typeof ChatPullRequestsRoute
   '/requests': typeof ChatRequestsRoute
@@ -321,6 +329,7 @@ export interface FileRoutesById {
   '/usage': typeof UsageRoute
   '/welcome': typeof WelcomeRoute
   '/_chat/agents': typeof ChatAgentsRoute
+  '/_chat/chefs': typeof ChatChefsRoute
   '/_chat/new': typeof ChatNewRoute
   '/_chat/pull-requests': typeof ChatPullRequestsRoute
   '/_chat/requests': typeof ChatRequestsRoute
@@ -362,6 +371,7 @@ export interface FileRouteTypes {
     | '/usage'
     | '/welcome'
     | '/agents'
+    | '/chefs'
     | '/new'
     | '/pull-requests'
     | '/requests'
@@ -399,6 +409,7 @@ export interface FileRouteTypes {
     | '/usage'
     | '/welcome'
     | '/agents'
+    | '/chefs'
     | '/new'
     | '/pull-requests'
     | '/requests'
@@ -438,6 +449,7 @@ export interface FileRouteTypes {
     | '/usage'
     | '/welcome'
     | '/_chat/agents'
+    | '/_chat/chefs'
     | '/_chat/new'
     | '/_chat/pull-requests'
     | '/_chat/requests'
@@ -713,6 +725,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatNewRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/_chat/chefs': {
+      id: '/_chat/chefs'
+      path: '/chefs'
+      fullPath: '/chefs'
+      preLoaderRoute: typeof ChatChefsRouteImport
+      parentRoute: typeof ChatRoute
+    }
     '/_chat/agents': {
       id: '/_chat/agents'
       path: '/agents'
@@ -746,6 +765,7 @@ declare module '@tanstack/react-router' {
 
 interface ChatRouteChildren {
   ChatAgentsRoute: typeof ChatAgentsRoute
+  ChatChefsRoute: typeof ChatChefsRoute
   ChatNewRoute: typeof ChatNewRoute
   ChatPullRequestsRoute: typeof ChatPullRequestsRoute
   ChatRequestsRoute: typeof ChatRequestsRoute
@@ -757,6 +777,7 @@ interface ChatRouteChildren {
 
 const ChatRouteChildren: ChatRouteChildren = {
   ChatAgentsRoute: ChatAgentsRoute,
+  ChatChefsRoute: ChatChefsRoute,
   ChatNewRoute: ChatNewRoute,
   ChatPullRequestsRoute: ChatPullRequestsRoute,
   ChatRequestsRoute: ChatRequestsRoute,

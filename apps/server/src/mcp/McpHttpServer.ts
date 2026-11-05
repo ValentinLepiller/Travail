@@ -72,6 +72,7 @@ import * as HtmlHandlers from "./toolkits/html/handlers.ts";
 import { HtmlPreviewTool, HtmlPreviewToolkit, HtmlRenderToolkit } from "./toolkits/html/tools.ts";
 import { MonitorToolkit } from "./toolkits/monitor/tools.ts";
 import { MonitorToolkitHandlersLive } from "./toolkits/monitor/handlers.ts";
+import * as SmsCodeMcp from "../smsCodes/mcp.ts";
 
 /** Where an MCP client discovers how to sign in (RFC 9728), at this request's own origin. */
 const mcpResourceMetadataUrl = (request: HttpServerRequest.HttpServerRequest) =>
@@ -936,5 +937,6 @@ export const layer = Layer.mergeAll(
   layerDeviceToolkit,
   layerAgentDesktopToolkit,
   MonitorToolkitRegistrationLive,
+  toolkitRegistration(SmsCodeMcp.toolkit, SmsCodeMcp.handlers),
   layerHtmlToolkit,
 ).pipe(Layer.provideMerge(layerMcpTransport));

@@ -88,3 +88,5 @@ export * from "./agentRequest.ts";
 export * from "./autonomousAgent.ts";
 
 export * from "./workChantier.ts";
+export * from "./smsCode.ts";
+export * from "./agentRequestChat.ts";

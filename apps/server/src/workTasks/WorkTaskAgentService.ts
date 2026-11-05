@@ -1,4 +1,3 @@
-import { randomUuidV4 } from "@t3tools/provider-core/server/randomUuid";
 import {
   CommandId,
   ThreadId,
@@ -15,6 +14,7 @@ import * as Layer from "effect/Layer";
 import * as Semaphore from "effect/Semaphore";
 import * as Tasks from "./WorkTaskService.ts";
 import * as Launch from "../orchestration-v2/ThreadLaunchService.ts";
+
 const chantierReviewInstructions = [
   "Pour toute tâche de chantier qui implémente un changement ou ouvre une PR, prépare toujours une $guided-review adaptée au diff avant de passer à review. Si le changement n’est pas testable visuellement, fournis les vérifications pertinentes et explique cette limite.",
   "Livre la recette hors du code produit, dans le dossier de travail de la tâche, avec ses données isolées, prérequis, commande de lancement et URL /__guide/. Vérifie ce qui est possible et distingue les contrôles réellement exécutés des étapes restant à tester. À la fin, ne démarre ni ne laisse tourner tes serveurs locaux de recette et n’ouvre pas d’onglet ; n’arrête jamais les services d’autrui. Cette livraison à la demande remplace la fin du skill qui demande un onglet ouvert.",
@@ -28,7 +28,10 @@ export class WorkTaskAgentService extends Context.Service<
     readonly launchChantier: (
       input: WorkChantierLaunchInput,
     ) => Effect.Effect<WorkChantier, WorkTaskError>;
-    readonly launch: (input: WorkTaskLaunchInput) => Effect.Effect<WorkTask, WorkTaskError>;
+    readonly launch: (
+      input: WorkTaskLaunchInput,
+      callerThreadId?: ThreadId,
+    ) => Effect.Effect<WorkTask, WorkTaskError>;
   }
 >()("t3/workTasks/WorkTaskAgentService") {}
 export const layer = Layer.effect(
@@ -50,7 +53,6 @@ export const layer = Layer.effect(
               .launch({
                 commandId: CommandId.make(`chantier-launch:${chantier.id}`),
                 threadId,
-                reuseExistingThread: true,
                 projectId: chantier.projectId,
                 title: `${chantier.title} · Orchestrateur`.slice(0, 200),
                 modelSelection: input.modelSelection,
@@ -81,7 +83,7 @@ export const layer = Layer.effect(
             });
           }),
         ),
-      launch: (input) =>
+      launch: (input, callerThreadId) =>
         lock.withPermit(
           Effect.gen(function* () {
             const task = yield* tasks.read(input.id);
@@ -91,9 +93,8 @@ export const layer = Layer.effect(
               isClosedWorkTaskStatus(task.status)
             )
               return yield* new WorkTaskError({ reason: "conflict" });
+            yield* tasks.assertCanStart(task, callerThreadId);
             if (task.agentThreadId) return task;
-            if (task.chantierId || task.dependsOn?.length || task.externalDependsOn?.length)
-              yield* tasks.assertCanStart(task);
             if (task.status !== "ready") return yield* new WorkTaskError({ reason: "preparation" });
             if (!task.projectId) return yield* new WorkTaskError({ reason: "project" });
             const config = yield* tasks.types();
@@ -114,10 +115,11 @@ export const layer = Layer.effect(
             ]
               .filter(Boolean)
               .join("\n\n");
-            const threadId = ThreadId.make(`task-${yield* randomUuidV4}`);
-            // Advance the version before launch to reject concurrent edits based on this snapshot.
+            const threadId = ThreadId.make(`task-${task.id}`);
+            // Admit execution before starting the provider, while checking the current prerequisites.
             const reserved = yield* tasks.save({
               ...task,
+              status: "doing",
               agentThreadId: task.agentThreadId,
               expectedVersion: task.version,
             });
@@ -135,7 +137,19 @@ export const layer = Layer.effect(
                 creationSource: "web",
                 initialMessage: { text, attachments: [] },
               })
-              .pipe(Effect.mapError(() => new WorkTaskError({ reason: "agent" })));
+              .pipe(
+                Effect.catch(() =>
+                  Effect.gen(function* () {
+                    // A retry reuses the stable ID if launch created the thread before failing.
+                    yield* tasks.save({
+                      ...reserved,
+                      status: "ready",
+                      expectedVersion: reserved.version,
+                    });
+                    return yield* new WorkTaskError({ reason: "agent" });
+                  }),
+                ),
+              );
             return yield* tasks.save({
               ...reserved,
               status: "doing",

@@ -43,6 +43,9 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
 
   [WS_METHODS.agentRequestsRespond]: AuthOrchestrationOperateScope,
   [WS_METHODS.agentRequestsRetryDelivery]: AuthOrchestrationOperateScope,
+  [WS_METHODS.agentRequestChatSend]: AuthOrchestrationOperateScope,
+  [WS_METHODS.agentRequestChatStop]: AuthOrchestrationOperateScope,
+  [WS_METHODS.agentRequestChatClear]: AuthOrchestrationOperateScope,
   [WS_METHODS.autonomousAgentsCommand]: AuthOrchestrationOperateScope,
   [WS_METHODS.workChantiersSave]: AuthOrchestrationOperateScope,
   [WS_METHODS.workChantiersPlan]: AuthOrchestrationOperateScope,

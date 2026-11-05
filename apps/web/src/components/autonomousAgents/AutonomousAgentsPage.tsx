@@ -181,6 +181,7 @@ function Canvas({ environmentId }: { environmentId: EnvironmentId }) {
                   a.trigger !== "interval"
                     ? (tasks.data?.filter(
                         (t) =>
+                          !t.chantierId &&
                           t.status === a.trigger &&
                           (a.projectId === null || t.projectId === a.projectId),
                       ).length ?? 0)
@@ -424,7 +425,7 @@ function AgentCard({
       )}
       {count !== undefined && (
         <p className="pointer-events-none relative mt-2 text-xs">
-          {count} à qualifier → {agent.name}
+          {count} {agent.trigger === "todo" ? "à préparer" : "à qualifier"} → {agent.name}
         </p>
       )}
       {agent.error && (

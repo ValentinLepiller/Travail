@@ -114,6 +114,7 @@ function makeTestAdapter(input: {
     Record<number, Omit<OrchestrationV2ProviderTurnTokenUsage, "updatedAt">>
   >;
   readonly failedRunOrdinals?: ReadonlySet<number>;
+  readonly failureMessage?: string;
   readonly interruptedRunOrdinals?: ReadonlySet<number>;
   readonly holdRunOrdinal?: number;
   readonly holdFirstTurn?: Deferred.Deferred<void>;
@@ -332,7 +333,7 @@ function makeTestAdapter(input: {
                         status: terminalStatus,
                         failureItemOrdinal: turnInput.runOrdinal * 100 + 2,
                         failure: makeProviderFailure({
-                          message: "Simulated provider failure.",
+                          message: input.failureMessage ?? "Simulated provider failure.",
                           code: "simulated_failure",
                           class: "provider_error",
                         }),
@@ -1069,24 +1070,29 @@ describe("orchestration v2 provider switching", () => {
       ),
   );
 
-  it.live.each(["native", "legacy"] as const)(
+  it.live.each(["native", "legacy", "rejected-history"] as const)(
     "starts a replacement native thread as new after the resume fallback with %s attempts",
     (attempts) =>
       Effect.scoped(
         Effect.gen(function* () {
           const cwd = yield* checkpointWorkspace("resume-fallback-native-turns");
+          const rejected = attempts === "rejected-history";
+          const selection = rejected ? CODEX_MODEL_SELECTION : CLAUDE_MODEL_SELECTION;
           const capturedTurns = yield* Ref.make<ReadonlyArray<CapturedTurn>>([]);
           const failResumeOnce = yield* Ref.make(false);
           const generation = yield* Ref.make(0);
           const layerRegistry = ProviderAdapterRegistry.layerFromAdapters([
             makeTestAdapter({
-              instanceId: CLAUDE_MODEL_SELECTION.instanceId,
-              driver: CLAUDE_DRIVER,
-              capabilities: ClaudeProviderCapabilitiesV2,
-              modelSelection: CLAUDE_MODEL_SELECTION,
+              instanceId: selection.instanceId,
+              driver: rejected ? CODEX_DRIVER : CLAUDE_DRIVER,
+              capabilities: rejected ? CodexProviderCapabilitiesV2 : ClaudeProviderCapabilitiesV2,
+              modelSelection: selection,
               responseByRunOrdinal: {},
               capturedTurns,
               failResumeOnce,
+              ...(rejected
+                ? { failedRunOrdinals: new Set([1]), failureMessage: '{"detail":"Bad Request"}' }
+                : {}),
               nativeThreadGeneration: generation,
             }),
           ]);
@@ -1103,7 +1109,7 @@ describe("orchestration v2 provider switching", () => {
                 creationSource: "web",
                 text: `Request ${ordinal}`,
                 attachments: [],
-                modelSelection: CLAUDE_MODEL_SELECTION,
+                modelSelection: selection,
                 dispatchMode: { type: "start_immediately" },
               });
               yield* orchestrator.streamStoredEvents.pipe(
@@ -1118,7 +1124,7 @@ describe("orchestration v2 provider switching", () => {
               yield* worker.drain();
               assert.equal(
                 (yield* orchestrator.getThreadProjection(threadId)).runs.at(-1)?.status,
-                "completed",
+                ordinal === 1 && rejected ? "failed" : "completed",
               );
             });
             yield* orchestrator.dispatch({
@@ -1129,7 +1135,7 @@ describe("orchestration v2 provider switching", () => {
               createdBy: "user",
               creationSource: "web",
               title: "Resume fallback",
-              modelSelection: CLAUDE_MODEL_SELECTION,
+              modelSelection: selection,
               runtimeMode: "full-access",
               interactionMode: "default",
               branch: null,
@@ -1165,7 +1171,7 @@ describe("orchestration v2 provider switching", () => {
                 ),
               });
             }
-            yield* Ref.set(failResumeOnce, true);
+            if (!rejected) yield* Ref.set(failResumeOnce, true);
             yield* runToCompletion(2);
             yield* runToCompletion(3);
 

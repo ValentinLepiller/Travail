@@ -25,6 +25,8 @@ describe("local work page state", () => {
     requestPageState("server-a").setState({
       selected: "request-2",
       archive: true,
+      discussion: "temporary",
+      temporaryDrafts: { [key]: { version: 3, text: "Question non envoyée" } },
       drafts: { [key]: { version: 3, text: "Brouillon\nnon envoyé" } },
     });
     vi.resetModules();
@@ -32,6 +34,8 @@ describe("local work page state", () => {
     expect(reloaded.requestPageState("server-a").getState()).toEqual({
       selected: "request-2",
       archive: true,
+      discussion: "temporary",
+      temporaryDrafts: { [key]: { version: 3, text: "Question non envoyée" } },
       drafts: { [key]: { version: 3, text: "Brouillon\nnon envoyé" } },
     });
     expect(reloaded.requestPageState("server-b").getState()).toEqual({

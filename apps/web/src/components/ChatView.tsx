@@ -1,3 +1,4 @@
+import { ThreadChantierLink } from "./workTasks/ThreadChantierLink";
 import { ThreadRequests } from "./agentRequests/ThreadRequests";
 import type { CSSProperties } from "react";
 import { deriveProjectIdentity } from "../projectIdentity";
@@ -11980,6 +11981,12 @@ export default function ChatView(props: ChatViewProps) {
           />
         </header>
 
+        {isServerThread && (
+          <ThreadChantierLink
+            environmentId={activeThread.environmentId}
+            threadId={activeThread.id}
+          />
+        )}
         {/* Main content area with optional plan sidebar */}
         <div className="relative flex min-h-0 min-w-0 flex-1">
           {/* Chat column */}

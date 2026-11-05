@@ -3,14 +3,9 @@ import type {
   PluginMarketplaceNotice,
   PluginMarketplacePlugin,
 } from "@t3tools/contracts";
-import { create } from "zustand";
+import { createStore } from "zustand/vanilla";
 
-import {
-  fetchPluginMarketplaceCatalog,
-  fetchPluginMarketplaceDetail,
-  installPlugin,
-  removePlugin,
-} from "./api";
+import type { PluginMarketplaceApi } from "./api";
 
 type LoadStatus = "idle" | "loading" | "ready" | "error";
 
@@ -20,7 +15,7 @@ export interface PluginDetailState {
   readonly error: string | null;
 }
 
-interface PluginMarketplaceStoreState {
+export interface PluginMarketplaceStoreState {
   readonly catalogStatus: LoadStatus;
   readonly plugins: ReadonlyArray<PluginMarketplacePlugin>;
   readonly searchHits: ReadonlyArray<PluginMarketplacePlugin>;
@@ -44,64 +39,77 @@ export function pluginMarketplaceErrorMessage(error: unknown): string {
   return "The plugin marketplaces could not be loaded.";
 }
 
-let catalogRequest: Promise<void> | null = null;
-let searchRequest: Promise<void> | null = null;
-let searchRequestQuery = "";
-const detailRequests = new Map<string, Promise<void>>();
+export function createPluginMarketplaceStore(
+  api: Pick<
+    PluginMarketplaceApi,
+    | "fetchPluginMarketplaceCatalog"
+    | "fetchPluginMarketplaceDetail"
+    | "installPlugin"
+    | "removePlugin"
+  >,
+) {
+  const {
+    fetchPluginMarketplaceCatalog,
+    fetchPluginMarketplaceDetail,
+    installPlugin,
+    removePlugin,
+  } = api;
+  let catalogRequest: Promise<void> | null = null;
+  let searchRequestQuery = "";
+  const detailRequests = new Map<string, Promise<void>>();
 
-export const usePluginMarketplaceStore = create<PluginMarketplaceStoreState>((set, get) => ({
-  catalogStatus: "idle",
-  plugins: [],
-  searchHits: [],
-  notices: [],
-  catalogError: null,
-  details: {},
-  pending: {},
+  return createStore<PluginMarketplaceStoreState>((set, get) => ({
+    catalogStatus: "idle",
+    plugins: [],
+    searchHits: [],
+    notices: [],
+    catalogError: null,
+    details: {},
+    pending: {},
 
-  loadCatalog: async (force = false) => {
-    if (!force && get().catalogStatus === "ready") return;
-    const predecessor = catalogRequest;
-    if (predecessor && !force) return predecessor;
+    loadCatalog: async (force = false) => {
+      if (!force && get().catalogStatus === "ready") return;
+      const predecessor = catalogRequest;
+      if (predecessor && !force) return predecessor;
 
-    const request = (async () => {
-      if (predecessor) await predecessor.catch(() => undefined);
-      set((state) => ({
-        catalogStatus: state.plugins.length > 0 ? "ready" : "loading",
-        catalogError: null,
-      }));
-      try {
-        const catalog = await fetchPluginMarketplaceCatalog();
-        set({
-          catalogStatus: "ready",
-          plugins: catalog.plugins,
-          notices: catalog.notices ?? [],
-          catalogError: null,
-        });
-      } catch (error) {
+      const request = (async () => {
+        if (predecessor) await predecessor.catch(() => undefined);
         set((state) => ({
-          catalogStatus: state.plugins.length > 0 ? "ready" : "error",
-          catalogError: pluginMarketplaceErrorMessage(error),
+          catalogStatus: state.plugins.length > 0 ? "ready" : "loading",
+          catalogError: null,
         }));
-        throw error;
+        try {
+          const catalog = await fetchPluginMarketplaceCatalog();
+          set({
+            catalogStatus: "ready",
+            plugins: catalog.plugins,
+            notices: catalog.notices ?? [],
+            catalogError: null,
+          });
+        } catch (error) {
+          set((state) => ({
+            catalogStatus: state.plugins.length > 0 ? "ready" : "error",
+            catalogError: pluginMarketplaceErrorMessage(error),
+          }));
+          throw error;
+        }
+      })();
+      catalogRequest = request;
+      try {
+        await request;
+      } finally {
+        if (catalogRequest === request) catalogRequest = null;
       }
-    })();
-    catalogRequest = request;
-    try {
-      await request;
-    } finally {
-      if (catalogRequest === request) catalogRequest = null;
-    }
-  },
+    },
 
-  searchCatalog: async (query) => {
-    const normalized = query.trim();
-    if (normalized.length < 2) {
-      searchRequestQuery = "";
-      set({ searchHits: [] });
-      return;
-    }
-    searchRequestQuery = normalized;
-    const request = (async () => {
+    searchCatalog: async (query) => {
+      const normalized = query.trim();
+      if (normalized.length < 2) {
+        searchRequestQuery = "";
+        set({ searchHits: [] });
+        return;
+      }
+      searchRequestQuery = normalized;
       const catalog = await fetchPluginMarketplaceCatalog(normalized);
       if (searchRequestQuery !== normalized) return;
       const knownIds = new Set(get().plugins.map((plugin) => plugin.id));
@@ -112,85 +120,74 @@ export const usePluginMarketplaceStore = create<PluginMarketplaceStoreState>((se
         plugins,
         searchHits: catalog.plugins.filter((plugin) => !knownIds.has(plugin.id)),
       });
-    })();
-    searchRequest = request;
-    try {
-      await request;
-    } finally {
-      if (searchRequest === request) searchRequest = null;
-    }
-  },
+    },
 
-  loadDetail: async (pluginId, force = false) => {
-    const current = get().details[pluginId];
-    if (!force && current?.status === "ready") return;
-    const predecessor = detailRequests.get(pluginId);
-    if (predecessor && !force) return predecessor;
+    loadDetail: async (pluginId, force = false) => {
+      const current = get().details[pluginId];
+      if (!force && current?.status === "ready") return;
+      const predecessor = detailRequests.get(pluginId);
+      if (predecessor && !force) return predecessor;
 
-    const request = (async () => {
-      if (predecessor) await predecessor.catch(() => undefined);
-      set((state) => ({
-        details: {
-          ...state.details,
-          [pluginId]: {
-            status: "loading",
-            plugin: state.details[pluginId]?.plugin ?? null,
-            error: null,
-          },
-        },
-      }));
-      try {
-        const plugin = await fetchPluginMarketplaceDetail(pluginId);
-        set((state) => ({
-          details: {
-            ...state.details,
-            [pluginId]: { status: "ready", plugin, error: null },
-          },
-        }));
-      } catch (error) {
+      const request = (async () => {
+        if (predecessor) await predecessor.catch(() => undefined);
         set((state) => ({
           details: {
             ...state.details,
             [pluginId]: {
-              status: state.details[pluginId]?.plugin ? "ready" : "error",
+              status: "loading",
               plugin: state.details[pluginId]?.plugin ?? null,
-              error: pluginMarketplaceErrorMessage(error),
+              error: null,
             },
           },
         }));
-        throw error;
+        try {
+          const plugin = await fetchPluginMarketplaceDetail(pluginId);
+          set((state) => ({
+            details: {
+              ...state.details,
+              [pluginId]: { status: "ready", plugin, error: null },
+            },
+          }));
+        } catch (error) {
+          set((state) => ({
+            details: {
+              ...state.details,
+              [pluginId]: {
+                status: state.details[pluginId]?.plugin ? "ready" : "error",
+                plugin: state.details[pluginId]?.plugin ?? null,
+                error: pluginMarketplaceErrorMessage(error),
+              },
+            },
+          }));
+          throw error;
+        }
+      })();
+      detailRequests.set(pluginId, request);
+      try {
+        await request;
+      } finally {
+        if (detailRequests.get(pluginId) === request) detailRequests.delete(pluginId);
       }
-    })();
-    detailRequests.set(pluginId, request);
-    try {
-      await request;
-    } finally {
-      if (detailRequests.get(pluginId) === request) detailRequests.delete(pluginId);
-    }
-  },
+    },
 
-  setInstalled: async (pluginId, installed) => {
-    set((state) => ({
-      pending: {
-        ...state.pending,
-        [pluginId]: true,
-      },
-    }));
-    try {
-      await (installed ? installPlugin(pluginId) : removePlugin(pluginId));
-      await get()
-        .loadCatalog(true)
-        .catch(() => undefined);
-      await get()
-        .loadDetail(pluginId, true)
-        .catch(() => undefined);
-    } finally {
+    setInstalled: async (pluginId, installed) => {
       set((state) => ({
         pending: {
           ...state.pending,
-          [pluginId]: false,
+          [pluginId]: true,
         },
       }));
-    }
-  },
-}));
+      try {
+        await (installed ? installPlugin(pluginId) : removePlugin(pluginId));
+        await Promise.allSettled([get().loadCatalog(true), get().loadDetail(pluginId, true)]);
+      } finally {
+        set((state) => ({
+          pending: {
+            ...state.pending,
+            [pluginId]: false,
+          },
+        }));
+      }
+    },
+  }));
+}

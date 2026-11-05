@@ -1,5 +1,6 @@
 import * as Autonomous from "./autonomousAgents/AutonomousAgentService.ts";
 import * as Requests from "./agentRequests/AgentRequestService.ts";
+import * as RequestChat from "./agentRequests/AgentRequestChatService.ts";
 import * as TaskAgents from "./workTasks/WorkTaskAgentService.ts";
 import * as SlackCollector from "./workTasks/SlackTaskCollector.ts";
 import * as WorkTasks from "./workTasks/WorkTaskService.ts";
@@ -1276,6 +1277,7 @@ const layerWsRpc = (
     const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
     const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
     const agentRequests = yield* Requests.AgentRequestService;
+    const requestChat = yield* RequestChat.AgentRequestChatService;
     const autonomous = yield* Autonomous.AutonomousAgentService;
     const taskAgents = yield* TaskAgents.WorkTaskAgentService;
     const workTasks = yield* WorkTasks.WorkTaskService;
@@ -2132,6 +2134,10 @@ const layerWsRpc = (
       [WS_METHODS.agentRequestsSubscribe]: () => agentRequests.subscribe(),
       [WS_METHODS.agentRequestsRespond]: (input) => agentRequests.respond(input),
       [WS_METHODS.agentRequestsRetryDelivery]: (input) => agentRequests.retryDelivery(input),
+      [WS_METHODS.agentRequestChatSubscribe]: (input) => requestChat.subscribe(input.id),
+      [WS_METHODS.agentRequestChatSend]: (input) => requestChat.send(input),
+      [WS_METHODS.agentRequestChatStop]: (input) => requestChat.stop(input.id),
+      [WS_METHODS.agentRequestChatClear]: (input) => requestChat.clear(input.id),
       [WS_METHODS.autonomousAgentsSubscribe]: () => autonomous.subscribe(),
       [WS_METHODS.autonomousAgentsCommand]: (input) => autonomous.command(input),
       [WS_METHODS.autonomousAgentsRead]: (input) => autonomous.subscribeDetail(input),
