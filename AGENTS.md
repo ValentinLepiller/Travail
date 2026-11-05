@@ -12,6 +12,12 @@ those discussions are expected to resume afterward. Do not ask for confirmation 
 small installations. Record delivered slices and proof
 in the concise `IMPLEMENTATION.md` requested for this project.
 
+For Valentin's `ValentinLepiller/Travail` project, the decision of 2026-11-05 takes
+precedence over the PR workflow below: commit and push directly to `main`, without
+opening PRs or waiting for CI. Keep relevant local verification and `$simplify`;
+check CI occasionally afterward and address failures separately. This does not
+authorize staging/production deployment or email/Slack messages.
+
 T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs and agents (Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity) and serves web, desktop, and mobile clients.
 
 You can think of T3 Code as an open source "bring-your-own-subscription" alternative to apps like Claude Desktop, Codex App, Cursor Glass and Conductor.
