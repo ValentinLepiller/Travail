@@ -268,6 +268,7 @@ export function RequestTemporaryChat({
         )}
         <Textarea
           ref={editor}
+          autoFocus
           aria-label="Message à l’assistant temporaire"
           placeholder="Pose ta question…"
           value={text}
