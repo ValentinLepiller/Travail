@@ -69,10 +69,17 @@ it.effect(
         details: "![Capture](https://example.com/image.png)",
         kind: "approval",
         action: null,
+        source: {
+          kind: "other",
+          label: "Exemple",
+          url: "https://example.com/message/42",
+          text: "Le message d’origine",
+        },
       };
       expect((yield* call("request_create", input)).isError).toBe(false);
       const service = yield* Requests.AgentRequestService;
       expect((yield* service.list())[0]?.threadId).toBe(scope.thread?.threadId);
+      expect((yield* service.list())[0]?.source).toEqual(input.source);
       const other = {
         ...scope,
         thread: { ...scope.thread!, threadId: ThreadId.make("other-thread") },

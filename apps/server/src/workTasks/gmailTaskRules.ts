@@ -10,6 +10,9 @@ export const GmailTaskMessage = Schema.Struct({
   text: Schema.String.check(Schema.isMaxLength(100_000)),
 });
 export type GmailTaskMessage = typeof GmailTaskMessage.Type;
+export function gmailMessageUrl(accountEmail: string, messageId: string) {
+  return `https://mail.google.com/mail/u/?authuser=${encodeURIComponent(accountEmail)}#all/${encodeURIComponent(messageId)}`;
+}
 export const GmailTaskRules = Schema.Struct({
   enabled: Schema.Boolean,
   accountEmail: Schema.NonEmptyString,

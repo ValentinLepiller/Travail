@@ -19,6 +19,7 @@ import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as RequestEffects from "./RequestEffects.ts";
+import { requestSources } from "./requestSources.ts";
 
 export class AgentRequestService extends Context.Service<
   AgentRequestService,
@@ -63,6 +64,11 @@ const make = Effect.gen(function* () {
   const normalize = (cause: unknown) => (isRequestError(cause) ? cause : storage());
   const changed = SubscriptionRef.update(revision, (n) => n + 1);
   const now = DateTime.now.pipe(Effect.map(DateTime.formatIso));
+  const sourcesFor = (id: string | null) =>
+    requestSources(id).pipe(
+      Effect.provideService(SqlClient.SqlClient, sql),
+      Effect.mapError(storage),
+    );
   const list = () =>
     sql<{
       payload_json: string;
@@ -96,6 +102,16 @@ const make = Effect.gen(function* () {
           ),
         ),
       ),
+      Effect.flatMap((requests) =>
+        sourcesFor(null).pipe(
+          Effect.map((sources) =>
+            requests.map((request) => {
+              const source = sources.get(request.id);
+              return source ? { ...request, source } : request;
+            }),
+          ),
+        ),
+      ),
       Effect.mapError(storage),
     );
   const get = (id: string) =>
@@ -112,6 +128,13 @@ const make = Effect.gen(function* () {
       yield* sql`INSERT INTO agent_requests (id, payload_json) VALUES (${request.id}, ${yield* encode(request)}) ON CONFLICT(id) DO UPDATE SET payload_json = excluded.payload_json`;
       return request;
     }).pipe(Effect.mapError(storage));
+  const putWithSource = Effect.fnUntraced(function* (request: AgentRequest) {
+    yield* put(request);
+    if (request.source !== undefined) return request;
+    const source = (yield* sourcesFor(request.id)).get(request.id);
+    if (!source && request.sourceTaskId) return yield* new AgentRequestError({ reason: "invalid" });
+    return source ? yield* put({ ...request, source }) : request;
+  });
   const mutate = <A>(body: Effect.Effect<A, AgentRequestError>) =>
     sql.withTransaction(body).pipe(
       Effect.mapError(normalize),
@@ -138,7 +161,7 @@ const make = Effect.gen(function* () {
         if (input.kind === "text" && input.action !== null)
           return yield* new AgentRequestError({ reason: "invalid" });
         const at = yield* now;
-        return yield* put({
+        return yield* putWithSource({
           ...input,
           threadId,
           version: 1,
@@ -166,9 +189,16 @@ const make = Effect.gen(function* () {
         if (input.kind === "text" && input.action !== null)
           return yield* new AgentRequestError({ reason: "invalid" });
         const { expectedVersion: _, withdraw, ...content } = input;
-        return yield* put({
-          ...previous,
-          ...content,
+        const next = { ...previous, ...content };
+        if (
+          content.sourceTaskId !== undefined &&
+          content.sourceTaskId !== previous.sourceTaskId &&
+          content.source === undefined
+        ) {
+          delete next.source;
+        }
+        return yield* putWithSource({
+          ...next,
           history: [
             ...previous.history,
             {

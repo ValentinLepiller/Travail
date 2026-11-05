@@ -1,3 +1,4 @@
+import Migration0083 from "./Migrations/083_RequestSourceMessages.ts";
 import Migration0082 from "./Migrations/082_QualificationBatches.ts";
 import Migration0081 from "./Migrations/081_ChefMessages.ts";
 import Migration0080 from "./Migrations/080_AgentRequestChats.ts";
@@ -208,6 +209,7 @@ export const migrationEntries = [
   [79, "AgentRequestChats", Migration0080],
   [80, "ChefMessages", Migration0081],
   [81, "QualificationBatches", Migration0082],
+  [82, "RequestSourceMessages", Migration0083],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

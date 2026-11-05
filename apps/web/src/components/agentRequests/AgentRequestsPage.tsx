@@ -25,6 +25,7 @@ import ChatMarkdown from "../ChatMarkdown";
 import { useResizableWidth } from "../../hooks/useResizableWidth";
 import { RightPanelResizeHandle } from "../preview/RightPanelResizeHandle";
 import { RequestTemporaryChat } from "./RequestTemporaryChat";
+import { RequestSourcePreview } from "./RequestSourcePreview";
 
 const ChatView = lazy(() => import("../ChatView"));
 
@@ -372,7 +373,8 @@ export function RequestCard({
   onOpenTemporaryDiscussion?: () => void;
 }) {
   const compact = request.autonomousAgent?.qualifier === true && request.action?.kind !== "command";
-  const source = request.qualification?.source ?? request.autonomousAgent?.source;
+  const source =
+    request.qualification?.source ?? request.source?.label ?? request.autonomousAgent?.source;
   const { text, setText, clearSubmitted } = useRequestDraft(environmentId, request);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -475,6 +477,7 @@ export function RequestCard({
         <p className="mb-3 text-muted-foreground">{request.context}</p>
         <h2 className="text-2xl font-semibold">{requestTitle(request)}</h2>
       </div>
+      <RequestSourcePreview source={request.source} />
       {compact && (request.details || request.action) ? (
         <details>
           <summary className="cursor-pointer text-sm text-muted-foreground">

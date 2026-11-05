@@ -1,5 +1,5 @@
 import { validateTaskDependencies } from "./taskDependencies.ts";
-import { GmailTaskMessage } from "./gmailTaskRules.ts";
+import { GmailTaskMessage, gmailMessageUrl } from "./gmailTaskRules.ts";
 import { reservedWorkTasks } from "./reservations.ts";
 import {
   WorkTask,
@@ -104,6 +104,7 @@ const make = Effect.gen(function* () {
   const messageCodec = Schema.fromJsonString(SlackTaskMessage);
   const decodeMessage = Schema.decodeUnknownEffect(messageCodec);
   const encodeMessage = Schema.encodeEffect(messageCodec);
+  const encodeGmailMessage = Schema.encodeEffect(Schema.fromJsonString(GmailTaskMessage));
   const storageError = () => new WorkTaskError({ reason: "storage" });
   const changed = SubscriptionRef.update(revision, (value) => value + 1);
 
@@ -698,15 +699,25 @@ const make = Effect.gen(function* () {
       .withTransaction(
         Effect.gen(function* () {
           const message = yield* validateGmailMessage(input);
-          const existing = yield* sql`SELECT task_id FROM work_task_gmail_messages
+          const existing = yield* sql<{
+            payload_json: string | null;
+          }>`SELECT payload_json FROM work_task_gmail_messages
         WHERE account_email = ${message.accountEmail} AND message_id = ${message.id}`;
-          if (existing.length > 0) return "duplicate" as const;
+          const sourceMessage = { ...message, text: message.text.slice(0, 6000) };
+          if (existing[0]) {
+            if (existing[0].payload_json === null) {
+              yield* sql`UPDATE work_task_gmail_messages SET payload_json = ${yield* encodeGmailMessage(sourceMessage)}
+              WHERE account_email = ${message.accountEmail} AND message_id = ${message.id} AND payload_json IS NULL`;
+            }
+            return "duplicate" as const;
+          }
           const now = DateTime.formatIso(yield* DateTime.now);
+          const url = gmailMessageUrl(message.accountEmail, message.id);
           const task: WorkTask = {
             id: `gmail:${message.accountEmail}:${message.id}`,
             title: (message.subject.trim() || "Nouveau message Gmail").slice(0, 240),
             notes:
-              `Gmail - ${message.sender}\nCompte : ${message.accountEmail}\nhttps://mail.google.com/mail/u/?authuser=${encodeURIComponent(message.accountEmail)}#all/${message.id}\n\n${message.text}`.slice(
+              `Gmail - ${message.sender}\nCompte : ${message.accountEmail}\n${url}\n\n${message.text}`.slice(
                 0,
                 20_000,
               ),
@@ -714,7 +725,7 @@ const make = Effect.gen(function* () {
               {
                 kind: "email",
                 label: message.sender || "Email",
-                url: `https://mail.google.com/mail/u/?authuser=${encodeURIComponent(message.accountEmail)}#all/${message.id}`,
+                url,
               },
             ],
             status: "unqualified",
@@ -726,8 +737,8 @@ const make = Effect.gen(function* () {
             updatedAt: now,
           };
           yield* sql`INSERT INTO work_tasks (id, version, payload_json) VALUES (${task.id}, 1, ${yield* encode(task)})`;
-          yield* sql`INSERT INTO work_task_gmail_messages (account_email, message_id, task_id)
-        VALUES (${message.accountEmail}, ${message.id}, ${task.id})`;
+          yield* sql`INSERT INTO work_task_gmail_messages (account_email, message_id, task_id, payload_json)
+        VALUES (${message.accountEmail}, ${message.id}, ${task.id}, ${yield* encodeGmailMessage(sourceMessage)})`;
           return "created" as const;
         }),
       )

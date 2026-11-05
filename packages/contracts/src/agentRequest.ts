@@ -1,7 +1,14 @@
 import * as Schema from "effect/Schema";
 import { NonNegativeInt, TrimmedNonEmptyString, ThreadId } from "./baseSchemas.ts";
+import { WorkSource } from "./workChantier.ts";
 
 const ShortText = TrimmedNonEmptyString.check(Schema.isMaxLength(500));
+export const AgentRequestSource = Schema.Struct({
+  ...WorkSource.fields,
+  text: Schema.NullOr(Schema.String.check(Schema.isMaxLength(6000))),
+  author: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(500))),
+  title: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(500))),
+});
 export const AgentRequestAction = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("agent"), instruction: ShortText }),
   Schema.Struct({
@@ -15,6 +22,8 @@ export const AgentRequestAction = Schema.Union([
   }),
 ]);
 export const AgentRequestContent = Schema.Struct({
+  source: Schema.optionalKey(Schema.NullOr(AgentRequestSource)),
+  sourceTaskId: Schema.optionalKey(ShortText),
   qualification: Schema.optionalKey(
     Schema.Struct({
       decision: Schema.Literals(["keep", "reject"]),
