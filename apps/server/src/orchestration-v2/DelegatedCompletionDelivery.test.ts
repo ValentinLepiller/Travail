@@ -42,6 +42,7 @@ import * as RuntimeLayer from "./runtimeLayer.ts";
 import * as ProviderTurnStartServiceTestkit from "./ProviderTurnStartService.testkit.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
+import * as ProviderContinuationAdmission from "./ProviderContinuationAdmission.ts";
 
 const layerPlatformTest = Layer.merge(
   NodeServices.layer,
@@ -905,7 +906,7 @@ const seedRestartCancelledChild = (input: {
     return { taskId, childThreadId, childRunId };
   });
 
-it.layer(Layer.merge(layerTest, ProviderContinuationRequests.layer))(
+it.layer(Layer.merge(layerTest, ProviderContinuationAdmission.layerRequests))(
   "subagent follow-ups",
   (it) => {
     const outcomes = [
