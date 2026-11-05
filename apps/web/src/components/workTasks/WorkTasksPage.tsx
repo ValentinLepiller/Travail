@@ -1,3 +1,5 @@
+import { useStore } from "zustand";
+import { taskPageState } from "../../state/workPageState";
 import { randomUUID } from "../../lib/utils";
 import { useAtomValue } from "@effect/atom-react";
 import { Link } from "@tanstack/react-router";
@@ -18,7 +20,7 @@ import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime"
 import { ListTodoIcon, PlusIcon, BotIcon } from "lucide-react";
 import { useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
 import { useProjects, useThreadShells } from "../../state/entities";
-import { useEnvironmentSelection } from "../../hooks/useEnvironmentSelection";
+import { useWorkPageEnvironmentSelection } from "../../hooks/useWorkPageEnvironmentSelection";
 import { useEnvironmentQuery } from "../../state/query";
 import {
   workTasks,
@@ -150,7 +152,8 @@ function TaskField({ label, children }: { label: string; children: ReactNode }) 
 }
 
 export function WorkTasksPage() {
-  const { environments, isReady, environmentId, setEnvironmentId } = useEnvironmentSelection();
+  const { environments, isReady, environmentId, setEnvironmentId } =
+    useWorkPageEnvironmentSelection("tasks");
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden">
       <WorkspacePageHeader electron={isElectron}>
@@ -218,10 +221,12 @@ function EnvironmentTasks({ environmentId }: { environmentId: EnvironmentId }) {
   const canDelete = useAtomValue(deleteWorkTask.permissionAtom(environmentId));
   const save = useAtomCommand(saveWorkTask);
   const remove = useAtomCommand(deleteWorkTask);
-  const [filter, setFilter] = useState<Filter>("all");
-  const [search, setSearch] = useState("");
-  const [projectFilter, setProjectFilter] = useState("");
-  const [editing, setEditing] = useState<WorkTaskSaveInput | null>(null);
+  const page = taskPageState(environmentId);
+  const { filter, search, projectFilter, editing } = useStore(page);
+  const setFilter = (filter: Filter) => page.setState({ filter });
+  const setSearch = (search: string) => page.setState({ search });
+  const setProjectFilter = (projectFilter: string) => page.setState({ projectFilter });
+  const setEditing = (editing: WorkTaskSaveInput | null) => page.setState({ editing });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);

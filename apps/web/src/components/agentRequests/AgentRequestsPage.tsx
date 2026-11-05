@@ -1,14 +1,16 @@
+import { useStore } from "zustand";
+import { requestPageState } from "../../state/workPageState";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { useProject, useThreadShell } from "../../state/entities";
 import { deriveProjectIdentity } from "../../projectIdentity";
 import { ProjectFavicon, type ProjectFaviconProject } from "../ProjectFavicon";
-import { lazy, Suspense, useState, type CSSProperties } from "react";
+import { lazy, Suspense, useEffect, useState, type CSSProperties } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import { Link } from "@tanstack/react-router";
 import type { AgentRequest, AgentRequestRespond, EnvironmentId } from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { BotIcon, InboxIcon, XIcon } from "lucide-react";
-import { useEnvironmentSelection } from "../../hooks/useEnvironmentSelection";
+import { useWorkPageEnvironmentSelection } from "../../hooks/useWorkPageEnvironmentSelection";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { agentRequests, respondToRequest, retryRequestDelivery } from "../../state/agentRequests";
@@ -84,7 +86,8 @@ function requestTitle(request: AgentRequest) {
 }
 
 export function AgentRequestsPage() {
-  const { environments, isReady, environmentId, setEnvironmentId } = useEnvironmentSelection();
+  const { environments, isReady, environmentId, setEnvironmentId } =
+    useWorkPageEnvironmentSelection("requests");
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden">
       <WorkspacePageHeader electron={isElectron}>
@@ -128,10 +131,16 @@ export function AgentRequestsPage() {
 function RequestInbox({ environmentId }: { environmentId: EnvironmentId }) {
   const query = useEnvironmentQuery(agentRequests({ environmentId, input: {} }));
   const [discussionOpen, setDiscussionOpen] = useState(false);
-  const [archive, setArchive] = useState(false);
-  const [selected, setSelected] = useState<string | null>(null);
+  const page = requestPageState(environmentId);
+  const archive = useStore(page, (state) => state.archive);
+  const selected = useStore(page, (state) => state.selected);
   const requests = query.data ?? [];
   const { pendingCount, visible, current } = requestQueue(requests, archive, selected);
+  useEffect(() => {
+    if (query.data !== null && current?.id && current.id !== selected) {
+      page.setState({ selected: current.id });
+    }
+  }, [current?.id, page, query.data, selected]);
   const project = useRequestProject(current, environmentId);
   const projectColor = project
     ? (project.projectIcon?.color ?? deriveProjectIdentity(project.title).color)
@@ -142,8 +151,7 @@ function RequestInbox({ environmentId }: { environmentId: EnvironmentId }) {
         <Button
           variant={archive ? "ghost" : "secondary"}
           onClick={() => {
-            setArchive(false);
-            setSelected(null);
+            page.setState({ archive: false, selected: null });
           }}
         >
           À traiter ({pendingCount})
@@ -151,8 +159,7 @@ function RequestInbox({ environmentId }: { environmentId: EnvironmentId }) {
         <Button
           variant={archive ? "secondary" : "ghost"}
           onClick={() => {
-            setArchive(true);
-            setSelected(null);
+            page.setState({ archive: true, selected: null });
           }}
         >
           Archives ({requests.length - pendingCount})
@@ -172,7 +179,7 @@ function RequestInbox({ environmentId }: { environmentId: EnvironmentId }) {
             <button
               key={request.id}
               aria-current={current?.id === request.id ? "true" : undefined}
-              onClick={() => setSelected(request.id)}
+              onClick={() => page.setState({ selected: request.id })}
               className={`w-full border-b p-4 text-left text-sm hover:bg-muted ${current?.id === request.id ? "bg-muted" : ""}`}
             >
               <RequestQueueProject request={request} environmentId={environmentId} />
@@ -315,7 +322,14 @@ export function RequestCard({
 }) {
   const compact = request.autonomousAgent?.qualifier === true && request.action?.kind !== "command";
   const source = request.qualification?.source ?? request.autonomousAgent?.source;
-  const [text, setText] = useState("");
+  const page = requestPageState(environmentId);
+  const draft = useStore(page, (state) => state.drafts[request.id]);
+  const text = draft?.version === request.version ? draft.text : "";
+  const setText = (text: string) => {
+    page.setState((state) => ({
+      drafts: { ...state.drafts, [request.id]: { version: request.version, text } },
+    }));
+  };
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const canRespond = useAtomValue(respondToRequest.permissionAtom(environmentId));
@@ -330,7 +344,16 @@ export function RequestCard({
         environmentId,
         input: { id: request.id, expectedVersion: request.version, decision, text },
       });
-      if (result._tag === "Failure") setError(String(squashAtomCommandFailure(result)));
+      if (result._tag === "Failure") {
+        setError(String(squashAtomCommandFailure(result)));
+      } else {
+        page.setState((state) => {
+          const draft = state.drafts[request.id];
+          if (draft?.version !== request.version || draft.text !== text) return state;
+          const { [request.id]: _, ...drafts } = state.drafts;
+          return { drafts };
+        });
+      }
     } finally {
       setBusy(false);
     }
