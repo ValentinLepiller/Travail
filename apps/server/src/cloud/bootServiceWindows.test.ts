@@ -7,6 +7,7 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import { HttpClient } from "effect/http";
 import * as TestClock from "effect/testing/TestClock";
@@ -163,8 +164,6 @@ const makeHarness = Effect.fn("test.make_windows_boot_service_harness")(function
     launcherStopsOnRequest: true,
     /** Set to false to model a record whose process id was recycled. */
     launcherRefreshesRecord: true,
-    /** Rewritten by the stand-in launcher to prove it is still alive. */
-    presence: "",
     /** What the fake shortcut currently points at, so drift can be modelled. */
     shortcutTarget: powershell,
     shortcutArguments: expectedArguments,
@@ -183,8 +182,8 @@ const makeHarness = Effect.fn("test.make_windows_boot_service_harness")(function
           // boot stamp matters, since a record from an earlier boot is ignored.
           const bootTimeMs = DateTime.toEpochMillis(yield* DateTime.now) - NodeOS.uptime() * 1_000;
           yield* fs.makeDirectory(runtimeDir, { recursive: true });
-          control.presence = encodeServiceLauncherPresence({ pid: process.pid, bootTimeMs });
-          yield* fs.writeFileString(pidPath, control.presence);
+          const presence = encodeServiceLauncherPresence({ pid: process.pid, bootTimeMs });
+          yield* fs.writeFileString(pidPath, presence);
         }
         if (command.includes("service-shortcut")) {
           if (action === "Install") {
@@ -224,6 +223,23 @@ const makeHarness = Effect.fn("test.make_windows_boot_service_harness")(function
     stopRequestTimeout: Duration.millis(30),
   }).pipe(
     Effect.provideService(ProcessRunner.ProcessRunner, runner),
+    // Model acknowledgements and heartbeats without a racing pid-file writer.
+    Effect.provideService(FileSystem.FileSystem, {
+      ...fs,
+      writeFileString: (filePath, content, options) =>
+        Effect.gen(function* () {
+          yield* fs.writeFileString(filePath, content, options);
+          if (filePath !== stopRequestPath) return;
+          if (control.launcherStopsOnRequest) {
+            yield* fs.remove(stopRequestPath, { force: true });
+            yield* fs.remove(pidPath, { force: true });
+          } else if (control.launcherRefreshesRecord) {
+            const mtime = Option.getOrThrow((yield* fs.stat(pidPath)).mtime);
+            const nextHeartbeatSeconds = mtime.getTime() / 1_000 + 1;
+            yield* fs.utimes(pidPath, nextHeartbeatSeconds, nextHeartbeatSeconds);
+          }
+        }),
+    }),
     Effect.provide(
       Layer.mergeAll(
         Layer.succeed(HostProcess.Platform, platform),
@@ -239,30 +255,6 @@ const makeHarness = Effect.fn("test.make_windows_boot_service_harness")(function
       ),
     ),
   );
-  // Stands in for a running launcher. The real one drops its pid file when it
-  // stops, and that disappearance is the only thing the CLI accepts as proof.
-  yield* Effect.forkScoped(
-    Effect.gen(function* () {
-      while (true) {
-        yield* Effect.sleep(Duration.millis(5));
-        const asked = yield* fs.exists(stopRequestPath).pipe(Effect.orElseSucceed(() => false));
-        if (!control.launcherStopsOnRequest) {
-          // A launcher that will not stop is still alive, and a live one keeps
-          // refreshing its record. Without that it would look like a process id
-          // the system recycled, which is a different case entirely.
-          const present = yield* fs.exists(pidPath).pipe(Effect.orElseSucceed(() => false));
-          if (control.launcherRefreshesRecord && present) {
-            yield* fs.writeFileString(pidPath, control.presence).pipe(Effect.ignore);
-          }
-          continue;
-        }
-        if (!asked) continue;
-        yield* fs.remove(stopRequestPath, { force: true }).pipe(Effect.ignore);
-        yield* fs.remove(pidPath, { force: true }).pipe(Effect.ignore);
-      }
-    }),
-  );
-
   return {
     service,
     fs,

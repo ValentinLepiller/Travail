@@ -456,7 +456,10 @@ export const make = Effect.fn("cloud.boot_service_windows.make")(function* (
           : Effect.fail(new BootService.BootServiceInstallError({ cause: error })),
       ),
     );
-    if (Option.isNone(recorded)) return false;
+    if (Option.isNone(recorded)) {
+      yield* fs.remove(stopRequestPath, { force: true }).pipe(Effect.ignore);
+      return false;
+    }
     const presence = decodeServiceLauncherPresence(recorded.value);
     // Only trust the process id while the record is from this boot. Ids are
     // recycled across reboots, so an old file can name an unrelated live
