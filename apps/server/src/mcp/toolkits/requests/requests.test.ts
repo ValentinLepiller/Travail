@@ -64,8 +64,9 @@ it.effect(
           );
       const input = {
         id: "mcp-request",
-        context: "Livraison",
-        question: "Valider ?",
+        context:
+          "La page Requêtes de Travail vient d’être modifiée. Son comportement dans le navigateur reste à vérifier.",
+        question: "Autorises-tu un test dans le navigateur intégré sur les données isolées ?",
         details: "![Capture](https://example.com/image.png)",
         kind: "approval",
         action: null,
@@ -80,6 +81,11 @@ it.effect(
       const service = yield* Requests.AgentRequestService;
       expect((yield* service.list())[0]?.threadId).toBe(scope.thread?.threadId);
       expect((yield* service.list())[0]?.source).toEqual(input.source);
+      expect((yield* service.list())[0]).toMatchObject({
+        context: input.context,
+        question: input.question,
+        details: input.details,
+      });
       const other = {
         ...scope,
         thread: { ...scope.thread!, threadId: ThreadId.make("other-thread") },

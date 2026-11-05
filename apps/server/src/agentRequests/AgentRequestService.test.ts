@@ -298,7 +298,15 @@ it.effect(
     Effect.gen(function* () {
       const service = yield* Requests.AgentRequestService;
       const sql = yield* SqlClient.SqlClient;
-      yield* service.create(threadId, input);
+      const proposal = {
+        ...input,
+        context:
+          "Victor demande les photos DJ des salles Studio Bleu de 20 et 25 m². Le message ne précise pas si leur description doit aussi changer.",
+        question: "Faut-il inclure la description DJ dans cette demande ?",
+        details: "",
+        action: null,
+      };
+      yield* service.create(threadId, proposal);
       expect((yield* service.list())[0]?.autonomousAgent).toBeUndefined();
       const agent = JSON.stringify({ name: "Qualifieur", trigger: "unqualified" });
       yield* sql`INSERT INTO autonomous_agents (id, payload_json) VALUES ('qualifier', ${agent})`;
@@ -311,9 +319,9 @@ it.effect(
         qualifier: true,
         source: "Slack - #studio-bleu",
       });
-      expect(listed.question).toBe(input.question);
+      expect(listed).toMatchObject(proposal);
       const revised = yield* service.update(threadId, {
-        ...input,
+        ...proposal,
         expectedVersion: 1,
         withdraw: false,
         qualification: { decision: "reject", source: "Gmail - xavier@studio-bleu.fr" },
@@ -323,6 +331,7 @@ it.effect(
         source: "Gmail - xavier@studio-bleu.fr",
       });
       expect((yield* service.list())[0]?.qualification).toEqual(revised.qualification);
+      expect((yield* service.list())[0]).toMatchObject(proposal);
     }).pipe(
       Effect.provide(
         Requests.layer.pipe(

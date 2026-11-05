@@ -2,12 +2,43 @@ import { assert, describe, it } from "@effect/vitest";
 
 import {
   T3_CODE_ORCHESTRATION_INSTRUCTIONS,
+  T3_CODE_REQUEST_WRITING_INSTRUCTIONS,
   t3AcpPromptWithInstructions,
   t3OrchestrationPromptForFirstRun,
   t3OrchestrationSystemPrompt,
 } from "./orchestrationInstructions.ts";
 
 describe("T3 orchestration provider instructions", () => {
+  it("gives every provider the same self-contained request format", () => {
+    const guidance = T3_CODE_REQUEST_WRITING_INSTRUCTIONS;
+    assert.include(guidance, "normal discussions and autonomous agent runs");
+    assert.include(guidance, "context and problem sentences together in context");
+    assert.include(
+      guidance,
+      "without reading the source thread, opening details or following links",
+    );
+    assert.include(guidance, "leave details empty");
+    assert.include(guidance, "screenshot or other relevant visual");
+    assert.include(guidance, "exact message, recipients and attachments");
+    assert.include(guidance, "when revising a request");
+    assert.include(t3OrchestrationSystemPrompt(true)!, guidance);
+    assert.include(
+      t3OrchestrationPromptForFirstRun({
+        prompt: "Prépare une livraison.",
+        runOrdinal: 1,
+        hasT3Mcp: true,
+      }),
+      guidance,
+    );
+    assert.include(
+      t3AcpPromptWithInstructions({
+        prompt: "Tu es l’agent autonome Coordinateur ; clarifie les tâches Cotily.",
+        state: { interactionMode: "default", hasT3Mcp: true },
+      }),
+      guidance,
+    );
+  });
+
   it("distinguishes delegated subagents from ordinary top-level threads", () => {
     assert.include(T3_CODE_ORCHESTRATION_INSTRUCTIONS, "Use `delegate_task`");
     assert.include(T3_CODE_ORCHESTRATION_INSTRUCTIONS, "ordinary top-level T3 conversations");
