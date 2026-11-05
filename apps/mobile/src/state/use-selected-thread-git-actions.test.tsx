@@ -17,6 +17,11 @@ const harness = vi.hoisted(() => ({
   onRefreshSettled: () => {},
 }));
 
+vi.mock("./server", async () => {
+  const { Atom } = await import("effect/reactivity");
+  const config = Atom.make(null);
+  return { serverEnvironment: { configValueAtom: () => config } };
+});
 vi.mock("./use-atom-command", () => ({
   useAtomCommand: (command: unknown) =>
     command === "refreshStatus"

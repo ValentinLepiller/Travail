@@ -16,6 +16,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "../../workspaceTitlebar";
 import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "../WorkspaceBreadcrumb";
 import { Button } from "../ui/button";
+import { Card } from "../ui/card";
 import { EmptyDescription, EmptyHeader, EmptyMedia } from "../ui/empty";
 import { ScrollArea } from "../ui/scroll-area";
 import { SidebarInset } from "../ui/sidebar";
@@ -107,7 +108,7 @@ function CodexRateLimitsCard({
   const rateLimits = provider.codexStatus?.rateLimits;
 
   return (
-    <div className="relative flex flex-col rounded-xl border border-border/70 bg-card/35 p-4 text-card-foreground">
+    <Card variant="subtle">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           {showProviderLabel ? (
@@ -156,7 +157,7 @@ function CodexRateLimitsCard({
           Rate limit data is not available yet. Click Update to try again.
         </p>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -170,7 +171,7 @@ function ClaudeRateLimitsCard({
   const rateLimits = provider.claudeStatus?.rateLimits;
 
   return (
-    <div className="relative flex flex-col rounded-xl border border-border/70 bg-card/35 p-4 text-card-foreground">
+    <Card variant="subtle">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           {showProviderLabel ? (
@@ -219,7 +220,7 @@ function ClaudeRateLimitsCard({
           Claude rate limit data is not available yet. Click Update to try again.
         </p>
       )}
-    </div>
+    </Card>
   );
 }
 

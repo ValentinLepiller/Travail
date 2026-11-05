@@ -14,7 +14,9 @@ export function materializeReplayTranscriptRuntimeInstructions(
         ? "Grok"
         : runtime.driver === "acpRegistry"
           ? "acpRegistry"
-          : undefined;
+          : runtime.driver === "muse"
+            ? "Muse Code"
+            : undefined;
   if (harness === undefined) return transcript;
   const instructions = buildRuntimeInstructions({ harness, model: runtime.model });
 
@@ -34,6 +36,47 @@ export function materializeReplayTranscriptRuntimeInstructions(
         return frame.message.endsWith(instructions)
           ? entry
           : { ...entry, frame: { ...frame, message: `${frame.message}\n\n${instructions}` } };
+      }
+      if (
+        runtime.driver === "muse" &&
+        "method" in frame &&
+        frame.method === "turn/start" &&
+        "params" in frame &&
+        typeof frame.params === "object" &&
+        frame.params !== null &&
+        "input" in frame.params &&
+        Array.isArray(frame.params.input)
+      ) {
+        const input: ReadonlyArray<unknown> = frame.params.input;
+        return {
+          ...entry,
+          frame: {
+            ...frame,
+            params: {
+              ...frame.params,
+              input: input.map((part, index) => {
+                if (
+                  index !== 0 ||
+                  typeof part !== "object" ||
+                  part === null ||
+                  !("text" in part) ||
+                  typeof part.text !== "string" ||
+                  !part.text.startsWith("<runtime_info>")
+                )
+                  return part;
+                const effort = / with (\S+) reasoning effort/.exec(part.text)?.[1];
+                return {
+                  ...part,
+                  text: buildRuntimeInstructions({
+                    harness,
+                    model: runtime.model,
+                    reasoningEffort: effort,
+                  }),
+                };
+              }),
+            },
+          },
+        };
       }
       if (
         "method" in frame &&

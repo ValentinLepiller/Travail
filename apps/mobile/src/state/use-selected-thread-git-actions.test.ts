@@ -22,6 +22,13 @@ const state = vi.hoisted(() => ({
   statusRefreshes: 0,
 }));
 
+vi.mock("./server", async () => {
+  const { Atom } = await import("effect/reactivity");
+  const config = Atom.make(null);
+  return { serverEnvironment: { configValueAtom: () => config } };
+});
+vi.mock("@effect/atom-react", () => ({ useAtomValue: () => null }));
+vi.mock("./query", () => ({ useEnvironmentQuery: () => ({ data: null, refresh: () => {} }) }));
 vi.mock("react", () => ({
   useCallback: (callback: unknown) => callback,
   useMemo: (factory: () => unknown) => factory(),
