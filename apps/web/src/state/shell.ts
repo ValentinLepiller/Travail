@@ -173,13 +173,6 @@ export function createAllEnvironmentProjectSnapshotsReadyAtom(input: {
   }).pipe(Atom.withLabel("web-all-environment-project-snapshots-ready"));
 }
 
-export const allEnvironmentProjectSnapshotsReadyAtom =
-  createAllEnvironmentProjectSnapshotsReadyAtom({
-    catalogValueAtom: environmentCatalog.catalogValueAtom,
-    shellStateValueAtom: environmentShell.stateValueAtom,
-    requiresPrimaryEnvironment: !isHostedStaticApp(),
-  });
-
 /**
  * Every enabled machine has sent its live projects or has settled offline. Prompt links wait for
  * it before they decide a repository is missing: one offline machine must not hold a link
