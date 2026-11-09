@@ -1,3 +1,13 @@
+import * as InboxActions from "../inbox/InboxSubjectActions.ts";
+import * as InboxSubjects from "../inbox/InboxSubjectService.ts";
+import * as InboxSubjectModel from "../inbox/InboxSubjectModel.ts";
+import * as InboxQualifications from "../inbox/InboxQualificationService.ts";
+import * as Jev from "../inbox/JevClient.ts";
+import * as InboxSecrets from "../auth/ServerSecretStore.ts";
+import * as InboxContexts from "../inbox/InboxContextService.ts";
+import * as InboxContextSource from "../inbox/InboxContextSource.ts";
+import * as ProcessRunner from "../processRunner.ts";
+import * as Inbox from "../inbox/MessageInbox.ts";
 import * as GmailTasks from "../workTasks/GmailTaskCollector.ts";
 import * as GmailSource from "../workTasks/GmailTaskSource.ts";
 import * as Autonomous from "../autonomousAgents/AutonomousAgentService.ts";
@@ -377,14 +387,29 @@ const layerRequestsProvided = Requests.layer.pipe(
   ),
 );
 
+const layerInboxContextsProvided = InboxContexts.layer.pipe(
+  Layer.provide(Inbox.layer),
+  Layer.provide(InboxContextSource.layer.pipe(Layer.provide(ProcessRunner.layer))),
+);
+
 const layerGmailTasksProvided = GmailTasks.layer.pipe(
-  Layer.provide(WorkTasks.layer),
+  Layer.provide(Inbox.layer),
+  Layer.provide(layerInboxContextsProvided),
   Layer.provide(GmailSource.layer),
 );
 
 const layerSlackTasksProvided = SlackTasks.layer.pipe(
-  Layer.provide(WorkTasks.layer),
+  Layer.provide(Inbox.layer),
+  Layer.provide(layerInboxContextsProvided),
   Layer.provide(SlackSource.layer),
+);
+
+const layerInboxQualificationsProvided = InboxQualifications.layer.pipe(
+  Layer.provide(Jev.layer.pipe(Layer.provide(InboxSecrets.layer))),
+);
+
+const layerInboxSubjectsProvided = InboxSubjects.layer.pipe(
+  Layer.provide(InboxSubjectModel.layer.pipe(Layer.provide(TextGeneration.layer))),
 );
 
 export const layerProduction = Layer.mergeAll(
@@ -398,6 +423,13 @@ export const layerProduction = Layer.mergeAll(
   Autonomous.workerLayer.pipe(Layer.provide(layerAutonomousProvided)),
   TaskAgents.layer.pipe(Layer.provide(Layer.mergeAll(layerThreadLaunchProvided, WorkTasks.layer))),
   WorkTasks.layer,
+  InboxActions.layer.pipe(Layer.provide(WorkTasks.layer)),
+  Inbox.layer,
+  layerInboxContextsProvided,
+  layerInboxSubjectsProvided,
+  InboxSubjects.workerLayer.pipe(Layer.provide(layerInboxSubjectsProvided)),
+  layerInboxQualificationsProvided,
+  InboxQualifications.workerLayer.pipe(Layer.provide(layerInboxQualificationsProvided)),
   layerGmailTasksProvided,
   GmailTasks.workerLayer.pipe(Layer.provide(layerGmailTasksProvided)),
   layerSlackTasksProvided,

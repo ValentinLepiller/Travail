@@ -59,6 +59,23 @@ const setup = Effect.gen(function* () {
 });
 
 describe("command permissions", () => {
+  it.effect("denies manual inbox decisions on another environment without its operate grant", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const registry = yield* setup;
+        const decision = createCommandPermissions(runtime, WS_METHODS.inboxSubjectAction);
+        registry.set(sessions(env), AsyncResult.success(grant(true)));
+        registry.set(sessions(other), AsyncResult.success(grant(false)));
+        expect(registry.get(decision.permissionAtom(env))).toBe(true);
+        expect(registry.get(decision.permissionAtom(other))).toBe(false);
+        yield* decision.authorize(registry, env);
+        expect((yield* decision.authorize(registry, other).pipe(Effect.flip))._tag).toBe(
+          "EnvironmentAuthorizationError",
+        );
+      }),
+    ),
+  );
+
   it.effect("requires the destination settings grant to run storage cleanup", () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -315,6 +332,8 @@ it.effect("guards task editing and deletion with the destination operate grant",
     Effect.gen(function* () {
       const registry = yield* setup;
       for (const tag of [
+        WS_METHODS.inboxGroupingControl,
+        WS_METHODS.inboxQualificationControl,
         WS_METHODS.autonomousAgentsCommand,
         WS_METHODS.workChantiersSave,
         WS_METHODS.workChantiersPlan,

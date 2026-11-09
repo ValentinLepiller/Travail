@@ -27,6 +27,7 @@ export const SlackTaskMessage = Schema.Struct({
   ts: SlackTimestamp,
   threadTs: SlackTimestamp,
   authorId: Schema.String,
+  authorName: Schema.optionalKey(Schema.String),
   text: Schema.String.check(Schema.isMaxLength(100_000)),
 });
 export type SlackTaskMessage = typeof SlackTaskMessage.Type;
@@ -42,6 +43,10 @@ export const WorkTaskTypesConfig = Schema.Struct({
 });
 export type WorkTaskTypesConfig = typeof WorkTaskTypesConfig.Type;
 export const WorkTaskFields = Schema.Struct({
+  automationMode: Schema.optionalKey(Schema.Literal("manual")),
+  inboxSubjectIds: Schema.optionalKey(
+    Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(200)),
+  ),
   mergedTaskIds: Schema.optionalKey(
     Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(200)),
   ),

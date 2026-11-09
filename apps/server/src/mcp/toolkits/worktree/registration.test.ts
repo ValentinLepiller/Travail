@@ -1,3 +1,9 @@
+import * as Subjects from "../../../inbox/InboxSubjectService.ts";
+import * as Jev from "../../../inbox/JevClient.ts";
+import * as QualificationSqlite from "../../../persistence/Sqlite.ts";
+import * as Qualifications from "../../../inbox/InboxQualificationService.ts";
+import * as Contexts from "../../../inbox/InboxContextService.ts";
+import * as Inbox from "../../../inbox/MessageInbox.ts";
 import * as TaskAgents from "../../../workTasks/WorkTaskAgentService.ts";
 import * as Autonomous from "../../../autonomousAgents/AutonomousAgentService.ts";
 import * as WorkTasks from "../../../workTasks/WorkTaskService.ts";
@@ -55,6 +61,15 @@ const layerStubServices = Layer.mergeAll(
   Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
   Layer.mock(Autonomous.AutonomousAgentService)({}),
   Layer.mock(WorkTasks.WorkTaskService)({}),
+  Layer.mock(Inbox.MessageInbox)({}),
+  Layer.mock(Subjects.InboxSubjectService)({}),
+  Qualifications.layer.pipe(
+    Layer.provide(QualificationSqlite.layerMemory),
+    Layer.provide(
+      Layer.succeed(Jev.JevClient, { evaluate: () => Effect.die("Discovery must not call Jev") }),
+    ),
+  ),
+  Layer.mock(Contexts.InboxContextService)({}),
   Layer.mock(TaskAgents.WorkTaskAgentService)({}),
   Layer.mock(SecretRequests.SecretRequests)({}),
   Layer.mock(ProjectService.ProjectService)({}),

@@ -1,3 +1,4 @@
+import * as InboxActions from "../inbox/InboxSubjectActions.ts";
 import { taskImageTestLayer } from "../workTasks/WorkTaskService.testkit.ts";
 import * as ManagedFolders from "../project/ManagedProjectFolders.ts";
 import { expect, it } from "@effect/vitest";
@@ -1351,4 +1352,125 @@ it.effect("refuses read receipts for another Chef's message or for user messages
       expect((yield* service.list()).find((a) => a.id === config.id)?.unreadCount).toBe(1);
     }).pipe(Effect.provideContext(f.context));
   }).pipe(Effect.scoped),
+);
+
+it.effect(
+  "manual Inbox todo and unqualified cards do not start a coordinator or qualifier, while an automatic control still does",
+  () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      yield* Effect.gen(function* () {
+        const service = yield* Agents.AutonomousAgentService,
+          tasks = yield* Tasks.WorkTaskService;
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`INSERT INTO projection_projects(project_id,title,workspace_root,scripts_json,created_at,updated_at) VALUES('test-project','Test','/tmp/test','[]','','')`;
+        for (const trigger of ["todo", "unqualified"] as const) {
+          const config = agentConfig(trigger, trigger);
+          yield* service.command({ type: "save", config });
+          yield* service.command({ type: "resume", id: config.id });
+          yield* tasks.save({
+            id: `manual-${trigger}`,
+            title: "Manuelle",
+            notes: "",
+            status: trigger,
+            projectId: ProjectId.make("test-project"),
+            agentThreadId: null,
+            dueDate: null,
+            expectedVersion: 0,
+            automationMode: "manual",
+          });
+        }
+        yield* service.tick();
+        expect(f.launched).toHaveLength(0);
+        yield* tasks.save({
+          id: "automatic",
+          title: "Automatique témoin",
+          notes: "",
+          status: "todo",
+          projectId: ProjectId.make("test-project"),
+          agentThreadId: null,
+          dueDate: null,
+          expectedVersion: 0,
+        });
+        yield* service.tick();
+        expect(f.launched).toHaveLength(1);
+        expect(f.launchInputs[0]?.initialMessage?.text).toContain("Automatique témoin");
+      }).pipe(Effect.provideContext(f.context));
+    }).pipe(Effect.scoped),
+);
+
+it.effect(
+  "creating and enriching a tracked task from Inbox never wakes the Chef, while an automatic edit still wakes it",
+  () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      yield* Effect.gen(function* () {
+        const service = yield* Agents.AutonomousAgentService,
+          tasks = yield* Tasks.WorkTaskService;
+        const actions = yield* InboxActions.InboxSubjectActions,
+          sql = yield* SqlClient.SqlClient;
+        yield* sql`INSERT INTO projection_projects(project_id,title,workspace_root,scripts_json,created_at,updated_at) VALUES('test-project','Test','/tmp/test','[]','','')`;
+        const config = chefConfig();
+        const original = yield* tasks.save({
+          id: "tracked",
+          title: "Déjà suivie",
+          notes: "Notes humaines",
+          status: "todo",
+          projectId: config.projectId,
+          agentThreadId: null,
+          dueDate: null,
+          expectedVersion: 0,
+        });
+        const control = yield* tasks.save({
+          ...original,
+          id: "control",
+          title: "Témoin automatique",
+          expectedVersion: 0,
+        });
+        yield* service.command({ type: "save", config });
+        yield* service.command({ type: "resume", id: config.id });
+        yield* service.tick();
+        yield* service.finish(f.launched[0]!, "", "Repos");
+        yield* service.tick();
+        yield* service.tick();
+        expect(f.launched).toHaveLength(1);
+        for (const id of ["new", "enrich"])
+          yield* sql`INSERT INTO inbox_subjects(id,title,summary,created_at) VALUES(${id},${id},'Résumé','')`;
+        yield* actions.apply({
+          kind: "create",
+          subjectId: "new",
+          expectedVersion: 0,
+          requestId: "new",
+          title: "Nouvelle manuelle",
+          description: "Texte revu",
+          projectId: config.projectId,
+        });
+        yield* service.tick();
+        expect(f.launched).toHaveLength(1);
+        yield* actions.apply({
+          kind: "update",
+          subjectId: "enrich",
+          expectedVersion: 0,
+          requestId: "enrich",
+          title: original.title,
+          description: "Précision",
+          projectId: original.projectId,
+          taskId: original.id,
+          taskVersion: original.version,
+        });
+        yield* service.tick();
+        yield* service.tick();
+        expect(f.launched).toHaveLength(1);
+        yield* tasks.save({
+          ...control,
+          expectedVersion: control.version,
+          notes: "Nouveau contexte automatique",
+        });
+        yield* service.tick();
+        expect(f.launched).toHaveLength(2);
+        expect(f.launchInputs[1]?.initialMessage?.text).toContain("Témoin automatique");
+        expect(f.launchInputs[1]?.initialMessage?.text).not.toContain("Nouvelle manuelle");
+        expect(f.launchInputs[1]?.initialMessage?.text).not.toContain("Déjà suivie");
+      }).pipe(Effect.provide(InboxActions.layer), Effect.provideContext(f.context));
+    }).pipe(Effect.scoped),
 );

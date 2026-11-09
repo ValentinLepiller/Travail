@@ -1,15 +1,7 @@
+import { GmailTaskMessage } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { SlackTaskRules } from "./slackTaskRules.ts";
-export const GmailTaskMessage = Schema.Struct({
-  accountEmail: Schema.NonEmptyString,
-  id: Schema.NonEmptyString,
-  threadId: Schema.NonEmptyString,
-  receivedAt: Schema.String.check(Schema.isPattern(/^\d{10,16}\.\d{6}$/)),
-  sender: Schema.String,
-  subject: Schema.String,
-  text: Schema.String.check(Schema.isMaxLength(100_000)),
-});
-export type GmailTaskMessage = typeof GmailTaskMessage.Type;
+export { GmailTaskMessage } from "@t3tools/contracts";
 export function gmailMessageUrl(accountEmail: string, messageId: string) {
   return `https://mail.google.com/mail/u/?authuser=${encodeURIComponent(accountEmail)}#all/${encodeURIComponent(messageId)}`;
 }

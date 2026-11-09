@@ -458,8 +458,12 @@ const make = Effect.gen(function* () {
             return yield* new WorkTaskError({ reason: "conflict" });
           }
           const now = DateTime.formatIso(yield* DateTime.now);
+          const automationMode = input.automationMode ?? previous?.automationMode;
+          const inboxSubjectIds = input.inboxSubjectIds ?? previous?.inboxSubjectIds;
           const next: WorkTask = {
             id: input.id,
+            ...(automationMode ? { automationMode } : {}),
+            ...(inboxSubjectIds ? { inboxSubjectIds } : {}),
             typeId: input.typeId ?? null,
             mergedTaskIds: input.mergedTaskIds ?? previous?.mergedTaskIds ?? [],
             chantierId:
@@ -726,6 +730,7 @@ const make = Effect.gen(function* () {
           const rows =
             yield* sql`DELETE FROM work_tasks WHERE id = ${input.id} AND version = ${input.expectedVersion} RETURNING id`;
           if (!rows.length) return yield* new WorkTaskError({ reason: "conflict" });
+          yield* sql`UPDATE inbox_subjects SET task_id=NULL,action_version=action_version+1 WHERE task_id=${input.id}`;
         }),
       )
       .pipe(Effect.mapError((cause) => (isWorkTaskError(cause) ? cause : storageError())));

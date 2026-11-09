@@ -1,5 +1,5 @@
 "use client";
-import { ListTodoIcon } from "lucide-react";
+import { ListTodoIcon, MailIcon } from "lucide-react";
 
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
@@ -2304,8 +2304,19 @@ function OpenCommandPaletteDialog(props: {
 
   actionItems.push({
     kind: "action",
+    value: "action:inbox",
+    searchTerms: ["inbox", "messages", "gmail", "slack"],
+    title: "Ouvrir l’inbox",
+    icon: <MailIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/inbox" });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
     value: "action:requests",
-    searchTerms: ["requests", "requêtes", "inbox", "approbation"],
+    searchTerms: ["requests", "requêtes", "approbation"],
     title: "Ouvrir les requêtes",
     icon: <ListTodoIcon className={ITEM_ICON_CLASS} />,
     run: async () => {

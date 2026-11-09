@@ -1,3 +1,8 @@
+import * as InboxActions from "./inbox/InboxSubjectActions.ts";
+import * as InboxSubjects from "./inbox/InboxSubjectService.ts";
+import * as InboxQualifications from "./inbox/InboxQualificationService.ts";
+import { InboxListError } from "@t3tools/contracts";
+import * as Inbox from "./inbox/MessageInbox.ts";
 import * as Autonomous from "./autonomousAgents/AutonomousAgentService.ts";
 import * as Requests from "./agentRequests/AgentRequestService.ts";
 import * as RequestChat from "./agentRequests/AgentRequestChatService.ts";
@@ -1280,6 +1285,10 @@ const layerWsRpc = (
     const requestChat = yield* RequestChat.AgentRequestChatService;
     const autonomous = yield* Autonomous.AutonomousAgentService;
     const taskAgents = yield* TaskAgents.WorkTaskAgentService;
+    const inbox = yield* Inbox.MessageInbox;
+    const subjects = yield* InboxSubjects.InboxSubjectService;
+    const subjectActions = yield* InboxActions.InboxSubjectActions;
+    const qualifications = yield* InboxQualifications.InboxQualificationService;
     const workTasks = yield* WorkTasks.WorkTaskService;
     const slackCollector = yield* SlackCollector.SlackTaskCollector;
     const secretRequests = yield* SecretRequests.SecretRequests;
@@ -2138,6 +2147,25 @@ const layerWsRpc = (
       [WS_METHODS.agentRequestChatSend]: (input) => requestChat.send(input),
       [WS_METHODS.agentRequestChatStop]: (input) => requestChat.stop(input.id),
       [WS_METHODS.agentRequestChatClear]: (input) => requestChat.clear(input.id),
+      [WS_METHODS.inboxQualificationStatus]: () =>
+        qualifications.status().pipe(Effect.mapError((cause) => new InboxListError({ cause }))),
+      [WS_METHODS.inboxQualificationControl]: (input) =>
+        qualifications
+          .setEnabled(input.enabled)
+          .pipe(Effect.mapError((cause) => new InboxListError({ cause }))),
+      [WS_METHODS.inboxSubjectAction]: (input) => subjectActions.apply(input),
+      [WS_METHODS.inboxSubjects]: (input) =>
+        subjects.list(input).pipe(Effect.mapError((cause) => new InboxListError({ cause }))),
+      [WS_METHODS.inboxSubjectEntries]: (input) =>
+        subjects.entries(input).pipe(Effect.mapError((cause) => new InboxListError({ cause }))),
+      [WS_METHODS.inboxGroupingStatus]: () =>
+        subjects.status().pipe(Effect.mapError((cause) => new InboxListError({ cause }))),
+      [WS_METHODS.inboxGroupingControl]: (input) =>
+        subjects
+          .setEnabled(input.enabled)
+          .pipe(Effect.mapError((cause) => new InboxListError({ cause }))),
+      [WS_METHODS.inboxList]: (input) =>
+        inbox.list(input).pipe(Effect.mapError((cause) => new InboxListError({ cause }))),
       [WS_METHODS.autonomousAgentsSubscribe]: () => autonomous.subscribe(),
       [WS_METHODS.autonomousAgentsCommand]: (input) => autonomous.command(input),
       [WS_METHODS.autonomousAgentsRead]: (input) => autonomous.subscribeDetail(input),

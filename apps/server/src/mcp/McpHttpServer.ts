@@ -44,6 +44,8 @@ import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
 import * as OrchestratorHandlers from "./toolkits/orchestrator/handlers.ts";
 import { RequestsToolkit } from "./toolkits/requests/tools.ts";
+import { InboxToolkit } from "./toolkits/inbox/tools.ts";
+import * as InboxHandlers from "./toolkits/inbox/handlers.ts";
 import { WorkTasksToolkit } from "./toolkits/workTasks/tools.ts";
 import * as WorkTasksHandlers from "./toolkits/workTasks/handlers.ts";
 import * as RequestsHandlers from "./toolkits/requests/handlers.ts";
@@ -926,6 +928,7 @@ export const layer = Layer.mergeAll(
   layerOrchestratorToolkit,
   toolkitRegistration(RequestsToolkit, RequestsHandlers.layer),
   toolkitRegistration(WorkTasksToolkit, WorkTasksHandlers.layer),
+  toolkitRegistration(InboxToolkit, InboxHandlers.layer),
   toolkitRegistration(AutonomousAgentsToolkit, AutonomousAgentsHandlers.layer),
   layerThreadToolkit,
   layerAttachmentToolkit,

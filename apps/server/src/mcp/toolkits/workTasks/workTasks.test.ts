@@ -1,3 +1,6 @@
+import * as Contexts from "../../../inbox/InboxContextService.ts";
+import * as ContextSource from "../../../inbox/InboxContextSource.ts";
+import * as Inbox from "../../../inbox/MessageInbox.ts";
 import { taskImageTestLayer } from "../../../workTasks/WorkTaskService.testkit.ts";
 import * as TaskAgents from "../../../workTasks/WorkTaskAgentService.ts";
 import { expect, it } from "@effect/vitest";
@@ -20,7 +23,21 @@ import { WorkTasksToolkit } from "./tools.ts";
 
 const collectorLayer = Collector.layer.pipe(
   Layer.provideMerge(
-    Tasks.layer.pipe(Layer.provide(taskImageTestLayer), Layer.provideMerge(Sqlite.layerMemory)),
+    Contexts.layer.pipe(
+      Layer.provide(Inbox.layer),
+      Layer.provide(Sqlite.layerMemory),
+      Layer.provide(
+        Layer.succeed(ContextSource.InboxContextSource, {
+          read: () =>
+            Effect.succeed({ status: "ready", messages: [], truncated: false, reason: null }),
+        }),
+      ),
+    ),
+  ),
+  Layer.provideMerge(
+    Layer.mergeAll(Inbox.layer, Tasks.layer.pipe(Layer.provide(taskImageTestLayer))).pipe(
+      Layer.provideMerge(Sqlite.layerMemory),
+    ),
   ),
   Layer.provide(
     Layer.succeed(Source.SlackTaskSource, {

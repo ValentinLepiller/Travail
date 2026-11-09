@@ -118,7 +118,7 @@ const make = Effect.gen(function* () {
   const memoryLock = yield* Semaphore.make(1);
   const observed = new Map<ThreadId, number>();
   const reconciledAgents = new Set<string>();
-  const chefWork = new Map<string, string>();
+  const chefWork = new Map<string, ReadonlyMap<string, string>>();
   const changed = SubscriptionRef.update(revision, (n) => n + 1);
   const codec = Schema.fromJsonString(AutonomousAgent);
   const decode = Schema.decodeUnknownEffect(codec);
@@ -847,20 +847,25 @@ const make = Effect.gen(function* () {
               : [];
           let workChanged = false;
           if (agent.kind === "chef" && agent.wakeOnTaskChanges !== false) {
-            const work = (yield* tasks.list()).filter(
+            const allTasks = yield* tasks.list();
+            const manualIds = new Set(
+              allTasks.filter((task) => task.automationMode === "manual").map((task) => task.id),
+            );
+            const work = allTasks.filter(
               (t) =>
+                t.automationMode !== "manual" &&
                 t.projectId === agent.projectId &&
                 !["done", "rejected", "merged"].includes(t.status),
             );
-            const key = encodeContext(
-              yield* Effect.forEach(work, (task) =>
-                Effect.gen(function* () {
-                  const shell =
-                    task.agentThreadId && ["doing", "review"].includes(task.status)
-                      ? yield* threads.getThreadShell(task.agentThreadId)
-                      : null;
-                  return [
-                    task.id,
+            const snapshot = yield* Effect.forEach(work, (task) =>
+              Effect.gen(function* () {
+                const shell =
+                  task.agentThreadId && ["doing", "review"].includes(task.status)
+                    ? yield* threads.getThreadShell(task.agentThreadId)
+                    : null;
+                return [
+                  task.id,
+                  encodeContext([
                     task.version,
                     shell
                       ? [
@@ -871,12 +876,17 @@ const make = Effect.gen(function* () {
                           shell.archivedAt,
                         ]
                       : null,
-                  ];
-                }),
-              ),
+                  ]),
+                ] as const;
+              }),
             );
-            workChanged = chefWork.has(agent.id) && chefWork.get(agent.id) !== key;
-            chefWork.set(agent.id, key);
+            const previous = chefWork.get(agent.id);
+            // Switching a task to manual must not itself wake the Chef by removing it from the snapshot.
+            workChanged =
+              previous !== undefined &&
+              encodeContext([...previous].filter(([id]) => !manualIds.has(id))) !==
+                encodeContext(snapshot);
+            chefWork.set(agent.id, new Map(snapshot));
           }
           if (
             !request &&
@@ -891,6 +901,7 @@ const make = Effect.gen(function* () {
             !request && agent.trigger !== "interval"
               ? (yield* tasks.list()).find(
                   (t) =>
+                    t.automationMode !== "manual" &&
                     !t.chantierId &&
                     t.status === agent.trigger &&
                     (agent.trigger !== "unqualified" || !t.agentThreadId) &&
@@ -920,6 +931,7 @@ const make = Effect.gen(function* () {
                   tasks: (yield* tasks.list())
                     .filter(
                       (t) =>
+                        t.automationMode !== "manual" &&
                         t.projectId === agent.projectId &&
                         !["done", "rejected", "merged"].includes(t.status),
                     )

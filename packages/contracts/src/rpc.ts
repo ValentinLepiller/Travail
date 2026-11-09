@@ -1,3 +1,16 @@
+import {
+  InboxSubjectActionInput,
+  InboxSubjectActionResult,
+  InboxSubjectActionError,
+  InboxGroupingStatus,
+  InboxSubjectsPage,
+  InboxSubjectEntriesInput,
+  InboxQualificationStatus,
+  InboxQualificationControl,
+  InboxListInput,
+  InboxPage,
+  InboxListError,
+} from "./inbox.ts";
 import { WorkChantier, WorkChantierSaveInput, WorkChantierLaunchInput } from "./workChantier.ts";
 import { WorkChantierPlanInput } from "./workTask.ts";
 import {
@@ -619,6 +632,14 @@ export const WS_METHODS = {
   agentRequestChatSend: "agentRequestChat.send",
   agentRequestChatStop: "agentRequestChat.stop",
   agentRequestChatClear: "agentRequestChat.clear",
+  inboxList: "inbox.list",
+  inboxSubjectAction: "inbox.subjectAction",
+  inboxSubjects: "inbox.subjects",
+  inboxSubjectEntries: "inbox.subjectEntries",
+  inboxGroupingStatus: "inbox.groupingStatus",
+  inboxGroupingControl: "inbox.groupingControl",
+  inboxQualificationStatus: "inbox.qualificationStatus",
+  inboxQualificationControl: "inbox.qualificationControl",
   autonomousAgentsSubscribe: "autonomousAgents.subscribe",
   autonomousAgentsCommand: "autonomousAgents.command",
   autonomousAgentsRead: "autonomousAgents.read",
@@ -2173,6 +2194,48 @@ const WsAgentRequestChatClearRpc = Rpc.make(WS_METHODS.agentRequestChatClear, {
   success: Schema.Void,
   error: Schema.Union([AgentRequestChatError, EnvironmentAuthorizationError]),
 });
+const WsInboxSubjectActionRpc = Rpc.make(WS_METHODS.inboxSubjectAction, {
+  payload: InboxSubjectActionInput,
+  success: InboxSubjectActionResult,
+  error: Schema.Union([InboxSubjectActionError, WorkTaskError, EnvironmentAuthorizationError]),
+});
+const WsInboxSubjectsRpc = Rpc.make(WS_METHODS.inboxSubjects, {
+  payload: InboxListInput,
+  success: InboxSubjectsPage,
+  error: Schema.Union([InboxListError, EnvironmentAuthorizationError]),
+});
+const WsInboxSubjectEntriesRpc = Rpc.make(WS_METHODS.inboxSubjectEntries, {
+  payload: InboxSubjectEntriesInput,
+  success: InboxPage,
+  error: Schema.Union([InboxListError, EnvironmentAuthorizationError]),
+});
+const WsInboxGroupingStatusRpc = Rpc.make(WS_METHODS.inboxGroupingStatus, {
+  payload: Schema.Struct({}),
+  success: InboxGroupingStatus,
+  error: Schema.Union([InboxListError, EnvironmentAuthorizationError]),
+});
+const WsInboxGroupingControlRpc = Rpc.make(WS_METHODS.inboxGroupingControl, {
+  payload: InboxQualificationControl,
+  success: InboxGroupingStatus,
+  error: Schema.Union([InboxListError, EnvironmentAuthorizationError]),
+});
+const WsInboxQualificationStatusRpc = Rpc.make(WS_METHODS.inboxQualificationStatus, {
+  payload: Schema.Struct({}),
+  success: InboxQualificationStatus,
+  error: Schema.Union([InboxListError, EnvironmentAuthorizationError]),
+});
+const WsInboxQualificationControlRpc = Rpc.make(WS_METHODS.inboxQualificationControl, {
+  payload: InboxQualificationControl,
+  success: InboxQualificationStatus,
+  error: Schema.Union([InboxListError, EnvironmentAuthorizationError]),
+});
+
+const WsInboxListRpc = Rpc.make(WS_METHODS.inboxList, {
+  payload: InboxListInput,
+  success: InboxPage,
+  error: Schema.Union([InboxListError, EnvironmentAuthorizationError]),
+});
+
 const WsAutonomousAgentsSubscribeRpc = Rpc.make(WS_METHODS.autonomousAgentsSubscribe, {
   payload: Schema.Struct({}),
   success: Schema.Array(AutonomousAgent),
@@ -2426,6 +2489,14 @@ export const WsRpcGroupFirst = RpcGroup.make(
   WsAgentRequestChatSendRpc,
   WsAgentRequestChatStopRpc,
   WsAgentRequestChatClearRpc,
+  WsInboxListRpc,
+  WsInboxSubjectActionRpc,
+  WsInboxSubjectsRpc,
+  WsInboxSubjectEntriesRpc,
+  WsInboxGroupingStatusRpc,
+  WsInboxGroupingControlRpc,
+  WsInboxQualificationStatusRpc,
+  WsInboxQualificationControlRpc,
   WsAutonomousAgentsSubscribeRpc,
   WsAutonomousAgentsCommandRpc,
   WsAutonomousAgentsReadRpc,

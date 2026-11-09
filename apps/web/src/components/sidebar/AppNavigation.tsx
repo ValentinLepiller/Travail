@@ -4,6 +4,7 @@ import {
   ChefHatIcon,
   HomeIcon,
   InboxIcon,
+  MailIcon,
   ListTodoIcon,
   SettingsIcon,
   ChartNoAxesColumnIcon,
@@ -22,6 +23,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 const destinations = [
   { to: "/", label: "Discussions", Icon: HomeIcon },
+  { to: "/inbox", label: "Inbox", Icon: MailIcon },
   { to: "/requests", label: "Requêtes", Icon: InboxIcon },
   { to: "/tasks", label: "Tâches", Icon: ListTodoIcon },
   { to: "/agents", label: "Auto", Icon: BotIcon },
@@ -100,6 +102,7 @@ export function AppNavigation() {
               ? ![
                   "/agents",
                   "/chefs",
+                  "/inbox",
                   "/requests",
                   "/tasks",
                   "/usage",

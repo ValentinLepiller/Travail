@@ -1,3 +1,4 @@
+import { TaskSelect, TaskField } from "./TaskFormFields";
 import { TaskDescription } from "./TaskDescription";
 import { useStore } from "zustand";
 import { taskPageState, type WorkTaskDraft } from "../../state/workPageState";
@@ -23,14 +24,7 @@ import { resolveDefaultProviderModelSelection } from "../../providerInstances";
 import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { ListTodoIcon, PlusIcon, BotIcon } from "lucide-react";
-import {
-  useState,
-  useEffect,
-  useRef,
-  type ComponentProps,
-  type CSSProperties,
-  type ReactNode,
-} from "react";
+import { useState, useEffect, useRef, type CSSProperties } from "react";
 import { useProjects, useThreadShells } from "../../state/entities";
 import { useWorkPageEnvironmentSelection } from "../../hooks/useWorkPageEnvironmentSelection";
 import { useEnvironmentQuery } from "../../state/query";
@@ -125,24 +119,6 @@ const FILTERS = [
   { id: "merged", label: "Fusionnées" },
 ] as const;
 type Filter = (typeof FILTERS)[number]["id"];
-
-function TaskSelect(props: ComponentProps<"select">) {
-  return (
-    <select
-      {...props}
-      className="h-9 w-full min-w-0 rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-50"
-    />
-  );
-}
-
-function TaskField({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <label className="flex min-w-0 flex-col gap-1.5 text-sm">
-      <span>{label}</span>
-      {children}
-    </label>
-  );
-}
 
 export function WorkTasksPage() {
   const search = useSearch({ from: "/_chat/tasks" });

@@ -1,3 +1,4 @@
+import * as Contexts from "../inbox/InboxContextService.ts";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -10,7 +11,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as ServerConfig from "../config.ts";
 import * as RuntimeAdmission from "../maintenance/RuntimeAdmission.ts";
-import * as WorkTasks from "./WorkTaskService.ts";
+import * as Inbox from "../inbox/MessageInbox.ts";
 import * as Source from "./SlackTaskSource.ts";
 import { SlackTaskRules, acceptsSlackMessage } from "./slackTaskRules.ts";
 
@@ -18,6 +19,7 @@ const decodeRules = Schema.decodeEffect(Schema.fromJsonString(SlackTaskRules));
 
 export const SlackTaskSyncResult = Schema.Struct({
   enabled: Schema.Boolean,
+  // Keep the existing result shape; created now counts inbox messages and appended stays zero.
   created: Schema.Number,
   appended: Schema.Number,
   duplicate: Schema.Number,
@@ -61,7 +63,8 @@ const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const config = yield* ServerConfig.ServerConfig;
-  const tasks = yield* WorkTasks.WorkTaskService;
+  const inbox = yield* Inbox.MessageInbox;
+  const contexts = yield* Contexts.InboxContextService;
   const source = yield* Source.SlackTaskSource;
   const lock = yield* Semaphore.make(1);
   const rulesPath = path.join(config.stateDir, "slack-task-rules.json");
@@ -115,7 +118,7 @@ const make = Effect.gen(function* () {
       Effect.mapError((cause) => new Source.SlackCollectionError({ stage: "storage", cause })),
     );
     const state = (yield* readState(rules.workspaceId))!;
-    // Leave indexing time and replay an overlap; task message identities deduplicate replays.
+    // Leave indexing time and replay an overlap; message identities deduplicate replays.
     const before = state.window_end ?? Math.max(now - 30, Number(state.checkpoint)).toFixed(6);
     if (Number(before) <= Number(state.started_at)) return result;
     const after = Math.max(Number(state.started_at), Number(state.checkpoint) - 300).toFixed(6);
@@ -149,7 +152,7 @@ const make = Effect.gen(function* () {
           result.ignored++;
           continue;
         }
-        const outcome = yield* tasks
+        const outcome = yield* inbox
           .ingestSlack(message)
           .pipe(
             Effect.mapError(
@@ -157,6 +160,14 @@ const make = Effect.gen(function* () {
             ),
           );
         result[outcome]++;
+        if (outcome === "created")
+          yield* contexts
+            .enrich(`slack:${message.workspaceId}:${message.channelId}:${message.ts}`)
+            .pipe(
+              Effect.catch(() =>
+                Effect.logWarning("Inbox context storage failed; principal message retained."),
+              ),
+            );
       }
       cursor = page.nextCursor;
       yield* sql`UPDATE slack_task_collection SET checkpoint = ${cursor ? state.checkpoint : before},
@@ -177,7 +188,7 @@ export const workerLayer = Layer.effectDiscard(
     const service = yield* SlackTaskCollector;
     yield* RuntimeAdmission.admit(service.sync()).pipe(
       Effect.catch(() =>
-        Effect.logWarning("Slack task collection failed; the next pass will retry."),
+        Effect.logWarning("Slack inbox collection failed; the next pass will retry."),
       ),
       Effect.repeat(Schedule.spaced("60 seconds")),
       Effect.forkScoped,

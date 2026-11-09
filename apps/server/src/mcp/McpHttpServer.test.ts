@@ -1,3 +1,9 @@
+import * as Subjects from "../inbox/InboxSubjectService.ts";
+import * as Jev from "../inbox/JevClient.ts";
+import * as QualificationSqlite from "../persistence/Sqlite.ts";
+import * as Qualifications from "../inbox/InboxQualificationService.ts";
+import * as Contexts from "../inbox/InboxContextService.ts";
+import * as Inbox from "../inbox/MessageInbox.ts";
 import * as TaskAgents from "../workTasks/WorkTaskAgentService.ts";
 import * as Autonomous from "../autonomousAgents/AutonomousAgentService.ts";
 import * as WorkTasks from "../workTasks/WorkTaskService.ts";
@@ -1011,6 +1017,19 @@ it.effect("HTTP tool discovery only advertises monitors to monitoring credential
         Layer.provide(Layer.mock(Requests.AgentRequestService)({})),
         Layer.provide(Layer.mock(Autonomous.AutonomousAgentService)({})),
         Layer.provide(Layer.mock(WorkTasks.WorkTaskService)({})),
+        Layer.provide(Layer.mock(Contexts.InboxContextService)({})),
+        Layer.provide(Layer.mock(Inbox.MessageInbox)({})),
+        Layer.provide(Layer.mock(Subjects.InboxSubjectService)({})),
+        Layer.provide(
+          Qualifications.layer.pipe(
+            Layer.provide(QualificationSqlite.layerMemory),
+            Layer.provide(
+              Layer.succeed(Jev.JevClient, {
+                evaluate: () => Effect.die("Discovery must not call Jev"),
+              }),
+            ),
+          ),
+        ),
         Layer.provide(Layer.mock(TaskAgents.WorkTaskAgentService)({})),
         Layer.provide(Layer.mock(SlackTasks.SlackTaskCollector)({})),
       ),

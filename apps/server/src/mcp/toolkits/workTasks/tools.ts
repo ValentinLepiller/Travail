@@ -150,7 +150,7 @@ export const WorkTasksToolkit = Toolkit.make(
   }),
   Tool.make("slack_tasks_sync", {
     description:
-      "Run the deterministic Slack task collector now. Reads the shared slack-task-rules.json file, creates À qualifier tasks or appends thread replies, and never marks Slack messages read or launches an agent. Disabled until configured. The server also runs it every minute.",
+      "Run the deterministic Slack inbox collector now. Reads the shared slack-task-rules.json file and stores messages in the inbox without creating tasks, marking Slack messages read or launching an agent. created counts new inbox entries; appended stays zero. Disabled until configured. The server also runs it every minute.",
     parameters: Tool.EmptyParams,
     success: Collector.SlackTaskSyncResult,
     failure: Schema.Union([SlackCollectionError, OrchestratorMcpFailure]),
@@ -159,7 +159,7 @@ export const WorkTasksToolkit = Toolkit.make(
   }),
   Tool.make("slack_tasks_status", {
     description:
-      "Read the Slack task collector configuration path, enabled state, activation timestamp and progress. Agents may edit the shared rules file; changes apply at the next collection pass.",
+      "Read the Slack inbox collector configuration path, enabled state, activation timestamp and progress. Agents may edit the shared rules file; changes apply at the next collection pass.",
     parameters: Tool.EmptyParams,
     success: Collector.SlackTaskCollectionStatus,
     failure: Schema.Union([SlackCollectionError, OrchestratorMcpFailure]),

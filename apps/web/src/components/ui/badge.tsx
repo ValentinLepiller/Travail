@@ -12,6 +12,7 @@ const badgeVariants = cva(
     defaultVariants: {
       size: "default",
       variant: "default",
+      shape: "default",
     },
     variants: {
       size: {
@@ -38,6 +39,7 @@ const badgeVariants = cva(
         label:
           "bg-[color-mix(in_srgb,var(--label)_8%,transparent)] text-[color-mix(in_srgb,var(--label)_30%,var(--color-foreground))] dark:bg-[color-mix(in_srgb,var(--label)_12%,transparent)] dark:text-[color-mix(in_srgb,var(--label)_45%,var(--color-foreground))]",
       },
+      shape: { default: "", pill: "rounded-full sm:rounded-full" },
     },
   },
 );
@@ -45,11 +47,12 @@ const badgeVariants = cva(
 interface BadgeProps extends useRender.ComponentProps<"span"> {
   variant?: VariantProps<typeof badgeVariants>["variant"];
   size?: VariantProps<typeof badgeVariants>["size"];
+  shape?: VariantProps<typeof badgeVariants>["shape"];
 }
 
-function Badge({ className, variant, size, render, ...props }: BadgeProps) {
+function Badge({ className, variant, size, shape, render, ...props }: BadgeProps) {
   const defaultProps = {
-    className: cn(badgeVariants({ className, size, variant })),
+    className: cn(badgeVariants({ className, size, variant, shape })),
     "data-slot": "badge",
   };
 

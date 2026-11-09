@@ -41,6 +41,9 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.vcsSwitchRef]: AuthSourceControlWriteScope,
   [WS_METHODS.vcsInit]: AuthSourceControlWriteScope,
 
+  [WS_METHODS.inboxSubjectAction]: AuthOrchestrationOperateScope,
+  [WS_METHODS.inboxGroupingControl]: AuthOrchestrationOperateScope,
+  [WS_METHODS.inboxQualificationControl]: AuthOrchestrationOperateScope,
   [WS_METHODS.agentRequestsRespond]: AuthOrchestrationOperateScope,
   [WS_METHODS.agentRequestsRetryDelivery]: AuthOrchestrationOperateScope,
   [WS_METHODS.agentRequestChatSend]: AuthOrchestrationOperateScope,

@@ -32,6 +32,11 @@ import {
 import * as RpcAuthorization from "./RpcAuthorization.ts";
 
 describe("RPC authorization scopes", () => {
+  it("requires operate access for human subject decisions", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.inboxSubjectAction)).toBe(
+      AuthOrchestrationOperateScope,
+    );
+  });
   it("declares exactly one scope for every RPC in the server group", () => {
     expect(new Set(Object.keys(RPC_REQUIRED_SCOPES))).toEqual(new Set(WsRpcGroup.requests.keys()));
   });
@@ -274,6 +279,40 @@ describe("RPC scope middleware", () => {
   );
 });
 
+it.effect("allows inbox browsing with read permission and denies it without access", () =>
+  Effect.gen(function* () {
+    const group = WsRpcGroup.omit(
+      ...[...WsRpcGroup.requests.keys()].filter(
+        (tag): tag is Exclude<keyof typeof RPC_REQUIRED_SCOPES, typeof WS_METHODS.inboxList> =>
+          tag !== WS_METHODS.inboxList,
+      ),
+    );
+    for (const granted of [true, false]) {
+      let handled = false;
+      const client = yield* RpcTest.makeClient(group).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            group.toLayerHandler(WS_METHODS.inboxList, () =>
+              Effect.sync(() => {
+                handled = true;
+                return { messages: [], nextCursor: null };
+              }),
+            ),
+            RpcAuthorization.layer(granted ? [AuthOrchestrationReadScope] : []),
+          ),
+        ),
+      );
+      if (granted)
+        expect(yield* client[WS_METHODS.inboxList]({})).toEqual({ messages: [], nextCursor: null });
+      else
+        expect(yield* client[WS_METHODS.inboxList]({}).pipe(Effect.flip)).toMatchObject({
+          requiredPermission: AuthOrchestrationReadScope,
+        });
+      expect(handled).toBe(granted);
+    }
+  }).pipe(Effect.scoped),
+);
+
 describe("settings mutation authorization", () => {
   const group = WsRpcGroup.omit(
     ...[...WsRpcGroup.requests.keys()].filter(
@@ -461,5 +500,70 @@ it.effect("denies manual cleanup before the handler without settings permission"
       requiredPermission: AuthSettingsWriteScope,
     });
     expect(handled).toBe(false);
+  }).pipe(Effect.scoped),
+);
+
+it("requires operation permission to start Jev and read permission for qualification status", () => {
+  expect(requiredScopeForRpcMethod(WS_METHODS.inboxQualificationControl)).toBe(
+    AuthOrchestrationOperateScope,
+  );
+  expect(requiredScopeForRpcMethod(WS_METHODS.inboxQualificationStatus)).toBe(
+    AuthOrchestrationReadScope,
+  );
+});
+
+it("protects subject consultation and grouping control with read/operation scopes", () => {
+  for (const method of [
+    WS_METHODS.inboxSubjects,
+    WS_METHODS.inboxSubjectEntries,
+    WS_METHODS.inboxGroupingStatus,
+  ])
+    expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationReadScope);
+  expect(requiredScopeForRpcMethod(WS_METHODS.inboxGroupingControl)).toBe(
+    AuthOrchestrationOperateScope,
+  );
+});
+
+it.effect("authorizes manual subject mutation before invoking any service work", () =>
+  Effect.gen(function* () {
+    const group = WsRpcGroup.omit(
+      ...[...WsRpcGroup.requests.keys()].filter(
+        (
+          tag,
+        ): tag is Exclude<keyof typeof RPC_REQUIRED_SCOPES, typeof WS_METHODS.inboxSubjectAction> =>
+          tag !== WS_METHODS.inboxSubjectAction,
+      ),
+    );
+    for (const granted of [false, true]) {
+      let handled = 0;
+      const client = yield* RpcTest.makeClient(group).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            group.toLayerHandler(WS_METHODS.inboxSubjectAction, () =>
+              Effect.sync(() => {
+                handled++;
+                return { subjectId: "subject", actionVersion: 1, ignored: true, taskId: null };
+              }),
+            ),
+            RpcAuthorization.layer(
+              granted ? [AuthOrchestrationOperateScope] : [AuthOrchestrationReadScope],
+            ),
+          ),
+        ),
+      );
+      const input = {
+        kind: "ignore" as const,
+        requestId: "request",
+        subjectId: "subject",
+        expectedVersion: 0,
+        ignored: true,
+      };
+      if (granted) yield* client[WS_METHODS.inboxSubjectAction](input);
+      else
+        expect(yield* client[WS_METHODS.inboxSubjectAction](input).pipe(Effect.flip)).toMatchObject(
+          { requiredPermission: AuthOrchestrationOperateScope },
+        );
+      expect(handled).toBe(granted ? 1 : 0);
+    }
   }).pipe(Effect.scoped),
 );

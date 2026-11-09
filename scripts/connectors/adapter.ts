@@ -4,6 +4,7 @@ const operations = {
   "gmail.profile": "gmail.get_profile",
   "gmail.search": "gmail.search_email_ids",
   "gmail.read": "gmail.read_email",
+  "gmail.thread": "gmail.read_email_thread",
   "gmail.drafts": "gmail.list_drafts",
   "gmail.createDraft": "gmail.create_draft",
   "gmail.updateDraft": "gmail.update_draft",
