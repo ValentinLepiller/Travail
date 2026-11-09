@@ -204,6 +204,72 @@ it.effect(
   },
 );
 
+it.effect(
+  "pages subjects and their entries newest first while retaining the default ascending order",
+  () =>
+    Effect.gen(function* () {
+      const queue = yield* Queue.InboxSubjectService;
+      const sql = yield* SqlClient.SqlClient;
+      const expected: string[] = [];
+      for (let n = 0; n < 12; n++) {
+        const id = `subject${n}`;
+        yield* sql`INSERT INTO inbox_subjects (id,title,summary,created_at)
+        VALUES (${id},${id},${id},${context.checkedAt})`;
+        const entryId = yield* seed(`message${n}`);
+        yield* sql`INSERT INTO inbox_subject_entries (entry_id,subject_id,linked_at,decision_json)
+        VALUES (${entryId},'subject0',${context.checkedAt},'{}')`;
+        expected.push(id);
+      }
+      const first = yield* queue.list({ order: "desc", limit: 5 });
+      expect(first.subjects.map((s) => s.id)).toEqual(expected.toReversed().slice(0, 5));
+      expect(first.nextCursor).toBe(8);
+      yield* sql`INSERT INTO inbox_subjects (id,title,summary,created_at)
+      VALUES ('new','new','new',${context.checkedAt})`;
+      const second = yield* queue.list({ order: "desc", limit: 5, after: first.nextCursor! });
+      const last = yield* queue.list({ order: "desc", limit: 5, after: second.nextCursor! });
+      expect([...first.subjects, ...second.subjects, ...last.subjects].map((s) => s.id)).toEqual(
+        expected.toReversed(),
+      );
+      expect(last.nextCursor).toBeNull();
+      expect((yield* queue.list({ order: "desc", limit: 1 })).subjects[0]?.id).toBe("new");
+      expect((yield* queue.list({ limit: 1 })).subjects[0]?.id).toBe("subject0");
+      const entries = yield* queue.entries({ subjectId: "subject0", order: "desc", limit: 5 });
+      expect(entries.messages.map((m) => m.source.message.text)).toEqual([
+        "message11",
+        "message10",
+        "message9",
+        "message8",
+        "message7",
+      ]);
+      const following = yield* queue.entries({
+        subjectId: "subject0",
+        order: "desc",
+        limit: 5,
+        after: entries.nextCursor!,
+      });
+      expect(following.messages.map((m) => m.source.message.text)).toEqual([
+        "message6",
+        "message5",
+        "message4",
+        "message3",
+        "message2",
+      ]);
+      const end = yield* queue.entries({
+        subjectId: "subject0",
+        order: "desc",
+        limit: 5,
+        after: following.nextCursor!,
+      });
+      expect(end.messages.map((m) => m.source.message.text)).toEqual(["message1", "message0"]);
+      expect(end.nextCursor).toBeNull();
+      expect(
+        (yield* queue.entries({ subjectId: "subject0", limit: 1 })).messages[0]?.source.message
+          .text,
+      ).toBe("message0");
+      expect((yield* queue.status()).enabled).toBe(false);
+    }).pipe(Effect.scoped, Effect.provide(layer(() => Effect.die("No model should be called")))),
+);
+
 it.effect.each(["json", "id", "model", "limit", "empty"] as const)(
   "retains the FIFO head without false subjects on %s failure and retries after backoff",
   (failure) => {

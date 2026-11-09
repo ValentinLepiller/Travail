@@ -24,7 +24,11 @@ export function useInboxSubjects(environmentId: EnvironmentId) {
     () =>
       getPage({
         environmentId,
-        input: { ...(pagination.after === undefined ? {} : { after: pagination.after }), limit: 5 },
+        input: {
+          ...(pagination.after === undefined ? {} : { after: pagination.after }),
+          order: "desc",
+          limit: 5,
+        },
       }),
     [environmentId, getPage, pagination.after],
   );
@@ -63,7 +67,7 @@ export function useInboxSubjectEntries(environmentId: EnvironmentId, subjectId: 
     () =>
       getPage({
         environmentId,
-        input: { subjectId, ...(after === undefined ? {} : { after }), limit: 5 },
+        input: { subjectId, ...(after === undefined ? {} : { after }), order: "desc", limit: 5 },
       }),
     [environmentId, getPage, subjectId, after],
   );

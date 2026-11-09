@@ -22,7 +22,11 @@ export function useInboxMessages(environmentId: EnvironmentId) {
     () =>
       getPage({
         environmentId,
-        input: { ...(pagination.after === undefined ? {} : { after: pagination.after }), limit: 5 },
+        input: {
+          ...(pagination.after === undefined ? {} : { after: pagination.after }),
+          order: "desc",
+          limit: 5,
+        },
       }),
     [environmentId, getPage, pagination.after],
   );

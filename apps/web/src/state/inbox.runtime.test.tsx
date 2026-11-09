@@ -448,12 +448,12 @@ it.effect(
       expect(host.querySelectorAll("details")).toHaveLength(5);
       yield* Effect.promise(layoutFrames);
       expect(requests).toHaveLength(2);
-      expect(requests[1]!.input).toEqual({ after: 57, limit: 5 });
+      expect(requests[1]!.input).toEqual({ after: 57, order: "desc", limit: 5 });
       yield* Effect.promise(layoutFrames);
       expect(requests).toHaveLength(2);
       yield* finishPage(1, pageFor(5, 91));
       expect(requests).toHaveLength(3);
-      expect(requests[2]!.input).toEqual({ after: 91, limit: 5 });
+      expect(requests[2]!.input).toEqual({ after: 91, order: "desc", limit: 5 });
       yield* finishPage(2, pageFor(10, 137));
       expect(boundary.list?.getState().contentLength).toBeGreaterThan(viewportHeight);
       expect(requests).toHaveLength(4);
@@ -734,13 +734,13 @@ it.effect.each(["messages", "subjects"] as const)(
       if (kind === "subjects") yield* finishSubjects(0, subjectPageFor(0, 5));
       else yield* finishPage(0, pageFor(0, 5));
       expect(pending).toHaveLength(2);
-      expect(pending[1]!.input).toEqual({ after: 5, limit: 5 });
+      expect(pending[1]!.input).toEqual({ after: 5, order: "desc", limit: 5 });
       if (kind === "subjects") yield* finishSubjects(1, subjectPageFor(5, 10));
       else yield* finishPage(1, pageFor(5, 10));
       // Ten 65px rows overflow the 636px viewport by only 14px, still inside its 318px threshold.
       expect(boundary.list!.getState().contentLength).toBe(650);
       expect(pending).toHaveLength(3);
-      expect(pending[2]!.input).toEqual({ after: 10, limit: 5 });
+      expect(pending[2]!.input).toEqual({ after: 10, order: "desc", limit: 5 });
       yield* Effect.promise(layoutFrames);
       expect(pending).toHaveLength(3);
       if (kind === "subjects") yield* finishSubjects(2, subjectPageFor(10, 15));
@@ -775,7 +775,7 @@ it.effect(
           [...host.querySelectorAll("button")].find((b) => b.textContent === "Réessayer")!.click(),
         );
       });
-      expect(subjectRequests[2]!.input).toEqual({ after: 5, limit: 5 });
+      expect(subjectRequests[2]!.input).toEqual({ after: 5, order: "desc", limit: 5 });
       yield* finishSubjects(2, subjectPageFor(0, 10));
       expect(boundary.list!.getState().data).toHaveLength(5);
       expect(subjectRequests).toHaveLength(3);
@@ -786,7 +786,7 @@ it.effect(
           [...host.querySelectorAll("button")].find((b) => b.textContent === "Actualiser")!.click(),
         );
       });
-      expect(subjectRequests[3]!.input).toEqual({ limit: 5 });
+      expect(subjectRequests[3]!.input).toEqual({ order: "desc", limit: 5 });
       yield* finishSubjects(3, subjectPageFor(0, null));
       yield* scrollBottom();
       expect(subjectRequests).toHaveLength(4);

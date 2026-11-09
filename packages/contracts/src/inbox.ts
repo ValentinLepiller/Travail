@@ -132,6 +132,7 @@ export const InboxMessage = Schema.Struct({
 const Cursor = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 export const InboxListInput = Schema.Struct({
   after: Schema.optionalKey(Cursor),
+  order: Schema.optionalKey(Schema.Literals(["asc", "desc"])),
   limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 20 }))),
 });
 export const InboxReadInput = Schema.Struct({ id: InboxMessage.fields.id });

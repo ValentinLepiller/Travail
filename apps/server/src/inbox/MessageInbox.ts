@@ -107,12 +107,18 @@ const make = Effect.gen(function* () {
   );
   const list = Effect.fn("MessageInbox.list")(
     function* (input: typeof InboxListInput.Type) {
-      const { after = 0, limit = 20 } = yield* validateListInput(input);
+      const { after, order = "asc", limit = 20 } = yield* validateListInput(input);
+      const cursor =
+        after === undefined
+          ? sql`1=1`
+          : order === "desc"
+            ? sql`sequence < ${after}`
+            : sql`sequence > ${after}`;
       const rows = yield* sql<{
         sequence: number;
         payload_json: string;
       }>`SELECT sequence, payload_json
-      FROM message_inbox WHERE sequence > ${after} ORDER BY sequence LIMIT ${limit + 1}`;
+      FROM message_inbox WHERE ${cursor} ORDER BY sequence ${order === "desc" ? sql`DESC` : sql`ASC`} LIMIT ${limit + 1}`;
       const page = rows.slice(0, limit);
       return {
         messages: yield* Effect.forEach(page, (row) => decode(row.payload_json)),

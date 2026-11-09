@@ -94,3 +94,26 @@ it.effect("retains messages and identities after closing and reopening an isolat
     }).pipe(Effect.provide(isolated));
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
+
+it.effect("pages newest messages first without repeats when new messages arrive", () =>
+  Effect.gen(function* () {
+    const inbox = yield* Inbox.MessageInbox;
+    const sql = yield* SqlClient.SqlClient;
+    for (let n = 0; n < 13; n++) yield* inbox.ingestGmail({ ...gmail, id: `mail${n}` });
+    yield* sql`DELETE FROM message_inbox WHERE sequence = 7`;
+    const oldest = yield* inbox.list({});
+    const expected = oldest.messages.map((m) => m.id).toReversed();
+    const first = yield* inbox.list({ order: "desc", limit: 5 });
+    expect(first.messages.map((m) => m.id)).toEqual(expected.slice(0, 5));
+    expect(first.nextCursor).toBe(9);
+    yield* inbox.ingestSlack(slack);
+    const second = yield* inbox.list({ order: "desc", after: first.nextCursor!, limit: 5 });
+    expect(second.messages.map((m) => m.id)).toEqual(expected.slice(5, 10));
+    const last = yield* inbox.list({ order: "desc", after: second.nextCursor!, limit: 5 });
+    expect(last.messages.map((m) => m.id)).toEqual(expected.slice(10));
+    expect(last.nextCursor).toBeNull();
+    expect((yield* inbox.list({ order: "desc", limit: 5 })).messages[0]?.source.kind).toBe("slack");
+    expect((yield* inbox.list({ order: "desc", after: 0 })).messages).toEqual([]);
+    expect((yield* inbox.list({ limit: 1 })).messages[0]?.id).toBe(expected.at(-1));
+  }).pipe(Effect.provide(layer)),
+);

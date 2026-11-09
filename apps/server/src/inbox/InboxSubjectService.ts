@@ -149,12 +149,18 @@ const make = Effect.gen(function* () {
   );
   const list = Effect.fn("InboxSubjectService.list")(
     function* (input: typeof InboxListInput.Type) {
-      const { after = 0, limit = 20 } = yield* decodeList(input);
+      const { after, order = "asc", limit = 20 } = yield* decodeList(input);
+      const cursor =
+        after === undefined
+          ? sql`1=1`
+          : order === "desc"
+            ? sql`s.sequence < ${after}`
+            : sql`s.sequence > ${after}`;
       const rows =
         yield* sql<InboxSubject>`SELECT s.sequence,s.id,s.title,s.summary,s.created_at AS createdAt,COUNT(e.entry_id) AS entries,
       s.action_version AS actionVersion,s.ignored,s.task_id AS taskId
       FROM inbox_subjects s LEFT JOIN inbox_subject_entries e ON e.subject_id=s.id
-      WHERE s.sequence>${after} GROUP BY s.id ORDER BY s.sequence LIMIT ${limit + 1}`;
+      WHERE ${cursor} GROUP BY s.id ORDER BY s.sequence ${order === "desc" ? sql`DESC` : sql`ASC`} LIMIT ${limit + 1}`;
       const page = rows.slice(0, limit);
       return {
         subjects: page.map((subject) => ({ ...subject, ignored: Boolean(subject.ignored) })),
@@ -165,12 +171,18 @@ const make = Effect.gen(function* () {
   );
   const entries = Effect.fn("InboxSubjectService.entries")(
     function* (input: typeof InboxSubjectEntriesInput.Type) {
-      const { subjectId, after = 0, limit = 5 } = yield* decodeEntriesInput(input);
+      const { subjectId, after, order = "asc", limit = 5 } = yield* decodeEntriesInput(input);
+      const cursor =
+        after === undefined
+          ? sql`1=1`
+          : order === "desc"
+            ? sql`m.sequence < ${after}`
+            : sql`m.sequence > ${after}`;
       const rows = yield* sql<{
         sequence: number;
         payload_json: string;
       }>`SELECT m.sequence,m.payload_json FROM inbox_subject_entries e
-      JOIN message_inbox m ON m.id=e.entry_id WHERE e.subject_id=${subjectId} AND m.sequence>${after} ORDER BY m.sequence LIMIT ${limit + 1}`;
+      JOIN message_inbox m ON m.id=e.entry_id WHERE e.subject_id=${subjectId} AND ${cursor} ORDER BY m.sequence ${order === "desc" ? sql`DESC` : sql`ASC`} LIMIT ${limit + 1}`;
       const page = rows.slice(0, limit);
       return {
         messages: yield* Effect.forEach(page, (r) => decodeEntry(r.payload_json)),
