@@ -130,10 +130,14 @@ export const InboxMessage = Schema.Struct({
   qualificationAttempt: Schema.optionalKey(InboxQualificationAttempt),
 });
 const Cursor = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
-export const InboxListInput = Schema.Struct({
+const InboxPaginationFields = {
   after: Schema.optionalKey(Cursor),
   order: Schema.optionalKey(Schema.Literals(["asc", "desc"])),
   limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 20 }))),
+};
+export const InboxListInput = Schema.Struct({
+  ...InboxPaginationFields,
+  processed: Schema.optionalKey(Schema.Boolean),
 });
 export const InboxReadInput = Schema.Struct({ id: InboxMessage.fields.id });
 export const InboxPage = Schema.Struct({
@@ -168,7 +172,7 @@ export const InboxSubjectsPage = Schema.Struct({
   nextCursor: Schema.NullOr(Cursor),
 });
 export const InboxSubjectEntriesInput = Schema.Struct({
-  ...InboxListInput.fields,
+  ...InboxPaginationFields,
   subjectId: Schema.NonEmptyString,
 });
 export const InboxGroupingStatus = Schema.Struct({

@@ -25,7 +25,7 @@ const dependencies = [Inbox.MessageInbox, Invocation.McpInvocationContext];
 export const InboxToolkit = Toolkit.make(
   Tool.make("inbox_subjects", {
     description:
-      "List durable subjects, oldest first by default; order=desc shows newest first. Bounded cursor pagination in the selected order. No tasks or execution.",
+      "List durable subjects, oldest first by default; order=desc shows newest first. Optional processed=true selects ignored or task-linked subjects; false selects pending, omitted includes all. Bounded cursor pagination in the selected order. No tasks or execution.",
     parameters: InboxListInput,
     success: InboxSubjectsPage,
     failure: Schema.Union([Subjects.InboxSubjectError, OrchestratorMcpFailure]),
@@ -101,7 +101,7 @@ export const InboxToolkit = Toolkit.make(
   }),
   Tool.make("inbox_list", {
     description:
-      "Read collected Gmail and Slack messages independently of tasks. Returns up to 20 messages in collection order, oldest first by default; order=desc shows newest first. Pass nextCursor as after and retain the same order for the next page. No qualification or agent is triggered.",
+      "Read collected Gmail and Slack messages independently of tasks. Returns up to 20 messages in collection order, oldest first by default; order=desc shows newest first. Optional processed=true selects entries included in a subject or classified no_action; false selects pending, omitted includes all. Pass nextCursor as after and retain the same order and filter for the next page. No qualification or agent is triggered.",
     parameters: InboxListInput,
     success: InboxPage,
     failure: Schema.Union([Inbox.InboxStorageError, OrchestratorMcpFailure]),

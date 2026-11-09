@@ -156,6 +156,7 @@ let actions: Array<{
   input: InboxSubjectActionInput;
   finish: (result: typeof InboxSubjectActionResult.Type) => void;
 }>;
+let subjectDecision: typeof InboxSubjectActionResult.Type | undefined;
 const existingTask: WorkTask = {
   id: "existing",
   title: "Tâche existante",
@@ -243,6 +244,7 @@ beforeEach(() => {
   actions = [];
   subjectRequests = [];
   controlledSubjects = false;
+  subjectDecision = undefined;
   boundary.ends = 0;
   renders = 0;
   streams = 0;
@@ -294,9 +296,19 @@ const setupRuntime = Effect.gen(function* () {
       [WS_METHODS.workTasksSubscribe]: () => Stream.succeed([existingTask]),
       [WS_METHODS.inboxSubjectAction]: (input: InboxSubjectActionInput) =>
         Effect.callback<typeof InboxSubjectActionResult.Type>((resume) => {
-          actions.push({ input, finish: (result) => resume(Effect.succeed(result)) });
+          actions.push({
+            input,
+            finish: (result) => {
+              subjectDecision = result;
+              resume(Effect.succeed(result));
+            },
+          });
         }),
-      [WS_METHODS.inboxSubjects]: (input: { after?: number; limit?: number }) =>
+      [WS_METHODS.inboxSubjects]: (input: {
+        after?: number;
+        limit?: number;
+        processed?: boolean;
+      }) =>
         controlledSubjects
           ? Effect.callback<typeof InboxSubjectsPage.Type, InboxListError>((resume) => {
               subjectRequests.push({
@@ -305,18 +317,23 @@ const setupRuntime = Effect.gen(function* () {
                 fail: () => resume(Effect.fail(new InboxListError({ cause: "offline" }))),
               });
             })
-          : Effect.succeed({
-              subjects: [
-                {
-                  sequence: 1,
-                  id: "incident",
-                  title: "Incident Alpha",
-                  summary: "Problème, logs et résolution.",
-                  createdAt: "2026-11-08",
-                  entries: 2,
-                },
-              ],
-              nextCursor: null,
+          : Effect.sync(() => {
+              const subject = {
+                sequence: 1,
+                id: "incident",
+                title: "Incident Alpha",
+                summary: "Problème, logs et résolution.",
+                createdAt: "2026-11-08",
+                entries: 2,
+                ...subjectDecision,
+              };
+              return {
+                subjects:
+                  Boolean(subjectDecision?.ignored || subjectDecision?.taskId) === input.processed
+                    ? [subject]
+                    : [],
+                nextCursor: null,
+              };
             }),
       [WS_METHODS.inboxSubjectEntries]: () =>
         Effect.succeed({ messages: pageFor(0, null).messages.slice(0, 2), nextCursor: null }),
@@ -448,12 +465,12 @@ it.effect(
       expect(host.querySelectorAll("details")).toHaveLength(5);
       yield* Effect.promise(layoutFrames);
       expect(requests).toHaveLength(2);
-      expect(requests[1]!.input).toEqual({ after: 57, order: "desc", limit: 5 });
+      expect(requests[1]!.input).toEqual({ after: 57, order: "desc", processed: false, limit: 5 });
       yield* Effect.promise(layoutFrames);
       expect(requests).toHaveLength(2);
       yield* finishPage(1, pageFor(5, 91));
       expect(requests).toHaveLength(3);
-      expect(requests[2]!.input).toEqual({ after: 91, order: "desc", limit: 5 });
+      expect(requests[2]!.input).toEqual({ after: 91, order: "desc", processed: false, limit: 5 });
       yield* finishPage(2, pageFor(10, 137));
       expect(boundary.list?.getState().contentLength).toBeGreaterThan(viewportHeight);
       expect(requests).toHaveLength(4);
@@ -734,13 +751,13 @@ it.effect.each(["messages", "subjects"] as const)(
       if (kind === "subjects") yield* finishSubjects(0, subjectPageFor(0, 5));
       else yield* finishPage(0, pageFor(0, 5));
       expect(pending).toHaveLength(2);
-      expect(pending[1]!.input).toEqual({ after: 5, order: "desc", limit: 5 });
+      expect(pending[1]!.input).toEqual({ after: 5, order: "desc", processed: false, limit: 5 });
       if (kind === "subjects") yield* finishSubjects(1, subjectPageFor(5, 10));
       else yield* finishPage(1, pageFor(5, 10));
       // Ten 65px rows overflow the 636px viewport by only 14px, still inside its 318px threshold.
       expect(boundary.list!.getState().contentLength).toBe(650);
       expect(pending).toHaveLength(3);
-      expect(pending[2]!.input).toEqual({ after: 10, order: "desc", limit: 5 });
+      expect(pending[2]!.input).toEqual({ after: 10, order: "desc", processed: false, limit: 5 });
       yield* Effect.promise(layoutFrames);
       expect(pending).toHaveLength(3);
       if (kind === "subjects") yield* finishSubjects(2, subjectPageFor(10, 15));
@@ -775,7 +792,12 @@ it.effect(
           [...host.querySelectorAll("button")].find((b) => b.textContent === "Réessayer")!.click(),
         );
       });
-      expect(subjectRequests[2]!.input).toEqual({ after: 5, order: "desc", limit: 5 });
+      expect(subjectRequests[2]!.input).toEqual({
+        after: 5,
+        order: "desc",
+        processed: false,
+        limit: 5,
+      });
       yield* finishSubjects(2, subjectPageFor(0, 10));
       expect(boundary.list!.getState().data).toHaveLength(5);
       expect(subjectRequests).toHaveLength(3);
@@ -786,7 +808,7 @@ it.effect(
           [...host.querySelectorAll("button")].find((b) => b.textContent === "Actualiser")!.click(),
         );
       });
-      expect(subjectRequests[3]!.input).toEqual({ order: "desc", limit: 5 });
+      expect(subjectRequests[3]!.input).toEqual({ order: "desc", processed: false, limit: 5 });
       yield* finishSubjects(3, subjectPageFor(0, null));
       yield* scrollBottom();
       expect(subjectRequests).toHaveLength(4);
@@ -849,6 +871,44 @@ async function clickText(text: string) {
   expect(button.disabled).toBe(false);
   await act(() => button.click());
 }
+
+it.effect.each(["messages", "subjects"] as const)(
+  "starts fresh %s pages when toggling Traités and ignores a late response from the previous filter",
+  (kind) =>
+    Effect.gen(function* () {
+      viewportHeight = 300;
+      if (kind === "subjects") yield* mountSubjects();
+      else {
+        yield* setupRuntime;
+        yield* mountInbox();
+      }
+      const pending = kind === "subjects" ? subjectRequests : requests;
+      if (kind === "subjects") yield* finishSubjects(0, subjectPageFor(0, 5));
+      else yield* finishPage(0, pageFor(0, 5));
+      yield* scrollBottom();
+      expect(pending).toHaveLength(2);
+      yield* Effect.promise(() => clickText("Traités"));
+      expect(pending).toHaveLength(3);
+      expect(pending[2]!.input).toEqual({ order: "desc", processed: true, limit: 5 });
+      if (kind === "subjects") {
+        yield* finishSubjects(1, subjectPageFor(5, null));
+        const page = subjectPageFor(100, null);
+        yield* finishSubjects(2, {
+          ...page,
+          subjects: page.subjects.map((s) => ({ ...s, ignored: true })),
+        });
+      } else {
+        yield* finishPage(1, pageFor(5, null));
+        yield* finishPage(2, pageFor(100, null));
+      }
+      expect(host.textContent).not.toContain(kind === "subjects" ? "Sujet 5" : "Subject 5");
+      expect(host.textContent).toContain(kind === "subjects" ? "Sujet 100" : "Subject 100");
+      expect(boundary.list!.getState().data).toHaveLength(5);
+      yield* Effect.promise(() => clickText("Traités"));
+      expect(pending).toHaveLength(4);
+      expect(pending[3]!.input).toEqual({ order: "desc", processed: false, limit: 5 });
+    }),
+);
 it.effect(
   "opens deterministic human creation without a request and submits once until acknowledged",
   () =>
@@ -883,8 +943,11 @@ it.effect(
             taskId: "created",
           }),
         );
-        expect(host.textContent).toContain("Ouvrir la tâche liée");
+        expect(host.textContent).toContain("Aucun sujet à traiter.");
         expect(host.querySelector("form")).toBeNull();
+        await clickText("Traités");
+        await openSubject();
+        expect(host.textContent).toContain("Ouvrir la tâche liée");
       });
     }),
 );
@@ -923,7 +986,7 @@ it.effect(
     }),
 );
 it.effect(
-  "shows a persistent ignored decision immediately and offers restoration without hiding sources",
+  "moves ignored subjects to the processed filter and restores them to the default view",
   () =>
     Effect.gen(function* () {
       yield* setupRuntime;
@@ -944,6 +1007,9 @@ it.effect(
             taskId: null,
           }),
         );
+        expect(host.textContent).toContain("Aucun sujet à traiter.");
+        await clickText("Traités");
+        await openSubject();
         expect(host.textContent).toContain("Ignoré");
         expect(host.textContent).toContain("Subject 0");
         await clickText("Rétablir ce sujet");
@@ -952,6 +1018,17 @@ it.effect(
           ignored: false,
           expectedVersion: 1,
         });
+        await act(() =>
+          actions[1]!.finish({
+            subjectId: "incident",
+            actionVersion: 2,
+            ignored: false,
+            taskId: null,
+          }),
+        );
+        expect(host.textContent).toContain("Aucun sujet traité.");
+        await clickText("Traités");
+        expect(host.textContent).toContain("Incident Alpha");
       });
     }),
 );

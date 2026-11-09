@@ -282,11 +282,13 @@ function InfiniteList<Item extends { id: string }>({
 function Messages({
   environmentId,
   onRefresh,
+  processed,
 }: {
   environmentId: EnvironmentId;
   onRefresh: () => void;
+  processed: boolean;
 }) {
-  const query = useInboxMessages(environmentId);
+  const query = useInboxMessages(environmentId, processed);
   const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
   const onOpenChange = (id: string, open: boolean) =>
     setOpened((current) => {
@@ -313,7 +315,11 @@ function Messages({
             <Message entry={item} open={opened.has(item.id)} onOpenChange={onOpenChange} />
           )}
           footer={
-            <ListStatus query={query} count={query.messages.length} emptyMessage="Aucun message." />
+            <ListStatus
+              query={query}
+              count={query.messages.length}
+              emptyMessage={processed ? "Aucun message traité." : "Aucun message à traiter."}
+            />
           }
         />
       </div>
@@ -366,20 +372,24 @@ function SubjectEntries({
 function Subjects({
   environmentId,
   onRefresh,
+  processed,
 }: {
   environmentId: EnvironmentId;
   onRefresh: () => void;
+  processed: boolean;
 }) {
-  const query = useInboxSubjects(environmentId);
+  const query = useInboxSubjects(environmentId, processed);
   const [decisions, setDecisions] = useState<Record<string, typeof InboxSubjectActionResult.Type>>(
     {},
   );
   const subjects = useMemo(
     () =>
-      query.subjects.map((subject) =>
-        decisions[subject.id] ? { ...subject, ...decisions[subject.id] } : subject,
-      ),
-    [query.subjects, decisions],
+      query.subjects
+        .map((subject) =>
+          decisions[subject.id] ? { ...subject, ...decisions[subject.id] } : subject,
+        )
+        .filter((subject) => Boolean(subject.ignored || subject.taskId) === processed),
+    [query.subjects, decisions, processed],
   );
   const [opened, setOpened] = useState<string | null>(null);
   return (
@@ -446,7 +456,11 @@ function Subjects({
           )}
 
           footer={
-            <ListStatus query={query} count={query.subjects.length} emptyMessage="Aucun sujet." />
+            <ListStatus
+              query={query}
+              count={subjects.length}
+              emptyMessage={processed ? "Aucun sujet traité." : "Aucun sujet à traiter."}
+            />
           }
         />
       </div>
@@ -458,6 +472,7 @@ export function InboxPage() {
   const selection = useEnvironmentSelection();
   const [revision, setRevision] = useState(0);
   const [view, setView] = useState<"messages" | "subjects">("messages");
+  const [processed, setProcessed] = useState(false);
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden">
       <WorkspacePageHeader electron={isElectron}>
@@ -487,40 +502,55 @@ export function InboxPage() {
               </select>
             </div>
           ) : null}
-          <div
-            className="mb-3 w-fit rounded-2xl border border-border bg-card/70 p-1"
-            role="tablist"
-            aria-label="Inbox"
-          >
-            <Button
-              variant={view === "messages" ? "secondary" : "ghost"}
-              size="sm"
-              role="tab"
-              aria-selected={view === "messages"}
-              onClick={() => setView("messages")}
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div
+              className="w-fit rounded-2xl border border-border bg-card/70 p-1"
+              role="tablist"
+              aria-label="Inbox"
             >
-              Messages
-            </Button>
+              <Button
+                variant={view === "messages" ? "secondary" : "ghost"}
+                size="sm"
+                role="tab"
+                aria-selected={view === "messages"}
+                onClick={() => setView("messages")}
+              >
+                Messages
+              </Button>
+              <Button
+                variant={view === "subjects" ? "secondary" : "ghost"}
+                size="sm"
+                role="tab"
+                aria-selected={view === "subjects"}
+                onClick={() => setView("subjects")}
+              >
+                Sujets
+              </Button>
+            </div>
             <Button
-              variant={view === "subjects" ? "secondary" : "ghost"}
+              variant={processed ? "secondary" : "outline"}
               size="sm"
-              role="tab"
-              aria-selected={view === "subjects"}
-              onClick={() => setView("subjects")}
+              aria-pressed={processed}
+              title={
+                processed ? "Afficher les éléments à traiter" : "Afficher les éléments traités"
+              }
+              onClick={() => setProcessed((value) => !value)}
             >
-              Sujets
+              Traités
             </Button>
           </div>
           {selection.environmentId && view === "subjects" ? (
             <Subjects
-              key={`${selection.environmentId}:${revision}`}
+              key={`${selection.environmentId}:${revision}:${processed}`}
               environmentId={selection.environmentId}
+              processed={processed}
               onRefresh={() => setRevision((value) => value + 1)}
             />
           ) : selection.environmentId ? (
             <Messages
-              key={`${selection.environmentId}:${revision}`}
+              key={`${selection.environmentId}:${revision}:${processed}`}
               environmentId={selection.environmentId}
+              processed={processed}
               onRefresh={() => setRevision((value) => value + 1)}
             />
           ) : (

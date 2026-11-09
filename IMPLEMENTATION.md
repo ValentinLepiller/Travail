@@ -293,3 +293,5 @@ Réactivation : `gh api --method PUT repos/ValentinLepiller/Travail/actions/perm
 Inbox : livraison Git du lot installé « sujets → tâches manuelles », avec ses dépendances Inbox validées et les migrations 83–85. Sources installées conservées, raccords limités à Inbox ; ajouts SMS/Usine du snapshot exclus. `$simplify` local, 245 tests ciblés, types serveur/web, lint sans erreur et builds validés. Publication directe sur `main`, Actions désactivées, sans nouvelle installation. Correspondance des sources et preuves : `.t3/harness-operations/inbox-manual-tasks-20261109/git-delivery/`.
 
 Inbox : affichage des messages, sujets et messages d’un sujet du plus récent au plus ancien, pagination conservée par cinq. Ordre FIFO des traitements inchangé ; tests de curseurs et d’arrivées concurrentes.
+
+Inbox : les messages déjà regroupés ou classés sans action et les sujets ignorés ou liés à une tâche sont masqués par défaut. Le filtre « Traités » permet de les consulter, toujours du plus récent au plus ancien et par cinq.

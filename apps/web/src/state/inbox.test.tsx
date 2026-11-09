@@ -92,7 +92,7 @@ afterEach(async () => {
 
 it("loads five at a time using returned cursors, deduplicates and stops at the last page", async () => {
   expect(view.isPending).toBe(true);
-  expect(boundary.requests[0]?.input).toEqual({ order: "desc", limit: 5 });
+  expect(boundary.requests[0]?.input).toEqual({ order: "desc", processed: false, limit: 5 });
   await act(() =>
     boundary.requests[0]!.succeed({ messages: [message("a"), message("b")], nextCursor: 47 }),
   );
@@ -102,7 +102,12 @@ it("loads five at a time using returned cursors, deduplicates and stops at the l
     view.loadNext();
   });
   expect(boundary.requests).toHaveLength(2);
-  expect(boundary.requests[1]?.input).toEqual({ after: 47, order: "desc", limit: 5 });
+  expect(boundary.requests[1]?.input).toEqual({
+    after: 47,
+    order: "desc",
+    processed: false,
+    limit: 5,
+  });
   expect(view.messages.map((x) => x.id)).toEqual(["a", "b"]);
   await act(() =>
     boundary.requests[1]!.succeed({ messages: [message("b"), message("c")], nextCursor: null }),
@@ -124,7 +129,12 @@ it("keeps loaded messages after failure and only retries on an explicit action",
   });
   expect(boundary.requests).toHaveLength(2);
   await act(() => view.retry());
-  expect(boundary.requests[2]?.input).toEqual({ after: 91, order: "desc", limit: 5 });
+  expect(boundary.requests[2]?.input).toEqual({
+    after: 91,
+    order: "desc",
+    processed: false,
+    limit: 5,
+  });
   await act(() => boundary.requests[2]!.succeed({ messages: [message("b")], nextCursor: null }));
   expect(view.messages.map((x) => x.id)).toEqual(["a", "b"]);
   expect(view.error).toBeNull();
@@ -136,7 +146,7 @@ it("handles first-page failure, retry and an empty inbox", async () => {
   await act(() => view.loadNext());
   expect(boundary.requests).toHaveLength(1);
   await act(() => view.retry());
-  expect(boundary.requests[1]?.input).toEqual({ order: "desc", limit: 5 });
+  expect(boundary.requests[1]?.input).toEqual({ order: "desc", processed: false, limit: 5 });
   await act(() => boundary.requests[1]!.succeed({ messages: [], nextCursor: null }));
   expect(view.messages).toEqual([]);
   expect(view.isPending).toBe(false);
@@ -155,7 +165,7 @@ it.each(["refresh", "machine"] as const)(
     );
     expect(view.messages).toEqual([]);
     const fresh = boundary.requests[2]!;
-    expect(fresh.input).toEqual({ order: "desc", limit: 5 });
+    expect(fresh.input).toEqual({ order: "desc", processed: false, limit: 5 });
     expect(fresh.environmentId).toBe(change === "machine" ? remote : primary);
     await act(() => old.succeed({ messages: [message("late")], nextCursor: 999 }));
     expect(view.messages).toEqual([]);

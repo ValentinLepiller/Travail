@@ -149,18 +149,22 @@ const make = Effect.gen(function* () {
   );
   const list = Effect.fn("InboxSubjectService.list")(
     function* (input: typeof InboxListInput.Type) {
-      const { after, order = "asc", limit = 20 } = yield* decodeList(input);
+      const { after, order = "asc", limit = 20, processed } = yield* decodeList(input);
       const cursor =
         after === undefined
           ? sql`1=1`
           : order === "desc"
             ? sql`s.sequence < ${after}`
             : sql`s.sequence > ${after}`;
+      const filter =
+        processed === undefined
+          ? sql`1=1`
+          : sql`(s.ignored=1 OR s.task_id IS NOT NULL) = ${Number(processed)}`;
       const rows =
         yield* sql<InboxSubject>`SELECT s.sequence,s.id,s.title,s.summary,s.created_at AS createdAt,COUNT(e.entry_id) AS entries,
       s.action_version AS actionVersion,s.ignored,s.task_id AS taskId
       FROM inbox_subjects s LEFT JOIN inbox_subject_entries e ON e.subject_id=s.id
-      WHERE ${cursor} GROUP BY s.id ORDER BY s.sequence ${order === "desc" ? sql`DESC` : sql`ASC`} LIMIT ${limit + 1}`;
+      WHERE ${cursor} AND ${filter} GROUP BY s.id ORDER BY s.sequence ${order === "desc" ? sql`DESC` : sql`ASC`} LIMIT ${limit + 1}`;
       const page = rows.slice(0, limit);
       return {
         subjects: page.map((subject) => ({ ...subject, ignored: Boolean(subject.ignored) })),

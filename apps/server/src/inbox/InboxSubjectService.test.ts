@@ -104,6 +104,53 @@ const seed = (
   });
 
 it.effect(
+  "filters ignored or task-linked subjects before pagination and returns restored subjects to pending",
+  () =>
+    Effect.gen(function* () {
+      const queue = yield* Queue.InboxSubjectService;
+      const sql = yield* SqlClient.SqlClient;
+      const pending: string[] = [],
+        processed: string[] = [];
+      for (let n = 0; n < 25; n++) {
+        const id = `subject${n}`,
+          ignored = Number(n % 3 === 1),
+          taskId = n % 3 === 2 ? "task" : null;
+        yield* sql`INSERT INTO inbox_subjects(id,title,summary,created_at,ignored,task_id) VALUES(${id},${id},${id},'',${ignored},${taskId})`;
+        (ignored || taskId ? processed : pending).push(id);
+      }
+      for (const flag of [false, true]) {
+        const seen: string[] = [];
+        let after: number | undefined;
+        do {
+          const page = yield* queue.list({
+            processed: flag,
+            order: "desc",
+            limit: 5,
+            ...(after === undefined ? {} : { after }),
+          });
+          seen.push(...page.subjects.map((s) => s.id));
+          after = page.nextCursor ?? undefined;
+        } while (after !== undefined);
+        expect(seen).toEqual((flag ? processed : pending).toReversed());
+      }
+      yield* sql`UPDATE inbox_subjects SET ignored=0 WHERE id='subject1'`;
+      yield* sql`UPDATE inbox_subjects SET task_id=NULL WHERE id='subject2'`;
+      yield* sql`UPDATE inbox_subjects SET task_id='task' WHERE id='subject4'`;
+      yield* sql`UPDATE inbox_subjects SET ignored=0 WHERE id='subject4'`;
+      expect((yield* queue.list({ processed: false })).subjects.map((s) => s.id)).toContain(
+        "subject1",
+      );
+      expect((yield* queue.list({ processed: false })).subjects.map((s) => s.id)).toContain(
+        "subject2",
+      );
+      expect((yield* queue.list({ processed: true })).subjects.map((s) => s.id)).toContain(
+        "subject4",
+      );
+      expect((yield* queue.list({ limit: 20 })).subjects).toHaveLength(20);
+    }).pipe(Effect.scoped, Effect.provide(layer(() => Effect.die("No model")))),
+);
+
+it.effect(
   "creates then reuses across Gmail/Slack and different threads, including resolution, while preserving originals and excluding no_action",
   () => {
     const prompts: string[] = [];

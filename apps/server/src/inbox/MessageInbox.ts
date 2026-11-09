@@ -107,18 +107,25 @@ const make = Effect.gen(function* () {
   );
   const list = Effect.fn("MessageInbox.list")(
     function* (input: typeof InboxListInput.Type) {
-      const { after, order = "asc", limit = 20 } = yield* validateListInput(input);
+      const { after, order = "asc", limit = 20, processed } = yield* validateListInput(input);
       const cursor =
         after === undefined
           ? sql`1=1`
           : order === "desc"
             ? sql`sequence < ${after}`
             : sql`sequence > ${after}`;
+      const filter =
+        processed === undefined
+          ? sql`1=1`
+          : sql`(
+        json_extract(payload_json,'$.qualification.category') IS 'no_action'
+        OR EXISTS (SELECT 1 FROM inbox_subject_entries e WHERE e.entry_id=message_inbox.id)
+      ) = ${Number(processed)}`;
       const rows = yield* sql<{
         sequence: number;
         payload_json: string;
       }>`SELECT sequence, payload_json
-      FROM message_inbox WHERE ${cursor} ORDER BY sequence ${order === "desc" ? sql`DESC` : sql`ASC`} LIMIT ${limit + 1}`;
+      FROM message_inbox WHERE ${cursor} AND ${filter} ORDER BY sequence ${order === "desc" ? sql`DESC` : sql`ASC`} LIMIT ${limit + 1}`;
       const page = rows.slice(0, limit);
       return {
         messages: yield* Effect.forEach(page, (row) => decode(row.payload_json)),

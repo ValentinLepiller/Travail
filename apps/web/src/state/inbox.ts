@@ -5,7 +5,7 @@ import { connectionAtomRuntime } from "../connection/runtime";
 import { useEnvironmentQuery } from "./query";
 
 // A mounted list owns its queries: remounting for refresh or another machine starts fresh.
-export function useInboxMessages(environmentId: EnvironmentId) {
+export function useInboxMessages(environmentId: EnvironmentId, processed = false) {
   const [getPage] = useState(() =>
     createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
       label: "inbox:list",
@@ -25,10 +25,11 @@ export function useInboxMessages(environmentId: EnvironmentId) {
         input: {
           ...(pagination.after === undefined ? {} : { after: pagination.after }),
           order: "desc",
+          processed,
           limit: 5,
         },
       }),
-    [environmentId, getPage, pagination.after],
+    [environmentId, getPage, pagination.after, processed],
   );
   const query = useEnvironmentQuery(pageAtom);
   const after = pagination.after;

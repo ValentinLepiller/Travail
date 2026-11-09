@@ -117,3 +117,52 @@ it.effect("pages newest messages first without repeats when new messages arrive"
     expect((yield* inbox.list({ limit: 1 })).messages[0]?.id).toBe(expected.at(-1));
   }).pipe(Effect.provide(layer)),
 );
+
+it.effect(
+  "filters processed messages before paging, including grouped entries and no_action only",
+  () =>
+    Effect.gen(function* () {
+      const inbox = yield* Inbox.MessageInbox;
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`INSERT INTO inbox_subjects(id,title,summary,created_at,ignored) VALUES('ignored','Sujet','Résumé','',1)`;
+      const processed: string[] = [],
+        pending: string[] = [];
+      for (let n = 0; n < 25; n++) {
+        const id = `mail${n}`;
+        yield* inbox.ingestGmail({ ...gmail, id });
+        const entryId = `gmail:me@example.com:${id}`;
+        if (n % 4 === 0) {
+          yield* sql`INSERT INTO inbox_subject_entries(entry_id,subject_id,linked_at,decision_json) VALUES(${entryId},'ignored','','{}')`;
+          processed.push(entryId);
+        } else if (n % 4 === 1) {
+          yield* sql`UPDATE message_inbox SET payload_json=json_set(payload_json,'$.qualification',json(${JSON.stringify({ version: 1, status: "qualified", category: "no_action", probabilities: { no_action: 1, information: 0, personal_action: 0, technical_action: 0, unsure: 0 }, confidence: 1, model: "test", qualifiedAt: "", usage: { input_tokens: 0, output_tokens: 0 } })})) WHERE id=${entryId}`;
+          processed.push(entryId);
+        } else pending.push(entryId);
+      }
+      for (const flag of [false, true]) {
+        const expected = (flag ? processed : pending).toReversed();
+        const seen: string[] = [];
+        let after: number | undefined;
+        do {
+          const page = yield* inbox.list({
+            processed: flag,
+            order: "desc",
+            limit: 5,
+            ...(after === undefined ? {} : { after }),
+          });
+          seen.push(...page.messages.map((m) => m.id));
+          expect(page.messages.length).toBeLessThanOrEqual(5);
+          after = page.nextCursor ?? undefined;
+        } while (after !== undefined);
+        expect(seen).toEqual(expected);
+      }
+      expect((yield* inbox.list({ limit: 20 })).messages).toHaveLength(20);
+      expect((yield* inbox.read({ id: processed[0]! })).id).toBe(processed[0]);
+      const informational = "gmail:me@example.com:mail1";
+      yield* sql`UPDATE message_inbox SET payload_json=json_set(payload_json,'$.qualification.category','information',
+        '$.qualification.probabilities',json('{"no_action":0,"information":1,"personal_action":0,"technical_action":0,"unsure":0}')) WHERE id=${informational}`;
+      expect((yield* inbox.list({ processed: false })).messages.map((m) => m.id)).toContain(
+        informational,
+      );
+    }).pipe(Effect.provide(layer)),
+);
