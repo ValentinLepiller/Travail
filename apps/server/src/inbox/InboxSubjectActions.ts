@@ -61,18 +61,26 @@ const make = Effect.gen(function* () {
             ignored: number;
             task_id: string | null;
             title: string;
+            closed_at: string | null;
           }>`
-        SELECT action_version,ignored,task_id,title FROM inbox_subjects WHERE id=${input.subjectId}`;
+        SELECT action_version,ignored,task_id,title,closed_at FROM inbox_subjects WHERE id=${input.subjectId}`;
           if (!subject) return yield* new InboxSubjectActionError({ reason: "missing" });
+          if (subject.closed_at !== null)
+            return yield* new InboxSubjectActionError({ reason: "closed" });
           if (subject.action_version !== input.expectedVersion)
             return yield* new InboxSubjectActionError({ reason: "conflict" });
           const now = DateTime.formatIso(yield* DateTime.now);
           let taskId = subject.task_id;
           if (input.kind !== "ignore") {
             if (subject.ignored) return yield* new InboxSubjectActionError({ reason: "conflict" });
-            if (subject.task_id && (input.kind === "create" || subject.task_id !== input.taskId))
+            if (
+              (input.kind === "create" && subject.task_id) ||
+              (input.kind === "update" && subject.task_id !== input.taskId)
+            )
               return yield* new InboxSubjectActionError({ reason: "linked" });
             const previous = input.kind === "update" ? yield* tasks.read(input.taskId) : null;
+            if (previous?.status === "done")
+              return yield* new InboxSubjectActionError({ reason: "closed" });
             if (
               input.kind === "update" &&
               previous &&
@@ -144,8 +152,12 @@ const make = Effect.gen(function* () {
             actionVersion: subject.action_version + 1,
             ignored: input.kind === "ignore" ? input.ignored : Boolean(subject.ignored),
             taskId,
+            processed: input.kind !== "ignore" || input.ignored,
+            closedAt: null,
           };
-          yield* sql`UPDATE inbox_subjects SET action_version=${result.actionVersion},ignored=${Number(result.ignored)},task_id=${taskId}
+          const restore = input.kind === "ignore" && !input.ignored;
+          yield* sql`UPDATE inbox_subjects SET action_version=${result.actionVersion},ignored=${Number(result.ignored)},task_id=${taskId},
+            handled_sequence=${restore ? sql`0` : sql`COALESCE((SELECT MAX(m.sequence) FROM inbox_subject_entries e JOIN message_inbox m ON m.id=e.entry_id WHERE e.subject_id=${input.subjectId}),0)`}
         WHERE id=${input.subjectId}`;
           yield* sql`INSERT INTO inbox_subject_actions(request_id,subject_id,input_json,result_json,created_at)
         VALUES(${input.requestId},${input.subjectId},${encoded},${yield* encodeResult(result)},${now})`;

@@ -67,6 +67,223 @@ const create = (
   ...extra,
 });
 
+const incoming = (id: string) =>
+  Effect.gen(function* () {
+    const inbox = yield* Inbox.MessageInbox,
+      sql = yield* SqlClient.SqlClient;
+    yield* inbox.ingestGmail({
+      accountEmail: "me@example.com",
+      id,
+      threadId: "alpha",
+      receivedAt: "1793278001.000001",
+      sender: "Client",
+      subject: id,
+      text: `Précision ${id}`,
+    });
+    const qualification = JSON.stringify({
+      version: 1,
+      status: "qualified",
+      category: "information",
+      probabilities: {
+        no_action: 0,
+        information: 1,
+        personal_action: 0,
+        technical_action: 0,
+        unsure: 0,
+      },
+      confidence: 1,
+      model: "fixture",
+      qualifiedAt: "",
+      usage: { input_tokens: 0, output_tokens: 0 },
+    });
+    yield* sql`UPDATE message_inbox SET payload_json=json_set(payload_json,'$.qualification',json(${qualification})) WHERE id=${`gmail:me@example.com:${id}`}`;
+  });
+const groupingDecision = (subjectId: string | null) =>
+  JSON.stringify({
+    subjectId,
+    title: subjectId ? "" : "Nouvelle demande",
+    summary: subjectId ? "" : "Nouvelle demande après clôture",
+    category: "information",
+    uncertain: false,
+    reason: "Même sujet ouvert ou nouveau besoin",
+  });
+
+it.effect("thread settlement closes a linked subject through the native completion path", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient,
+      actions = yield* Actions.InboxSubjectActions,
+      tasks = yield* Tasks.WorkTaskService,
+      subjects = yield* Subjects.InboxSubjectService;
+    yield* seed();
+    const created = yield* actions.apply(create());
+    const task = yield* tasks.read(created.taskId!);
+    yield* sql`INSERT INTO projection_projects(project_id,title,workspace_root,scripts_json,created_at,updated_at) VALUES('project','Projet','/tmp/project','[]','','')`;
+    yield* sql`INSERT INTO orchestration_v2_projection_threads(thread_id,project_id,title,default_provider,runtime_mode,interaction_mode,created_at,updated_at,payload_json) VALUES('settled','project','Thread','codex','approval-required','default','','','{}')`;
+    yield* tasks.save({
+      ...task,
+      agentThreadId: ThreadId.make("settled"),
+      expectedVersion: task.version,
+    });
+    yield* tasks.completeForSettledThread(ThreadId.make("settled"));
+    expect((yield* tasks.read(task.id)).status).toBe("done");
+    expect((yield* subjects.list({})).subjects[0]).toMatchObject({
+      processed: true,
+      closedAt: expect.any(String),
+    });
+  }).pipe(Effect.provide(layer())),
+);
+
+it.effect(
+  "reopens pending updates of the linked task and permanently closes the subject when the task is done",
+  () => {
+    const candidates: string[][] = [];
+    return Effect.gen(function* () {
+      const actions = yield* Actions.InboxSubjectActions,
+        tasks = yield* Tasks.WorkTaskService,
+        subjects = yield* Subjects.InboxSubjectService;
+      yield* seed();
+      yield* seed("beta");
+      const created = yield* actions.apply(create());
+      const task = yield* tasks.read(created.taskId!);
+      const update = {
+        kind: "update" as const,
+        subjectId: "alpha",
+        expectedVersion: created.actionVersion,
+        requestId: "update-linked",
+        taskId: task.id,
+        taskVersion: task.version,
+        projectId: task.projectId,
+        title: task.title,
+        description: "Nouvelle précision validée",
+      };
+      expect(
+        yield* actions
+          .apply({ ...update, subjectId: "beta", expectedVersion: 0 })
+          .pipe(Effect.flip),
+      ).toMatchObject({ reason: "linked" });
+      yield* incoming("later");
+      yield* subjects.setEnabled(true);
+      yield* subjects.processNext();
+      let subject = (yield* subjects.list({ processed: false })).subjects.find(
+        (s) => s.id === "alpha",
+      )!;
+      expect(subject).toMatchObject({ taskId: task.id, processed: false, entries: 2 });
+      expect(yield* tasks.read(task.id)).toEqual(task);
+      expect(yield* actions.apply(update).pipe(Effect.flip)).toMatchObject({ reason: "conflict" });
+      const acknowledged = yield* actions.apply({
+        ...update,
+        expectedVersion: subject.actionVersion!,
+      });
+      expect(acknowledged.processed).toBe(true);
+      const enriched = yield* tasks.read(task.id);
+      expect(enriched.notes).toBe(
+        `${task.notes}\n\nSujet Inbox : alpha\nNouvelle précision validée`,
+      );
+      expect(enriched.sources).toHaveLength(2);
+      yield* incoming("third");
+      yield* subjects.processNext();
+      expect(yield* actions.apply(create())).toEqual(created);
+      expect((yield* subjects.list({ processed: false })).subjects.map((s) => s.id)).toContain(
+        "alpha",
+      );
+      const done = yield* tasks.save({
+        ...enriched,
+        status: "done",
+        expectedVersion: enriched.version,
+      });
+      subject = (yield* subjects.list({})).subjects.find((s) => s.id === "alpha")!;
+      expect(subject.closedAt).toBeTruthy();
+      expect(subject.processed).toBe(true);
+      expect(
+        yield* actions
+          .apply({
+            kind: "ignore",
+            subjectId: "alpha",
+            requestId: "restore-closed",
+            expectedVersion: subject.actionVersion!,
+            ignored: false,
+          })
+          .pipe(Effect.flip),
+      ).toMatchObject({ reason: "closed" });
+      yield* tasks.save({ ...done, status: "todo", expectedVersion: done.version });
+      expect((yield* subjects.list({})).subjects.find((s) => s.id === "alpha")!.closedAt).toBe(
+        subject.closedAt,
+      );
+      yield* incoming("after-done");
+      yield* subjects.processNext();
+      expect(candidates.at(-1)).not.toContain("alpha");
+      expect((yield* subjects.list({})).subjects).toHaveLength(3);
+      expect(yield* tasks.list()).toHaveLength(1);
+      const reopened = yield* tasks.read(task.id);
+      yield* tasks.delete({ id: task.id, expectedVersion: reopened.version });
+      expect((yield* subjects.list({})).subjects.find((s) => s.id === "alpha")).toMatchObject({
+        closedAt: subject.closedAt,
+        taskId: null,
+        processed: true,
+      });
+    }).pipe(
+      Effect.provide(
+        layer(Sqlite.layerMemory, (prompt) =>
+          Effect.sync(() => {
+            const data = JSON.parse(prompt.split("DONNÉES :\n")[1]!);
+            const ids = data.candidateSubjects.map((s: { id: string }) => s.id);
+            candidates.push(ids);
+            return groupingDecision(ids.includes("alpha") ? "alpha" : null);
+          }),
+        ),
+      ),
+    );
+  },
+);
+
+it.effect(
+  "discards a Luna association when the linked task finishes while the model is answering",
+  () =>
+    Effect.gen(function* () {
+      const started = yield* Deferred.make<void>(),
+        release = yield* Deferred.make<void>();
+      let calls = 0;
+      yield* Effect.gen(function* () {
+        const actions = yield* Actions.InboxSubjectActions,
+          tasks = yield* Tasks.WorkTaskService,
+          subjects = yield* Subjects.InboxSubjectService,
+          sql = yield* SqlClient.SqlClient;
+        yield* seed();
+        const created = yield* actions.apply(create());
+        const task = yield* tasks.read(created.taskId!);
+        yield* incoming("race");
+        yield* subjects.setEnabled(true);
+        const fiber = yield* Effect.forkChild(subjects.processNext());
+        yield* Deferred.await(started);
+        yield* tasks.save({ ...task, status: "done", expectedVersion: task.version });
+        yield* Deferred.succeed(release, undefined);
+        yield* Fiber.join(fiber);
+        expect(
+          yield* sql`SELECT entry_id FROM inbox_subject_entries WHERE entry_id='gmail:me@example.com:race'`,
+        ).toEqual([]);
+        expect((yield* subjects.status()).remaining).toBe(1);
+        yield* subjects.processNext();
+        expect((yield* subjects.status()).remaining).toBe(0);
+        expect((yield* subjects.list({})).subjects).toHaveLength(2);
+      }).pipe(
+        Effect.provide(
+          layer(Sqlite.layerMemory, (prompt) =>
+            Effect.gen(function* () {
+              calls++;
+              if (calls === 1) {
+                yield* Deferred.succeed(started, undefined);
+                yield* Deferred.await(release);
+                return groupingDecision("alpha");
+              }
+              expect(JSON.parse(prompt.split("DONNÉES :\n")[1]!).candidateSubjects).toEqual([]);
+              return groupingDecision(null);
+            }),
+          ),
+        ),
+      );
+    }),
+);
+
 it.effect(
   "creates one real manual task on concurrent replay, conserves originals and rejects stale/reused requests",
   () =>
@@ -190,6 +407,8 @@ it.effect(
       ]);
       yield* sql`UPDATE work_tasks SET payload_json=json_set(payload_json,'$.attachments',json(${attachments})) WHERE id=${task.id}`;
       task = yield* tasks.read(task.id);
+      // Existing shared associations remain valid; updates cannot choose a new target.
+      yield* sql`UPDATE inbox_subjects SET task_id=${task.id} WHERE id IN ('alpha','beta')`;
       const update: InboxSubjectActionInput = {
         kind: "update",
         subjectId: "alpha",
@@ -264,6 +483,7 @@ it.effect(
         expectedVersion: 0,
       });
       yield* sql`UPDATE work_tasks SET payload_json=json_set(payload_json,'$.chantierId','unavailable') WHERE id=${task.id}`;
+      yield* sql`UPDATE inbox_subjects SET task_id=${task.id} WHERE id='alpha'`;
       const before = yield* tasks.read(task.id);
       expect(
         yield* actions
@@ -333,7 +553,7 @@ it.effect(
 );
 
 it.effect(
-  "ignored and linked subjects continue receiving Luna entries without automatically updating their task",
+  "new Luna entries return a handled subject to pending without automatically updating its task",
   () =>
     Effect.gen(function* () {
       const inbox = yield* Inbox.MessageInbox,
@@ -380,10 +600,11 @@ it.effect(
       yield* subjects.setEnabled(true);
       yield* subjects.processNext();
       expect((yield* subjects.list({})).subjects[0]).toMatchObject({
-        ignored: true,
+        ignored: false,
         taskId: original.id,
         entries: 2,
-        actionVersion: 2,
+        actionVersion: 3,
+        processed: false,
       });
       expect(yield* tasks.read(original.id)).toEqual(original);
       expect((yield* subjects.entries({ subjectId: "alpha" })).messages).toHaveLength(2);
@@ -410,7 +631,7 @@ it.effect(
 );
 
 it.effect(
-  "deleting a linked task releases every subject, keeps audit sources and allows recreation or another explicit target",
+  "deleting a shared task releases its subjects, preserves audit and permits recreation",
   () =>
     Effect.gen(function* () {
       const actions = yield* Actions.InboxSubjectActions,
@@ -421,6 +642,7 @@ it.effect(
       yield* seed("beta");
       const first = yield* actions.apply(create());
       const task = yield* tasks.read(first.taskId!);
+      yield* sql`UPDATE inbox_subjects SET task_id=${task.id} WHERE id='beta'`;
       yield* actions.apply({
         kind: "update",
         subjectId: "beta",
@@ -450,6 +672,7 @@ it.effect(
       const recreated = yield* actions.apply(create({ requestId: "recreate", expectedVersion: 2 }));
       expect(recreated.taskId).not.toBe(first.taskId);
       const next = yield* tasks.read(recreated.taskId!);
+      yield* sql`UPDATE inbox_subjects SET task_id=${next.id} WHERE id='beta'`;
       yield* actions.apply({
         kind: "update",
         subjectId: "beta",

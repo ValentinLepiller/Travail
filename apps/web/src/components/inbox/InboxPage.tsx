@@ -388,7 +388,12 @@ function Subjects({
         .map((subject) =>
           decisions[subject.id] ? { ...subject, ...decisions[subject.id] } : subject,
         )
-        .filter((subject) => Boolean(subject.ignored || subject.taskId) === processed),
+        .filter(
+          (subject) =>
+            (subject.closedAt
+              ? true
+              : (subject.processed ?? Boolean(subject.ignored || subject.taskId))) === processed,
+        ),
     [query.subjects, decisions, processed],
   );
   const [opened, setOpened] = useState<string | null>(null);
@@ -425,14 +430,20 @@ function Subjects({
                   <Badge variant="secondary" size="sm" shape="pill">
                     {subject.entries} {subject.entries === 1 ? "message" : "messages"}
                   </Badge>
-                  {subject.ignored ? (
+                  {subject.closedAt ? (
+                    <Badge variant="secondary" size="sm">
+                      Terminé
+                    </Badge>
+                  ) : subject.ignored ? (
                     <Badge variant="secondary" size="sm">
                       Ignoré
                     </Badge>
                   ) : null}
                   {subject.taskId ? (
                     <Badge variant="secondary" size="sm">
-                      Tâche liée
+                      {subject.processed === false && !subject.closedAt
+                        ? "À mettre à jour"
+                        : "Tâche liée"}
                     </Badge>
                   ) : null}
                   <InboxDate date={new Date(subject.createdAt)} label="Date de création du sujet" />

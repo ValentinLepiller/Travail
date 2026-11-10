@@ -147,8 +147,8 @@ const make = Effect.gen(function* () {
     },
     Effect.mapError((cause) => new InboxSubjectError({ cause })),
   );
-  const list = Effect.fn("InboxSubjectService.list")(
-    function* (input: typeof InboxListInput.Type) {
+  const querySubjects = Effect.fn("InboxSubjectService.list")(
+    function* (input: typeof InboxListInput.Type, openOnly = false) {
       const { after, order = "asc", limit = 20, processed } = yield* decodeList(input);
       const cursor =
         after === undefined
@@ -156,23 +156,32 @@ const make = Effect.gen(function* () {
           : order === "desc"
             ? sql`s.sequence < ${after}`
             : sql`s.sequence > ${after}`;
-      const filter =
-        processed === undefined
-          ? sql`1=1`
-          : sql`(s.ignored=1 OR s.task_id IS NOT NULL) = ${Number(processed)}`;
+      const handled = sql`(s.closed_at IS NOT NULL OR (
+        (s.ignored=1 OR s.task_id IS NOT NULL) AND NOT EXISTS (
+          SELECT 1 FROM inbox_subject_entries pending JOIN message_inbox m ON m.id=pending.entry_id
+          WHERE pending.subject_id=s.id AND m.sequence>s.handled_sequence
+        )
+      ))`;
+      const filter = processed === undefined ? sql`1=1` : sql`${handled} = ${Number(processed)}`;
       const rows =
         yield* sql<InboxSubject>`SELECT s.sequence,s.id,s.title,s.summary,s.created_at AS createdAt,COUNT(e.entry_id) AS entries,
-      s.action_version AS actionVersion,s.ignored,s.task_id AS taskId
+      s.action_version AS actionVersion,s.ignored,s.task_id AS taskId,s.closed_at AS closedAt,${handled} AS processed
       FROM inbox_subjects s LEFT JOIN inbox_subject_entries e ON e.subject_id=s.id
-      WHERE ${cursor} AND ${filter} GROUP BY s.id ORDER BY s.sequence ${order === "desc" ? sql`DESC` : sql`ASC`} LIMIT ${limit + 1}`;
+      WHERE ${cursor} AND ${filter} AND ${openOnly ? sql`s.closed_at IS NULL` : sql`1=1`}
+      GROUP BY s.id ORDER BY s.sequence ${order === "desc" ? sql`DESC` : sql`ASC`} LIMIT ${limit + 1}`;
       const page = rows.slice(0, limit);
       return {
-        subjects: page.map((subject) => ({ ...subject, ignored: Boolean(subject.ignored) })),
+        subjects: page.map((subject) => ({
+          ...subject,
+          ignored: Boolean(subject.ignored),
+          processed: Boolean(subject.processed),
+        })),
         nextCursor: rows.length > limit ? page[page.length - 1]!.sequence : null,
       };
     },
     Effect.mapError((cause) => new InboxSubjectError({ cause })),
   );
+  const list = (input: typeof InboxListInput.Type) => querySubjects(input);
   const entries = Effect.fn("InboxSubjectService.entries")(
     function* (input: typeof InboxSubjectEntriesInput.Type) {
       const { subjectId, after, order = "asc", limit = 5 } = yield* decodeEntriesInput(input);
@@ -220,16 +229,24 @@ const make = Effect.gen(function* () {
       if (!claimed) return;
       const { entry, token, attempts } = claimed;
       const result = yield* Effect.gen(function* () {
-        const [count] = yield* sql<{ count: number }>`SELECT COUNT(*) AS count FROM inbox_subjects`;
+        const [count] = yield* sql<{
+          count: number;
+        }>`SELECT COUNT(*) AS count FROM inbox_subjects WHERE closed_at IS NULL`;
         const total = count!.count;
         let after = 0,
           examined = 0;
         while (true) {
-          const page = yield* list({ after, limit: 20 });
+          const page = yield* querySubjects({ after, limit: 20 }, true);
           // Human action metadata must not change Luna's existing candidate input.
           const candidates = page.subjects.map(
-            ({ actionVersion: _version, ignored: _ignored, taskId: _task, ...candidate }) =>
-              candidate,
+            ({
+              actionVersion: _version,
+              ignored: _ignored,
+              taskId: _task,
+              processed: _processed,
+              closedAt: _closed,
+              ...candidate
+            }) => candidate,
           );
           const prompt = subjectPrompt(entry, candidates, { examinedBefore: examined, total });
           if (new TextEncoder().encode(prompt).length > 60_000)
@@ -281,6 +298,16 @@ const make = Effect.gen(function* () {
           const { decision, examined } = result.success;
           const created = decision.subjectId === null;
           const subjectId = decision.subjectId ?? (yield* crypto.randomUUIDv4);
+          if (!created) {
+            const [target] = yield* sql<{
+              closed_at: string | null;
+            }>`SELECT closed_at FROM inbox_subjects WHERE id=${subjectId}`;
+            if (!target || target.closed_at !== null) {
+              // The task may finish while Luna is answering. Retry with the current open candidates.
+              yield* sql`UPDATE inbox_subject_worker SET token=NULL,entry_id=NULL,next_at='',attempts=0,error=NULL WHERE id=1 AND token=${token}`;
+              return;
+            }
+          }
           const encoded = yield* encodeDecision({
             ...decision,
             subjectId,
@@ -291,6 +318,8 @@ const make = Effect.gen(function* () {
           if (created)
             yield* sql`INSERT INTO inbox_subjects(id,title,summary,created_at) VALUES(${subjectId},${decision.title},${decision.summary},${finished})`;
           yield* sql`INSERT INTO inbox_subject_entries(entry_id,subject_id,linked_at,decision_json) VALUES(${entry.id},${subjectId},${finished},${encoded})`;
+          if (!created)
+            yield* sql`UPDATE inbox_subjects SET ignored=0,action_version=action_version+1 WHERE id=${subjectId}`;
           yield* sql`UPDATE inbox_subject_worker SET token=NULL,entry_id=NULL,next_at='',attempts=0,error=NULL WHERE id=1 AND token=${token}`;
         }),
       );

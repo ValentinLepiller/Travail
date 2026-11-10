@@ -295,3 +295,5 @@ Inbox : livraison Git du lot installé « sujets → tâches manuelles », avec 
 Inbox : affichage des messages, sujets et messages d’un sujet du plus récent au plus ancien, pagination conservée par cinq. Ordre FIFO des traitements inchangé ; tests de curseurs et d’arrivées concurrentes.
 
 Inbox : les messages déjà regroupés ou classés sans action et les sujets ignorés ou liés à une tâche sont masqués par défaut. Le filtre « Traités » permet de les consulter, toujours du plus récent au plus ancien et par cinq.
+
+Inbox : les nouveaux messages remettent un sujet à traiter en conservant sa tâche liée. La mise à jour vise cette tâche ; sa fin clôture définitivement le sujet, qui est exclu des candidats Luna.

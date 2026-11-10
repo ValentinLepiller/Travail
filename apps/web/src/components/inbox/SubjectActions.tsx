@@ -28,41 +28,56 @@ type Props = {
   onSaved: (result: Result) => void;
 };
 
-function SubjectTaskForm({
+type FormProps = Props & {
+  mode: "create" | "update";
+  onCancel: () => void;
+};
+
+function SubjectTaskForm(props: FormProps) {
+  const query = useEnvironmentQuery(
+    props.mode === "update" ? workTasks({ environmentId: props.environmentId, input: {} }) : null,
+  );
+  if (props.mode === "create") return <SubjectTaskEditor {...props} task={null} />;
+  const task = query.data?.find((entry) => entry.id === props.subject.taskId);
+  if (!task || task.status === "done")
+    return (
+      <div className="my-3 space-y-2">
+        <p role={query.isPending ? "status" : "alert"}>
+          {query.isPending
+            ? "Chargement de la tâche liée…"
+            : query.error ||
+              (task?.status === "done"
+                ? "La tâche liée est terminée. Ce sujet est définitivement clos."
+                : "La tâche liée n’est plus disponible. Actualisez le sujet.")}
+        </p>
+        <Button variant="ghost" size="sm" onClick={props.onCancel}>
+          Annuler
+        </Button>
+      </div>
+    );
+  return <SubjectTaskEditor {...props} task={task} />;
+}
+
+function SubjectTaskEditor({
   environmentId,
   subject,
   mode,
   onSaved,
   onCancel,
-}: Props & {
-  mode: "create" | "update";
-  onCancel: () => void;
-}) {
+  task,
+}: FormProps & { task: WorkTask | null }) {
   const projects = useProjects().filter((project) => project.environmentId === environmentId);
-  const query = useEnvironmentQuery(
-    mode === "update" ? workTasks({ environmentId, input: {} }) : null,
-  );
-  const [project, setProject] = useState("");
-  const [selected, setSelected] = useState<WorkTask | null>(null);
-  const [title, setTitle] = useState(mode === "create" ? subject.title : "");
-  const [description, setDescription] = useState(subject.summary);
+  const [project, setProject] = useState(task?.projectId ?? "");
+  const [selected] = useState(task);
+  const [title, setTitle] = useState(task?.title ?? subject.title);
+  const [description, setDescription] = useState(mode === "create" ? subject.summary : "");
   const [busy, setBusy] = useState(false);
   const saving = useRef(false);
   const request = useRef<{ payload: string; id: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const apply = useAtomCommand(applyInboxSubjectAction);
   const canSave = useAtomValue(applyInboxSubjectAction.permissionAtom(environmentId));
-  const choose = (id: string) => {
-    const task = query.data?.find((task) => task.id === id) ?? null;
-    setSelected(task);
-    setProject(task?.projectId ?? "");
-    setTitle(task?.title ?? "");
-    setError(null);
-  };
-  const stale =
-    selected &&
-    query.data !== null &&
-    !query.data.some((task) => task.id === selected.id && task.version === selected.version);
+  const stale = selected && selected.version !== task?.version;
   const save = async () => {
     if (saving.current || !canSave || stale || (mode === "update" && !selected)) return;
     const common = {
@@ -105,25 +120,9 @@ function SubjectTaskForm({
         {mode === "create" ? "Créer une tâche" : "Mettre à jour la tâche"}
       </h3>
       <fieldset className="space-y-3" disabled={busy || !canSave}>
-        {mode === "update" ? (
-          <TaskField label="Tâche à mettre à jour">
-            <TaskSelect
-              required
-              value={selected?.id ?? ""}
-              onChange={(event) => choose(event.target.value)}
-            >
-              <option value="">Choisir explicitement une tâche</option>
-              {(query.data ?? []).map((task) => (
-                <option key={task.id} value={task.id}>
-                  {task.id === subject.taskId ? "Liée · " : ""}
-                  {task.title} ·{" "}
-                  {projects.find((p) => p.id === task.projectId)?.title ?? "Sans projet"}
-                </option>
-              ))}
-            </TaskSelect>
-          </TaskField>
+        {selected ? (
+          <p className="text-sm text-muted-foreground">Tâche liée : {selected.title}</p>
         ) : null}
-        {query.error && mode === "update" ? <p role="alert">{query.error}</p> : null}
         <TaskField label="Projet">
           <TaskSelect
             disabled={mode === "update"}
@@ -167,7 +166,7 @@ function SubjectTaskForm({
         </p>
         {stale ? (
           <p role="alert">
-            La tâche a changé. Sélectionnez-la à nouveau pour revoir sa version actuelle.
+            La tâche a changé. Fermez ce formulaire puis rouvrez-le pour revoir sa version actuelle.
           </p>
         ) : null}
         {error ? (
@@ -226,7 +225,7 @@ export function SubjectActions({ environmentId, subject, onSaved }: Props) {
   return (
     <div className="my-3">
       <div className="flex flex-wrap items-center gap-2">
-        {!subject.ignored ? (
+        {!subject.ignored && !subject.closedAt ? (
           <>
             {!subject.taskId ? (
               <Button
@@ -238,19 +237,30 @@ export function SubjectActions({ environmentId, subject, onSaved }: Props) {
                 Créer une tâche
               </Button>
             ) : null}
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={!canSave || busy}
-              onClick={() => setMode("update")}
-            >
-              Mettre à jour la tâche
-            </Button>
+            {subject.taskId ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!canSave || busy}
+                onClick={() => setMode("update")}
+              >
+                Mettre à jour la tâche
+              </Button>
+            ) : null}
           </>
         ) : null}
-        <Button size="sm" variant="ghost" disabled={!canSave || busy} onClick={() => void ignore()}>
-          {subject.ignored ? "Rétablir ce sujet" : "Ignorer ce sujet"}
-        </Button>
+        {!subject.closedAt ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={!canSave || busy}
+            onClick={() => void ignore()}
+          >
+            {subject.ignored ? "Rétablir ce sujet" : "Ignorer ce sujet"}
+          </Button>
+        ) : (
+          <p className="text-sm text-muted-foreground">Sujet définitivement terminé.</p>
+        )}
         {subject.taskId ? (
           <Link
             to="/tasks"
@@ -266,7 +276,7 @@ export function SubjectActions({ environmentId, subject, onSaved }: Props) {
           {error}
         </p>
       ) : null}
-      {mode ? (
+      {mode && !subject.closedAt ? (
         <SubjectTaskForm
           key={mode}
           environmentId={environmentId}

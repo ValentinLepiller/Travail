@@ -157,6 +157,7 @@ let actions: Array<{
   finish: (result: typeof InboxSubjectActionResult.Type) => void;
 }>;
 let subjectDecision: typeof InboxSubjectActionResult.Type | undefined;
+let subjectTask: WorkTask | null;
 const existingTask: WorkTask = {
   id: "existing",
   title: "Tâche existante",
@@ -245,6 +246,7 @@ beforeEach(() => {
   subjectRequests = [];
   controlledSubjects = false;
   subjectDecision = undefined;
+  subjectTask = null;
   boundary.ends = 0;
   renders = 0;
   streams = 0;
@@ -293,14 +295,17 @@ const setupRuntime = Effect.gen(function* () {
   });
   const rpc = {
     client: {
-      [WS_METHODS.workTasksSubscribe]: () => Stream.succeed([existingTask]),
+      [WS_METHODS.workTasksSubscribe]: () => Stream.succeed([subjectTask ?? existingTask]),
       [WS_METHODS.inboxSubjectAction]: (input: InboxSubjectActionInput) =>
         Effect.callback<typeof InboxSubjectActionResult.Type>((resume) => {
           actions.push({
             input,
             finish: (result) => {
-              subjectDecision = result;
-              resume(Effect.succeed(result));
+              subjectDecision = {
+                ...result,
+                processed: result.processed ?? Boolean(result.ignored || result.taskId),
+              };
+              resume(Effect.succeed(subjectDecision));
             },
           });
         }),
@@ -325,11 +330,13 @@ const setupRuntime = Effect.gen(function* () {
                 summary: "Problème, logs et résolution.",
                 createdAt: "2026-11-08",
                 entries: 2,
+                taskId: subjectTask?.id ?? null,
+                processed: false,
                 ...subjectDecision,
               };
               return {
                 subjects:
-                  Boolean(subjectDecision?.ignored || subjectDecision?.taskId) === input.processed
+                  (subject.closedAt ? true : subject.processed) === input.processed
                     ? [subject]
                     : [],
                 nextCursor: null,
@@ -952,9 +959,10 @@ it.effect(
     }),
 );
 it.effect(
-  "requires an explicit existing task and displays retained notes before reviewing the added description",
+  "targets the already linked task and displays its retained notes before reviewing an addition",
   () =>
     Effect.gen(function* () {
+      subjectTask = existingTask;
       yield* setupRuntime;
       yield* mountInbox();
       yield* Effect.promise(async () => {
@@ -962,11 +970,8 @@ it.effect(
         await clickText("Mettre à jour la tâche");
         const select = host.querySelector<HTMLSelectElement>("select")!;
         expect(select.value).toBe("");
+        expect(select.disabled).toBe(true);
         expect(actions).toHaveLength(0);
-        await act(() => {
-          select.value = "existing";
-          select.dispatchEvent(new Event("change", { bubbles: true }));
-        });
         expect(host.textContent).toContain(existingTask.notes);
         expect(host.querySelector<HTMLInputElement>("input")!.value).toBe(existingTask.title);
         await act(() =>
@@ -979,9 +984,42 @@ it.effect(
           taskId: "existing",
           taskVersion: 3,
           title: existingTask.title,
-          description: "Problème, logs et résolution.",
+          description: "",
           projectId: null,
         });
+      });
+    }),
+);
+
+it.effect(
+  "keeps definitively closed subjects readable without any reopen or task mutation action",
+  () =>
+    Effect.gen(function* () {
+      subjectTask = { ...existingTask, status: "done" };
+      subjectDecision = {
+        subjectId: "incident",
+        actionVersion: 2,
+        ignored: false,
+        taskId: existingTask.id,
+        processed: true,
+        closedAt: "2026-11-10T09:00:00Z",
+      };
+      yield* setupRuntime;
+      yield* mountInbox();
+      yield* Effect.promise(async () => {
+        await clickText("Traités");
+        await openSubject();
+        expect(host.textContent).toContain("Sujet définitivement terminé.");
+        expect(host.textContent).toContain("Ouvrir la tâche liée");
+        const buttons = [...host.querySelectorAll("button")].map((b) => b.textContent);
+        for (const name of [
+          "Créer une tâche",
+          "Mettre à jour la tâche",
+          "Ignorer ce sujet",
+          "Rétablir ce sujet",
+        ])
+          expect(buttons).not.toContain(name);
+        expect(actions).toHaveLength(0);
       });
     }),
 );

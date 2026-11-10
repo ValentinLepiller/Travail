@@ -25,7 +25,7 @@ const dependencies = [Inbox.MessageInbox, Invocation.McpInvocationContext];
 export const InboxToolkit = Toolkit.make(
   Tool.make("inbox_subjects", {
     description:
-      "List durable subjects, oldest first by default; order=desc shows newest first. Optional processed=true selects ignored or task-linked subjects; false selects pending, omitted includes all. Bounded cursor pagination in the selected order. No tasks or execution.",
+      "List durable subjects, oldest first by default; order=desc shows newest first. Optional processed=true selects subjects whose current entries were handled or that are permanently closed; false selects pending, including new entries on a task-linked subject. Omitted includes all. closedAt marks final closure after task completion. Bounded cursor pagination. No tasks or execution.",
     parameters: InboxListInput,
     success: InboxSubjectsPage,
     failure: Schema.Union([Subjects.InboxSubjectError, OrchestratorMcpFailure]),

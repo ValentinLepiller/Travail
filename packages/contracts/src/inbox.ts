@@ -165,6 +165,8 @@ export const InboxSubject = Schema.Struct({
   actionVersion: Schema.optionalKey(NonNegativeInt),
   ignored: Schema.optionalKey(Schema.Boolean),
   taskId: Schema.optionalKey(Schema.NullOr(WorkTask.fields.id)),
+  processed: Schema.optionalKey(Schema.Boolean),
+  closedAt: Schema.optionalKey(Schema.NullOr(Schema.String)),
 });
 export type InboxSubject = typeof InboxSubject.Type;
 export const InboxSubjectsPage = Schema.Struct({
@@ -233,6 +235,8 @@ export const InboxSubjectActionResult = Schema.Struct({
   actionVersion: NonNegativeInt,
   ignored: Schema.Boolean,
   taskId: Schema.NullOr(WorkTask.fields.id),
+  processed: Schema.optionalKey(Schema.Boolean),
+  closedAt: Schema.optionalKey(Schema.NullOr(Schema.String)),
 });
 export class InboxSubjectActionError extends Schema.TaggedError<InboxSubjectActionError>()(
   "InboxSubjectActionError",
@@ -245,6 +249,7 @@ export class InboxSubjectActionError extends Schema.TaggedError<InboxSubjectActi
       "linked",
       "project",
       "limit",
+      "closed",
     ]),
   },
 ) {
@@ -252,12 +257,14 @@ export class InboxSubjectActionError extends Schema.TaggedError<InboxSubjectActi
     switch (this.reason) {
       case "validation":
         return "Vérifiez le titre et la description avant d’enregistrer.";
+      case "closed":
+        return "Ce sujet est définitivement terminé. Sa tâche ne peut plus être mise à jour depuis l’inbox.";
       case "conflict":
         return "Ce sujet ou cette tâche a changé. Actualisez avant de réessayer.";
       case "missing":
         return "Ce sujet n’est plus disponible.";
       case "linked":
-        return "Ce sujet est déjà lié à une autre tâche. Ouvrez la tâche liée.";
+        return "La mise à jour doit cibler la tâche déjà liée à ce sujet.";
       case "project":
         return "Choisissez un projet disponible. Le projet de la tâche cible ne peut pas être changé ici.";
       case "limit":

@@ -411,6 +411,11 @@ const make = Effect.gen(function* () {
     return result;
   });
 
+  const closeInboxSubjects = (ids: ReadonlyArray<string>, at: string) => sql`UPDATE inbox_subjects
+    SET closed_at=${at},action_version=action_version+1
+    WHERE closed_at IS NULL AND task_id IN (
+      SELECT id FROM work_tasks WHERE ${sql.in("id", ids)} AND json_extract(payload_json,'$.status')='done'
+    )`;
   const saveInternal = Effect.fn("WorkTaskService.save")(function* (
     input: WorkTaskSaveInput,
     callerThreadId?: ThreadId,
@@ -528,6 +533,7 @@ const make = Effect.gen(function* () {
           }
           yield* sql`INSERT INTO work_tasks (id, version, payload_json) VALUES (${next.id}, ${next.version}, ${yield* encode(saved)})
         ON CONFLICT(id) DO UPDATE SET version = excluded.version, payload_json = excluded.payload_json`;
+          if (next.status === "done") yield* closeInboxSubjects([next.id], now);
           return saved;
         }),
       )
@@ -679,12 +685,24 @@ const make = Effect.gen(function* () {
     threadId: ThreadId,
   ) {
     const now = DateTime.formatIso(yield* DateTime.now);
-    const rows = yield* sql`UPDATE work_tasks
+    const rows = yield* sql
+      .withTransaction(
+        Effect.gen(function* () {
+          const rows = yield* sql<{ id: string }>`UPDATE work_tasks
       SET version = version + 1,
         payload_json = json_set(payload_json, '$.status', CASE WHEN json_extract(payload_json, '$.chantierId') IS NULL THEN 'done' ELSE 'review' END, '$.version', version + 1, '$.updatedAt', ${now})
       WHERE json_extract(payload_json, '$.agentThreadId') = ${threadId}
         AND (json_extract(payload_json, '$.status') IN ('todo', 'ready', 'doing') OR (json_extract(payload_json, '$.status') = 'review' AND json_extract(payload_json, '$.chantierId') IS NULL))
-      RETURNING id`.pipe(Effect.mapError(storageError));
+      RETURNING id`;
+          if (rows.length)
+            yield* closeInboxSubjects(
+              rows.map((row) => row.id),
+              now,
+            );
+          return rows;
+        }),
+      )
+      .pipe(Effect.mapError(storageError));
     if (rows.length > 0) yield* changed;
   });
 
