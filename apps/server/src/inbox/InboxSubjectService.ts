@@ -249,7 +249,20 @@ const make = Effect.gen(function* () {
           const updated =
             yield* sql`UPDATE inbox_subject_worker SET entry_id=${entry.id},token=${token},attempts=${attempts},next_at=${lease},error=NULL
         WHERE id=1 AND enabled=1 AND next_at<=${now} RETURNING id`;
-          return updated.length ? { entry, token, attempts } : null;
+          if (!updated.length) return null;
+          const rows = yield* sql<{
+            payload_json: string;
+          }>`SELECT m.payload_json FROM message_inbox m
+            LEFT JOIN inbox_subject_entries e ON e.entry_id=m.id WHERE e.entry_id IS NULL
+            AND m.sequence>=${row.sequence} AND json_extract(m.payload_json,'$.qualification.status')='qualified'
+            AND json_extract(m.payload_json,'$.qualification.category') IS NOT 'no_action'
+            ORDER BY m.sequence LIMIT 20`;
+          return {
+            entry,
+            token,
+            attempts,
+            batch: yield* Effect.forEach(rows, (r) => decodeEntry(r.payload_json)),
+          };
         }),
       );
       if (!claimed) return;
@@ -281,14 +294,30 @@ const make = Effect.gen(function* () {
               ...candidate
             }) => candidate,
           );
-          const prompt = subjectPrompt(entry, candidates, { examinedBefore: examined, total });
+          const search = { examinedBefore: examined, total };
+          const batch = [entry];
+          let prompt = subjectPrompt(entry, candidates, search);
           if (new TextEncoder().encode(prompt).length > 60_000)
             return yield* new Model.SubjectModelError({ reason: "limit" });
+          for (const message of claimed.batch.slice(1)) {
+            const expanded = subjectPrompt(entry, candidates, search, [...batch.slice(1), message]);
+            if (new TextEncoder().encode(expanded).length <= 60_000) {
+              batch.push(message);
+              prompt = expanded;
+            }
+          }
           const text = yield* model.generate(prompt);
           if (text.length > 5000) return yield* new Model.SubjectModelError({ reason: "format" });
           const decision = yield* decodeDecision(text).pipe(
             Effect.mapError(() => new Model.SubjectModelError({ reason: "format" })),
           );
+          const ids = decision.entryIds ?? [entry.id];
+          if (
+            !ids.includes(entry.id) ||
+            new Set(ids).size !== ids.length ||
+            ids.some((id) => !batch.some((message) => message.id === id))
+          )
+            return yield* new Model.SubjectModelError({ reason: "format" });
           examined += page.subjects.length;
           if (
             decision.subjectId !== null &&
@@ -296,7 +325,11 @@ const make = Effect.gen(function* () {
           )
             return yield* new Model.SubjectModelError({ reason: "format" });
           if (decision.subjectId !== null || page.nextCursor === null)
-            return { decision, examined };
+            return {
+              decision,
+              examined,
+              selected: batch.filter((message) => ids.includes(message.id)),
+            };
           // Bound both the search and the lease. Never create after an incomplete search.
           if (examined >= 100) return yield* new Model.SubjectModelError({ reason: "limit" });
           after = page.nextCursor;
@@ -325,10 +358,16 @@ const make = Effect.gen(function* () {
         Effect.gen(function* () {
           const [w] = yield* worker;
           if (w!.token !== token || w!.next_at <= finished) return;
-          const [existing] =
-            yield* sql`SELECT entry_id FROM inbox_subject_entries WHERE entry_id=${entry.id}`;
-          if (existing) return;
-          const { decision, examined } = result.success;
+          const { decision, examined, selected } = result.success;
+          const ids = selected.map((message) => message.id);
+          const eligible = yield* sql`SELECT id FROM message_inbox WHERE ${sql.in("id", ids)}
+            AND json_extract(payload_json,'$.qualification.status')='qualified'
+            AND json_extract(payload_json,'$.qualification.category') IS NOT 'no_action'
+            AND NOT EXISTS (SELECT 1 FROM inbox_subject_entries WHERE entry_id=message_inbox.id)`;
+          if (eligible.length !== selected.length) {
+            yield* sql`UPDATE inbox_subject_worker SET token=NULL,entry_id=NULL,next_at='',attempts=0,error=NULL WHERE id=1 AND token=${token}`;
+            return;
+          }
           const created = decision.subjectId === null;
           const subjectId = decision.subjectId ?? (yield* crypto.randomUUIDv4);
           if (!created) {
@@ -341,16 +380,19 @@ const make = Effect.gen(function* () {
               return;
             }
           }
-          const encoded = yield* encodeDecision({
-            ...decision,
-            subjectId,
-            created,
-            ...Model.subjectModelSelection,
-            candidatesExamined: examined,
-          });
           if (created)
             yield* sql`INSERT INTO inbox_subjects(id,title,summary,created_at) VALUES(${subjectId},${decision.title},${decision.summary},${finished})`;
-          yield* sql`INSERT INTO inbox_subject_entries(entry_id,subject_id,linked_at,decision_json) VALUES(${entry.id},${subjectId},${finished},${encoded})`;
+          for (const [index, message] of selected.entries()) {
+            const encoded = yield* encodeDecision({
+              ...decision,
+              entryIds: ids,
+              subjectId,
+              created: created && index === 0,
+              ...Model.subjectModelSelection,
+              candidatesExamined: examined,
+            });
+            yield* sql`INSERT INTO inbox_subject_entries(entry_id,subject_id,linked_at,decision_json) VALUES(${message.id},${subjectId},${finished},${encoded})`;
+          }
           if (!created)
             yield* sql`UPDATE inbox_subjects SET ignored=0,action_version=action_version+1 WHERE id=${subjectId}`;
           yield* sql`UPDATE inbox_subject_worker SET token=NULL,entry_id=NULL,next_at='',attempts=0,error=NULL WHERE id=1 AND token=${token}`;

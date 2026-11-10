@@ -1,5 +1,6 @@
 import { InformChantier } from "./InformChantier";
 import { SubjectActions } from "./SubjectActions";
+import { InboxProgress } from "./InboxProgress";
 import { InboxCard } from "./InboxCard";
 import {
   useCallback,
@@ -592,6 +593,9 @@ export function InboxPage() {
               Traités
             </Button>
           </div>
+          {selection.environmentId ? (
+            <InboxProgress environmentId={selection.environmentId} />
+          ) : null}
           {selection.environmentId && view === "subjects" ? (
             <Subjects
               key={`${selection.environmentId}:${revision}:${processed}`}

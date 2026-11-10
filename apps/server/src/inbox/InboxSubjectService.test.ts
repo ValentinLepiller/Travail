@@ -104,6 +104,244 @@ const seed = (
   });
 
 it.effect(
+  "groups related Gmail and Slack entries together while leaving independent, archived and unqualified messages alone",
+  () => {
+    let calls = 0;
+    return Effect.gen(function* () {
+      const queue = yield* Queue.InboxSubjectService,
+        sql = yield* SqlClient.SqlClient;
+      const first = yield* seed("incident", "technical_action", "gmail", "Incident Alpha");
+      const unrelated = yield* seed("invoice", "information", "gmail", "Facture F02");
+      const logs = yield* seed("1793278001.000001", "information", "slack", "Logs Alpha");
+      const resolved = yield* seed("resolved", "information", "gmail", "Alpha résolu");
+      yield* seed("archive", "no_action");
+      yield* seed("waiting", null);
+      const before = yield* sql`SELECT payload_json FROM message_inbox ORDER BY sequence`;
+      yield* queue.setEnabled(true);
+      yield* queue.processNext();
+      expect(calls).toBe(1);
+      expect(yield* queue.status()).toMatchObject({
+        processed: 3,
+        created: 1,
+        reused: 2,
+        remaining: 1,
+        waitingJev: 1,
+        head: { id: unrelated },
+      });
+      const links = yield* sql<{
+        entry_id: string;
+        decision_json: string;
+      }>`SELECT entry_id,decision_json FROM inbox_subject_entries ORDER BY rowid`;
+      expect(links.map((r) => r.entry_id)).toEqual([first, logs, resolved]);
+      expect(links.map((r) => JSON.parse(r.decision_json).entryIds)).toEqual(
+        Array.from({ length: 3 }, () => [first, logs, resolved]),
+      );
+      expect(yield* sql`SELECT payload_json FROM message_inbox ORDER BY sequence`).toEqual(before);
+      expect(yield* sql`SELECT id FROM work_tasks`).toEqual([]);
+      expect((yield* queue.list({})).subjects[0]?.entries).toBe(3);
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        layer((prompt) => {
+          calls++;
+          const data = JSON.parse(prompt.split("DONNÉES :\n")[1]!);
+          expect(data.principal.source.message.text).toBe("Incident Alpha");
+          expect(
+            data.pendingEntries.map(
+              (m: { principal: { source: { message: { text: string } } } }) =>
+                m.principal.source.message.text,
+            ),
+          ).toEqual(["Facture F02", "Logs Alpha", "Alpha résolu"]);
+          return Effect.succeed(
+            JSON.stringify({
+              ...JSON.parse(decision()),
+              entryIds: [
+                data.principal.id,
+                data.pendingEntries[1].principal.id,
+                data.pendingEntries[2].principal.id,
+              ],
+            }),
+          );
+        }),
+      ),
+    );
+  },
+);
+
+it.effect.each(["foreign", "duplicate", "missing-head", "empty"] as const)(
+  "rejects %s batch selection without attaching any message",
+  (invalid) =>
+    Effect.gen(function* () {
+      const queue = yield* Queue.InboxSubjectService;
+      yield* seed("first");
+      yield* seed("second");
+      yield* queue.setEnabled(true);
+      yield* queue.processNext();
+      expect(yield* queue.status()).toMatchObject({
+        processed: 0,
+        created: 0,
+        remaining: 2,
+        errors: 1,
+        head: { sequence: 1, error: "format" },
+      });
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        layer((prompt) => {
+          const data = JSON.parse(prompt.split("DONNÉES :\n")[1]!);
+          const ids =
+            invalid === "foreign"
+              ? [data.principal.id, "not-offered"]
+              : invalid === "duplicate"
+                ? [data.principal.id, data.principal.id]
+                : invalid === "empty"
+                  ? []
+                  : [data.pendingEntries[0].principal.id];
+          return Effect.succeed(JSON.stringify({ ...JSON.parse(decision()), entryIds: ids }));
+        }),
+      ),
+    ),
+);
+
+it.effect("reopens an existing subject once for a batch while preserving its linked task", () =>
+  Effect.gen(function* () {
+    const queue = yield* Queue.InboxSubjectService,
+      sql = yield* SqlClient.SqlClient;
+    yield* seed("first");
+    yield* seed("second");
+    yield* sql`INSERT INTO work_tasks(id,version,payload_json) VALUES('task',1,'{"id":"task","status":"doing","notes":"Human notes"}')`;
+    yield* sql`INSERT INTO inbox_subjects(id,title,summary,created_at,ignored,task_id,action_version) VALUES('existing','Original','Original','',1,'task',7)`;
+    const original = yield* sql`SELECT payload_json FROM work_tasks`;
+    yield* queue.setEnabled(true);
+    yield* queue.processNext();
+    expect((yield* queue.list({ processed: false })).subjects[0]).toMatchObject({
+      id: "existing",
+      entries: 2,
+      actionVersion: 8,
+      ignored: false,
+      taskId: "task",
+      processed: false,
+    });
+    expect(yield* queue.status()).toMatchObject({
+      created: 0,
+      processed: 2,
+      reused: 2,
+      remaining: 0,
+    });
+    expect(yield* sql`SELECT payload_json FROM work_tasks`).toEqual(original);
+  }).pipe(
+    Effect.scoped,
+    Effect.provide(
+      layer((prompt) => {
+        const data = JSON.parse(prompt.split("DONNÉES :\n")[1]!);
+        return Effect.succeed(
+          JSON.stringify({
+            ...JSON.parse(decision("existing")),
+            entryIds: [data.principal.id, data.pendingEntries[0].principal.id],
+          }),
+        );
+      }),
+    ),
+  ),
+);
+
+it.effect(
+  "rolls back the whole batch when its second link fails and retries it without duplicate subjects",
+  () =>
+    Effect.gen(function* () {
+      const queue = yield* Queue.InboxSubjectService,
+        sql = yield* SqlClient.SqlClient;
+      yield* seed("first");
+      yield* seed("second");
+      yield* queue.setEnabled(true);
+      yield* sql`CREATE TRIGGER reject_second BEFORE INSERT ON inbox_subject_entries WHEN NEW.entry_id='gmail:me@example.com:second' BEGIN SELECT RAISE(ABORT,'second link failure'); END`;
+      yield* queue.processNext().pipe(Effect.flip);
+      expect(yield* sql`SELECT id FROM inbox_subjects`).toEqual([]);
+      expect(yield* sql`SELECT entry_id FROM inbox_subject_entries`).toEqual([]);
+      yield* sql`DROP TRIGGER reject_second`;
+      yield* TestClock.adjust("301 seconds");
+      yield* queue.processNext();
+      yield* queue.processNext();
+      expect(yield* queue.status()).toMatchObject({
+        processed: 2,
+        created: 1,
+        reused: 1,
+        remaining: 0,
+      });
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        layer((prompt) => {
+          const data = JSON.parse(prompt.split("DONNÉES :\n")[1]!);
+          return Effect.succeed(
+            JSON.stringify({
+              ...JSON.parse(decision()),
+              entryIds: [
+                data.principal.id,
+                ...data.pendingEntries.map((m: { principal: { id: string } }) => m.principal.id),
+              ],
+            }),
+          );
+        }),
+      ),
+    ),
+);
+
+it.effect(
+  "bounds the lookahead at twenty and drops oversized extra messages without truncating or blocking the oldest",
+  () => {
+    let calls = 0;
+    return Effect.gen(function* () {
+      const queue = yield* Queue.InboxSubjectService;
+      yield* seed("first");
+      for (let n = 0; n < 24; n++) yield* seed(`other${n}`);
+      yield* queue.setEnabled(true);
+      yield* queue.processNext();
+      expect((yield* queue.status()).processed).toBe(1);
+      expect(calls).toBe(1);
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        layer((prompt) => {
+          calls++;
+          const data = JSON.parse(prompt.split("DONNÉES :\n")[1]!);
+          expect(data.pendingEntries).toHaveLength(19);
+          return Effect.succeed(decision());
+        }),
+      ),
+    );
+  },
+);
+
+it.effect(
+  "retains an oversized extra entry for its own turn instead of blocking a small head",
+  () =>
+    Effect.gen(function* () {
+      const queue = yield* Queue.InboxSubjectService;
+      yield* seed("first");
+      yield* seed("huge", "information", "gmail", "x".repeat(70_000));
+      yield* queue.setEnabled(true);
+      yield* queue.processNext();
+      expect(yield* queue.status()).toMatchObject({
+        processed: 1,
+        remaining: 1,
+        errors: 0,
+        head: { sequence: 2 },
+      });
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        layer((prompt) => {
+          const data = JSON.parse(prompt.split("DONNÉES :\n")[1]!);
+          expect(data.pendingEntries).toEqual([]);
+          expect(data.principal.source.message.text).toBe("first");
+          return Effect.succeed(decision());
+        }),
+      ),
+    ),
+);
+
+it.effect(
   "filters ignored or task-linked subjects before pagination and returns restored subjects to pending",
   () =>
     Effect.gen(function* () {
@@ -205,6 +443,7 @@ it.effect(
           "principal",
           "boundedPriorContext",
           "jevQualification",
+          "pendingEntries",
           "candidateSubjects",
           "search",
         ]);

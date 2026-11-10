@@ -174,6 +174,8 @@ const existingTask: WorkTask = {
   updatedAt: "",
 };
 let controlledSubjects: boolean;
+let groupingRemaining: number, groupingReads: number;
+let groupingEnabled: boolean, progressError: boolean;
 let viewportHeight: number;
 let rowHeight: number;
 let footerHeight: number;
@@ -248,6 +250,10 @@ beforeEach(() => {
   actions = [];
   subjectRequests = [];
   controlledSubjects = false;
+  groupingRemaining = 3;
+  groupingReads = 0;
+  groupingEnabled = true;
+  progressError = false;
   subjectDecision = undefined;
   subjectTask = null;
   subjectContext = {};
@@ -302,6 +308,31 @@ const setupRuntime = Effect.gen(function* () {
       environment: { capabilities: { performanceStatistics: false } },
     }),
     client: {
+      [WS_METHODS.inboxQualificationStatus]: () =>
+        Effect.succeed({
+          enabled: true,
+          total: 5,
+          qualified: 5,
+          remaining: 0,
+          errors: 0,
+          head: null,
+        }),
+      [WS_METHODS.inboxGroupingStatus]: () =>
+        Effect.suspend(() => {
+          groupingReads++;
+          return progressError
+            ? Effect.fail(new InboxListError({ cause: "offline" }))
+            : Effect.succeed({
+                enabled: groupingEnabled,
+                processed: 2,
+                remaining: groupingRemaining,
+                waitingJev: 0,
+                errors: 0,
+                contextsPending: 0,
+                contextErrors: 0,
+                head: null,
+              });
+        }),
       [WS_METHODS.workTasksSubscribe]: () => Stream.succeed([subjectTask ?? existingTask]),
       [WS_METHODS.workChantiersSubscribe]: () => Stream.succeed([]),
       [WS_METHODS.inboxSubjectAction]: (input: InboxSubjectActionInput) =>
@@ -402,6 +433,7 @@ afterEach(async () => {
   host.remove();
   registry.dispose();
   vi.restoreAllMocks();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -466,6 +498,54 @@ const finishPage = (index: number, value: typeof InboxPage.Type) =>
     await act(() => requests[index]!.finish(value));
     await layoutFrames();
   });
+
+it.effect(
+  "refreshes worker progress automatically without restarting the paginated list, then stops when unmounted",
+  () =>
+    Effect.gen(function* () {
+      yield* setupRuntime;
+      yield* Effect.promise(async () => {
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+        await act(() =>
+          renderer!.render(
+            <RegistryContext.Provider value={registry}>
+              <InboxView />
+            </RegistryContext.Provider>,
+          ),
+        );
+        expect(host.textContent).toContain("Jev · À jour");
+        expect(host.textContent).toContain("Luna · 3 à regrouper");
+        expect(groupingReads).toBe(1);
+        await act(() => requests[0]!.finish(pageFor(0, null)));
+        groupingRemaining = 0;
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(10_001);
+        });
+        expect(groupingReads).toBe(2);
+        expect(host.textContent).toContain("Luna · À jour");
+        expect(requests).toHaveLength(1);
+        expect(host.textContent).toContain("Subject 0");
+        groupingEnabled = false;
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(10_001);
+        });
+        expect(host.textContent).toContain("Luna · En pause");
+        progressError = true;
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(10_001);
+        });
+        expect(host.textContent).toContain("Luna · Statut indisponible");
+        expect(host.textContent).not.toContain("Luna · À jour");
+        const reads = groupingReads;
+        await act(() => renderer!.unmount());
+        renderer = undefined;
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(20_001);
+        });
+        expect(groupingReads).toBe(reads);
+      });
+    }),
+);
 
 it.effect(
   "shows the first five immediately and fills a tall viewport with serial pages of five",
