@@ -1032,10 +1032,13 @@ it.effect("prefills a chantier context for creation and lets the human choose no
       await clickText("Créer une tâche");
       const chantier = host.querySelectorAll<HTMLSelectElement>("select")[1]!;
       expect(chantier.value).toBe("c");
+      expect(host.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
+      expect(host.textContent).toContain("Ce chantier n’est plus disponible");
       await act(() => {
         chantier.value = "";
         chantier.dispatchEvent(new Event("change", { bubbles: true }));
       });
+      expect(host.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(false);
       await act(() =>
         host
           .querySelector("form")!

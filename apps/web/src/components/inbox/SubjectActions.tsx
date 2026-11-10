@@ -87,11 +87,27 @@ function SubjectTaskEditor({
   const saving = useRef(false);
   const request = useRef<{ payload: string; id: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const availableChantiers = chantiers.data?.filter(
+    (entry) => entry.projectId === project && entry.status !== "done",
+  );
+  const unavailableChantier = Boolean(
+    mode === "create" &&
+    chantier &&
+    availableChantiers &&
+    !availableChantiers.some((c) => c.id === chantier),
+  );
   const apply = useAtomCommand(applyInboxSubjectAction);
   const canSave = useAtomValue(applyInboxSubjectAction.permissionAtom(environmentId));
   const stale = selected && selected.version !== task?.version;
   const save = async () => {
-    if (saving.current || !canSave || stale || (mode !== "create" && !selected)) return;
+    if (
+      saving.current ||
+      !canSave ||
+      stale ||
+      unavailableChantier ||
+      (mode !== "create" && !selected)
+    )
+      return;
     const common = {
       subjectId: subject.id,
       expectedVersion: subject.actionVersion ?? 0,
@@ -176,16 +192,17 @@ function SubjectTaskEditor({
           <TaskField label="Chantier">
             <TaskSelect value={chantier} onChange={(event) => setChantier(event.target.value)}>
               <option value="">Sans chantier</option>
-              {chantier && !chantiers.data?.some((c) => c.id === chantier) && (
-                <option value={chantier}>{subject.contextLabel ?? chantier}</option>
+              {chantier && !availableChantiers?.some((c) => c.id === chantier) && (
+                <option value={chantier} disabled={unavailableChantier}>
+                  {subject.contextLabel ?? chantier}
+                  {unavailableChantier ? " · indisponible" : ""}
+                </option>
               )}
-              {chantiers.data
-                ?.filter((c) => c.projectId === project && c.status !== "done")
-                .map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.title}
-                  </option>
-                ))}
+              {availableChantiers?.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.title}
+                </option>
+              ))}
             </TaskSelect>
           </TaskField>
         ) : null}
@@ -225,6 +242,11 @@ function SubjectTaskEditor({
             La tâche a changé. Fermez ce formulaire puis rouvrez-le pour revoir sa version actuelle.
           </p>
         ) : null}
+        {unavailableChantier ? (
+          <p role="alert">
+            Ce chantier n’est plus disponible. Choisissez-en un autre ou Sans chantier.
+          </p>
+        ) : null}
         {error ? (
           <p role="alert" className="text-sm text-destructive">
             {error}
@@ -234,7 +256,12 @@ function SubjectTaskEditor({
           <Button
             type="submit"
             size="sm"
-            disabled={Boolean(stale) || !title.trim() || (mode !== "create" && !selected)}
+            disabled={
+              Boolean(stale) ||
+              unavailableChantier ||
+              !title.trim() ||
+              (mode !== "create" && !selected)
+            }
           >
             {busy ? "Enregistrement…" : "Valider et enregistrer"}
           </Button>
