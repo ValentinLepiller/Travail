@@ -5,6 +5,7 @@ import {
   WorkTaskSaveInput,
   WorkTaskError,
   workTaskSources,
+  isClosedWorkTaskStatus,
 } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Context from "effect/Context";
@@ -14,6 +15,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Tasks from "../workTasks/WorkTaskService.ts";
+import * as SubjectContext from "./subjectContext.ts";
 
 export class InboxSubjectActions extends Context.Service<
   InboxSubjectActions,
@@ -62,8 +64,10 @@ const make = Effect.gen(function* () {
             task_id: string | null;
             title: string;
             closed_at: string | null;
+            context_json: string | null;
+            task_link_kind: "created" | "completed" | null;
           }>`
-        SELECT action_version,ignored,task_id,title,closed_at FROM inbox_subjects WHERE id=${input.subjectId}`;
+        SELECT action_version,ignored,task_id,title,closed_at,context_json,task_link_kind FROM inbox_subjects WHERE id=${input.subjectId}`;
           if (!subject) return yield* new InboxSubjectActionError({ reason: "missing" });
           if (subject.closed_at !== null)
             return yield* new InboxSubjectActionError({ reason: "closed" });
@@ -71,23 +75,35 @@ const make = Effect.gen(function* () {
             return yield* new InboxSubjectActionError({ reason: "conflict" });
           const now = DateTime.formatIso(yield* DateTime.now);
           let taskId = subject.task_id;
+          let taskLinkKind = subject.task_link_kind;
+          const context = subject.context_json
+            ? yield* SubjectContext.decodeSubjectContext(subject.context_json)
+            : null;
           if (input.kind !== "ignore") {
             if (subject.ignored) return yield* new InboxSubjectActionError({ reason: "conflict" });
             if (
               (input.kind === "create" && subject.task_id) ||
-              (input.kind === "update" && subject.task_id !== input.taskId)
+              (input.kind === "update" && subject.task_id !== input.taskId) ||
+              (input.kind === "complete" &&
+                (subject.task_id
+                  ? subject.task_id !== input.taskId
+                  : context?.kind !== "task" || context.id !== input.taskId))
             )
               return yield* new InboxSubjectActionError({ reason: "linked" });
-            const previous = input.kind === "update" ? yield* tasks.read(input.taskId) : null;
-            if (previous?.status === "done")
+            const previous = input.kind !== "create" ? yield* tasks.read(input.taskId) : null;
+            if (previous && isClosedWorkTaskStatus(previous.status))
               return yield* new InboxSubjectActionError({ reason: "closed" });
             if (
-              input.kind === "update" &&
+              input.kind !== "create" &&
               previous &&
-              (previous.version !== input.taskVersion || previous.projectId !== input.projectId)
+              (previous.version !== input.taskVersion ||
+                (input.kind === "update" && previous.projectId !== input.projectId))
             )
               return yield* new InboxSubjectActionError({
-                reason: previous.projectId !== input.projectId ? "project" : "conflict",
+                reason:
+                  input.kind === "update" && previous.projectId !== input.projectId
+                    ? "project"
+                    : "conflict",
               });
             taskId = previous?.id ?? `inbox-subject:${yield* crypto.randomUUIDv4}`;
             const entries = yield* sql<{
@@ -130,11 +146,21 @@ const make = Effect.gen(function* () {
               ...retained,
               id: taskId,
               expectedVersion: previous?.version ?? 0,
-              title: input.title,
+              title: input.kind === "complete" ? previous!.title : input.title,
               notes,
               sources,
               status: previous?.status ?? "ready",
-              projectId: input.projectId,
+              projectId: input.kind === "complete" ? previous!.projectId : input.projectId,
+              ...(input.kind === "create"
+                ? {
+                    chantierId:
+                      input.chantierId === undefined
+                        ? context?.kind === "chantier" && context.projectId === input.projectId
+                          ? context.id
+                          : null
+                        : input.chantierId,
+                  }
+                : {}),
               agentThreadId: previous?.agentThreadId ?? null,
               dueDate: previous?.dueDate ?? null,
               automationMode: "manual",
@@ -142,13 +168,46 @@ const make = Effect.gen(function* () {
                 ...new Set([...(previous?.inboxSubjectIds ?? []), input.subjectId]),
               ],
             });
-            yield* tasks.save(draft);
+            if (input.kind === "create" && draft.chantierId) {
+              const chantier = yield* tasks.readChantier(draft.chantierId);
+              if (chantier.status === "done" || chantier.projectId !== draft.projectId)
+                return yield* new InboxSubjectActionError({ reason: "project" });
+            }
+            const savedTask = yield* tasks.save(draft);
+            taskLinkKind =
+              input.kind === "create"
+                ? "created"
+                : input.kind === "complete"
+                  ? "completed"
+                  : taskLinkKind;
+            const nextContext =
+              input.kind === "complete"
+                ? { kind: "task" as const, id: savedTask.id, projectId: savedTask.projectId }
+                : savedTask.chantierId
+                  ? {
+                      kind: "chantier" as const,
+                      id: savedTask.chantierId,
+                      projectId: savedTask.projectId,
+                    }
+                  : savedTask.projectId
+                    ? {
+                        kind: "project" as const,
+                        id: savedTask.projectId,
+                        projectId: savedTask.projectId,
+                      }
+                    : null;
+            yield* sql`UPDATE inbox_subjects SET context_json=${yield* SubjectContext.encodeSubjectContext(nextContext)},
+              context_reason='Choix confirmé lors de l’action humaine.',context_model='human_choice',context_uncertain=0,
+              context_updated_at=${now},context_error=NULL,context_next_at='',context_attempts=0,
+              context_sequence=COALESCE((SELECT MAX(m.sequence) FROM inbox_subject_entries e JOIN message_inbox m ON m.id=e.entry_id WHERE e.subject_id=${input.subjectId}),0)
+              WHERE id=${input.subjectId}`;
             yield* sql`INSERT INTO inbox_subject_task_sources(subject_id,entry_id,task_id,linked_at)
           SELECT subject_id,entry_id,${taskId},${now} FROM inbox_subject_entries WHERE subject_id=${input.subjectId}
           ON CONFLICT(subject_id,entry_id,task_id) DO NOTHING`;
           }
           const result = {
             subjectId: input.subjectId,
+            taskLinkKind,
             actionVersion: subject.action_version + 1,
             ignored: input.kind === "ignore" ? input.ignored : Boolean(subject.ignored),
             taskId,
@@ -156,7 +215,7 @@ const make = Effect.gen(function* () {
             closedAt: null,
           };
           const restore = input.kind === "ignore" && !input.ignored;
-          yield* sql`UPDATE inbox_subjects SET action_version=${result.actionVersion},ignored=${Number(result.ignored)},task_id=${taskId},
+          yield* sql`UPDATE inbox_subjects SET action_version=${result.actionVersion},ignored=${Number(result.ignored)},task_id=${taskId},task_link_kind=${taskLinkKind},
             handled_sequence=${restore ? sql`0` : sql`COALESCE((SELECT MAX(m.sequence) FROM inbox_subject_entries e JOIN message_inbox m ON m.id=e.entry_id WHERE e.subject_id=${input.subjectId}),0)`}
         WHERE id=${input.subjectId}`;
           yield* sql`INSERT INTO inbox_subject_actions(request_id,subject_id,input_json,result_json,created_at)

@@ -3,6 +3,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { Link } from "@tanstack/react-router";
 import {
   ProjectId,
+  isClosedWorkTaskStatus,
   type EnvironmentId,
   type InboxSubject,
   type InboxSubjectActionInput,
@@ -13,7 +14,7 @@ import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime"
 import { applyInboxSubjectAction } from "../../state/inboxSubjects";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useEnvironmentQuery } from "../../state/query";
-import { workTasks } from "../../state/workTasks";
+import { workTasks, workChantiers } from "../../state/workTasks";
 import { useProjects } from "../../state/entities";
 import { randomUUID } from "../../lib/utils";
 import { Button } from "../ui/button";
@@ -29,24 +30,27 @@ type Props = {
 };
 
 type FormProps = Props & {
-  mode: "create" | "update";
+  mode: "create" | "update" | "complete";
   onCancel: () => void;
 };
 
 function SubjectTaskForm(props: FormProps) {
   const query = useEnvironmentQuery(
-    props.mode === "update" ? workTasks({ environmentId: props.environmentId, input: {} }) : null,
+    props.mode !== "create" ? workTasks({ environmentId: props.environmentId, input: {} }) : null,
   );
   if (props.mode === "create") return <SubjectTaskEditor {...props} task={null} />;
-  const task = query.data?.find((entry) => entry.id === props.subject.taskId);
-  if (!task || task.status === "done")
+  const taskId =
+    props.subject.taskId ??
+    (props.subject.context?.kind === "task" ? props.subject.context.id : null);
+  const task = query.data?.find((entry) => entry.id === taskId);
+  if (!task || isClosedWorkTaskStatus(task.status))
     return (
       <div className="my-3 space-y-2">
         <p role={query.isPending ? "status" : "alert"}>
           {query.isPending
             ? "Chargement de la tâche liée…"
             : query.error ||
-              (task?.status === "done"
+              (props.subject.taskId && task?.status === "done"
                 ? "La tâche liée est terminée. Ce sujet est définitivement clos."
                 : "La tâche liée n’est plus disponible. Actualisez le sujet.")}
         </p>
@@ -67,10 +71,18 @@ function SubjectTaskEditor({
   task,
 }: FormProps & { task: WorkTask | null }) {
   const projects = useProjects().filter((project) => project.environmentId === environmentId);
-  const [project, setProject] = useState(task?.projectId ?? "");
+  const chantiers = useEnvironmentQuery(
+    mode === "create" ? workChantiers({ environmentId, input: {} }) : null,
+  );
+  const [project, setProject] = useState(task?.projectId ?? subject.context?.projectId ?? "");
+  const [chantier, setChantier] = useState(
+    mode === "create" && subject.context?.kind === "chantier" ? subject.context.id : "",
+  );
   const [selected] = useState(task);
   const [title, setTitle] = useState(task?.title ?? subject.title);
-  const [description, setDescription] = useState(mode === "create" ? subject.summary : "");
+  const [description, setDescription] = useState(
+    mode === "create" || (mode === "complete" && !subject.taskId) ? subject.summary : "",
+  );
   const [busy, setBusy] = useState(false);
   const saving = useRef(false);
   const request = useRef<{ payload: string; id: string } | null>(null);
@@ -79,7 +91,7 @@ function SubjectTaskEditor({
   const canSave = useAtomValue(applyInboxSubjectAction.permissionAtom(environmentId));
   const stale = selected && selected.version !== task?.version;
   const save = async () => {
-    if (saving.current || !canSave || stale || (mode === "update" && !selected)) return;
+    if (saving.current || !canSave || stale || (mode !== "create" && !selected)) return;
     const common = {
       subjectId: subject.id,
       expectedVersion: subject.actionVersion ?? 0,
@@ -87,10 +99,26 @@ function SubjectTaskEditor({
       description,
       projectId: project ? ProjectId.make(project) : null,
     };
-    const action =
-      mode === "update" && selected
-        ? { ...common, kind: "update" as const, taskId: selected.id, taskVersion: selected.version }
-        : { ...common, kind: "create" as const };
+    const action: InboxSubjectActionInput =
+      mode === "complete" && selected
+        ? {
+            subjectId: subject.id,
+            expectedVersion: subject.actionVersion ?? 0,
+            kind: "complete",
+            taskId: selected.id,
+            taskVersion: selected.version,
+            description,
+            requestId: "",
+          }
+        : mode === "update" && selected
+          ? {
+              ...common,
+              kind: "update",
+              taskId: selected.id,
+              taskVersion: selected.version,
+              requestId: "",
+            }
+          : { ...common, kind: "create", chantierId: chantier || null, requestId: "" };
     const payload = JSON.stringify(action);
     if (request.current?.payload !== payload) request.current = { payload, id: randomUUID() };
     saving.current = true;
@@ -117,7 +145,11 @@ function SubjectTaskEditor({
       }}
     >
       <h3 className="text-sm font-medium">
-        {mode === "create" ? "Créer une tâche" : "Mettre à jour la tâche"}
+        {mode === "create"
+          ? "Créer une tâche"
+          : mode === "complete"
+            ? "Compléter la tâche"
+            : "Mettre à jour la tâche"}
       </h3>
       <fieldset className="space-y-3" disabled={busy || !canSave}>
         {selected ? (
@@ -125,9 +157,12 @@ function SubjectTaskEditor({
         ) : null}
         <TaskField label="Projet">
           <TaskSelect
-            disabled={mode === "update"}
+            disabled={mode !== "create"}
             value={project}
-            onChange={(event) => setProject(event.target.value)}
+            onChange={(event) => {
+              setProject(event.target.value);
+              setChantier("");
+            }}
           >
             <option value="">Sans projet</option>
             {projects.map((p) => (
@@ -137,14 +172,35 @@ function SubjectTaskEditor({
             ))}
           </TaskSelect>
         </TaskField>
-        <TaskField label="Titre">
-          <Input
-            required
-            maxLength={240}
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-          />
-        </TaskField>
+        {mode === "create" ? (
+          <TaskField label="Chantier">
+            <TaskSelect value={chantier} onChange={(event) => setChantier(event.target.value)}>
+              <option value="">Sans chantier</option>
+              {chantier && !chantiers.data?.some((c) => c.id === chantier) && (
+                <option value={chantier}>{subject.contextLabel ?? chantier}</option>
+              )}
+              {chantiers.data
+                ?.filter((c) => c.projectId === project && c.status !== "done")
+                .map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.title}
+                  </option>
+                ))}
+            </TaskSelect>
+          </TaskField>
+        ) : null}
+        {mode === "complete" ? (
+          <p className="text-sm font-medium">{selected?.title}</p>
+        ) : (
+          <TaskField label="Titre">
+            <Input
+              required
+              maxLength={240}
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+            />
+          </TaskField>
+        )}
         {selected ? (
           <div className="text-sm">
             <p>Notes existantes conservées</p>
@@ -153,7 +209,7 @@ function SubjectTaskEditor({
             </p>
           </div>
         ) : null}
-        <TaskField label={mode === "update" ? "Description à ajouter" : "Description"}>
+        <TaskField label={mode !== "create" ? "Informations à ajouter" : "Description"}>
           <Textarea
             maxLength={20_000}
             value={description}
@@ -161,8 +217,8 @@ function SubjectTaskEditor({
           />
         </TaskField>
         <p className="text-xs text-muted-foreground">
-          Les sources sont conservées. Cette tâche restera manuelle, sans lancement automatique
-          d’agent.
+          Les sources sont conservées. Aucun agent ne sera lancé et aucun message ne sera envoyé à
+          sa discussion.
         </p>
         {stale ? (
           <p role="alert">
@@ -178,7 +234,7 @@ function SubjectTaskEditor({
           <Button
             type="submit"
             size="sm"
-            disabled={Boolean(stale) || !title.trim() || (mode === "update" && !selected)}
+            disabled={Boolean(stale) || !title.trim() || (mode !== "create" && !selected)}
           >
             {busy ? "Enregistrement…" : "Valider et enregistrer"}
           </Button>
@@ -192,7 +248,8 @@ function SubjectTaskEditor({
 }
 
 export function SubjectActions({ environmentId, subject, onSaved }: Props) {
-  const [mode, setMode] = useState<"create" | "update" | null>(null);
+  const taskId = subject.taskId ?? (subject.context?.kind === "task" ? subject.context.id : null);
+  const [mode, setMode] = useState<"create" | "update" | "complete" | null>(null);
   const [busy, setBusy] = useState(false);
   const saving = useRef(false);
   const [error, setError] = useState<string | null>(null);
@@ -237,14 +294,28 @@ export function SubjectActions({ environmentId, subject, onSaved }: Props) {
                 Créer une tâche
               </Button>
             ) : null}
+            {!subject.taskId && subject.context?.kind === "task" ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!canSave || busy}
+                onClick={() => setMode("complete")}
+              >
+                Compléter la tâche
+              </Button>
+            ) : null}
             {subject.taskId ? (
               <Button
                 size="sm"
                 variant="outline"
                 disabled={!canSave || busy}
-                onClick={() => setMode("update")}
+                onClick={() =>
+                  setMode(subject.taskLinkKind === "completed" ? "complete" : "update")
+                }
               >
-                Mettre à jour la tâche
+                {subject.taskLinkKind === "completed"
+                  ? "Compléter la tâche"
+                  : "Mettre à jour la tâche"}
               </Button>
             ) : null}
           </>
@@ -261,13 +332,13 @@ export function SubjectActions({ environmentId, subject, onSaved }: Props) {
         ) : (
           <p className="text-sm text-muted-foreground">Sujet définitivement terminé.</p>
         )}
-        {subject.taskId ? (
+        {taskId ? (
           <Link
             to="/tasks"
-            search={{ environment: environmentId, task: subject.taskId }}
+            search={{ environment: environmentId, task: taskId }}
             className="text-sm text-primary underline"
           >
-            Ouvrir la tâche liée
+            {subject.taskId ? "Ouvrir la tâche liée" : "Voir la tâche proposée"}
           </Link>
         ) : null}
       </div>

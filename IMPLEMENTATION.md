@@ -299,3 +299,5 @@ Inbox : les messages déjà regroupés ou classés sans action et les sujets ign
 Inbox : les nouveaux messages remettent un sujet à traiter en conservant sa tâche liée. La mise à jour vise cette tâche ; sa fin clôture définitivement le sujet, qui est exclu des candidats Luna.
 
 Tâches : statuts « À qualifier » et « À préparer » retirés après vérification du stock vide. Créations et réouvertures en « À démarrer », avec exécution explicite ; anciens filtres, brouillons et historiques restent lisibles. Les anciens déclencheurs de tri ne reprennent aucune tâche.
+
+Inbox : Luna propose un projet, un chantier ou une tâche ouverte dans son périmètre. Création avec contexte modifiable et complément manuel des notes/sources, sans message à la discussion ni lancement d’agent.

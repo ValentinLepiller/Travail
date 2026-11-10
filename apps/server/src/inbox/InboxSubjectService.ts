@@ -19,6 +19,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as RuntimeAdmission from "../maintenance/RuntimeAdmission.ts";
 import * as Model from "./InboxSubjectModel.ts";
 import { SubjectDecision, subjectPrompt } from "./subjectPrompt.ts";
+import * as SubjectContext from "./subjectContext.ts";
 
 export class InboxSubjectError extends Schema.TaggedError<InboxSubjectError>()(
   "InboxSubjectError",
@@ -44,6 +45,7 @@ export class InboxSubjectService extends Context.Service<
       input: typeof InboxSubjectEntriesInput.Type,
     ) => Effect.Effect<typeof InboxPage.Type, InboxSubjectError>;
     readonly processNext: () => Effect.Effect<void, InboxSubjectError>;
+    readonly processContextNext: () => Effect.Effect<void, InboxSubjectError>;
   }
 >()("t3/inbox/InboxSubjectService") {}
 const decodeList = Schema.decodeEffect(InboxListInput);
@@ -84,6 +86,9 @@ const make = Effect.gen(function* () {
     AND json_extract(m.payload_json,'$.qualification.category') IS NOT 'no_action'
     ORDER BY m.sequence LIMIT 1`;
   const worker = sql<Worker>`SELECT * FROM inbox_subject_worker WHERE id=1`;
+  const pendingContext = sql` s.closed_at IS NULL AND s.ignored=0 AND
+    s.context_sequence < COALESCE((SELECT MAX(m.sequence) FROM inbox_subject_entries e
+      JOIN message_inbox m ON m.id=e.entry_id WHERE e.subject_id=s.id),0)`;
   const status = Effect.fn("InboxSubjectService.status")(
     function* () {
       const [w] = yield* worker;
@@ -107,8 +112,12 @@ const make = Effect.gen(function* () {
       const [first] = yield* head;
       const entry = first ? yield* decodeEntry(first.payload_json) : null;
       const current = w!.entry_id === first?.id;
+      const [contexts] = yield* sql<{ pending: number; errors: number }>`SELECT COUNT(*) AS pending,
+        COALESCE(SUM(s.context_error IS NOT NULL),0) AS errors FROM inbox_subjects s WHERE ${pendingContext}`;
       const created = counts!.created;
       return {
+        contextsPending: contexts!.pending,
+        contextErrors: contexts!.errors,
         enabled: Boolean(w!.enabled),
         ...Model.subjectModelSelection,
         subjects: subjects!.count,
@@ -143,6 +152,9 @@ const make = Effect.gen(function* () {
   const setEnabled = Effect.fn("InboxSubjectService.setEnabled")(
     function* (enabled: boolean) {
       yield* sql`UPDATE inbox_subject_worker SET enabled=${Number(enabled)} WHERE id=1 AND enabled<>${Number(enabled)}`;
+      if (enabled)
+        yield* sql`UPDATE inbox_subjects SET context_next_at='',context_error=NULL,context_attempts=0
+          WHERE context_error IS NOT NULL`;
       return yield* status();
     },
     Effect.mapError((cause) => new InboxSubjectError({ cause })),
@@ -163,19 +175,33 @@ const make = Effect.gen(function* () {
         )
       ))`;
       const filter = processed === undefined ? sql`1=1` : sql`${handled} = ${Number(processed)}`;
-      const rows =
-        yield* sql<InboxSubject>`SELECT s.sequence,s.id,s.title,s.summary,s.created_at AS createdAt,COUNT(e.entry_id) AS entries,
-      s.action_version AS actionVersion,s.ignored,s.task_id AS taskId,s.closed_at AS closedAt,${handled} AS processed
+      const rows = yield* sql<
+        InboxSubject & { contextJson: string | null }
+      >`SELECT s.sequence,s.id,s.title,s.summary,s.created_at AS createdAt,COUNT(e.entry_id) AS entries,
+      s.action_version AS actionVersion,s.ignored,s.task_id AS taskId,s.closed_at AS closedAt,${handled} AS processed,
+      s.task_link_kind AS taskLinkKind,s.context_json AS contextJson,s.context_reason AS contextReason,
+      s.context_updated_at AS contextUpdatedAt,s.context_error AS contextError,s.context_uncertain AS contextUncertain,
+      CASE json_extract(s.context_json,'$.kind')
+        WHEN 'project' THEN (SELECT title FROM projection_projects WHERE project_id=json_extract(s.context_json,'$.id') AND deleted_at IS NULL)
+        WHEN 'chantier' THEN (SELECT json_extract(payload_json,'$.title') FROM work_chantiers WHERE id=json_extract(s.context_json,'$.id'))
+        WHEN 'task' THEN (SELECT json_extract(payload_json,'$.title') FROM work_tasks WHERE id=json_extract(s.context_json,'$.id'))
+      END AS contextLabel
       FROM inbox_subjects s LEFT JOIN inbox_subject_entries e ON e.subject_id=s.id
       WHERE ${cursor} AND ${filter} AND ${openOnly ? sql`s.closed_at IS NULL` : sql`1=1`}
       GROUP BY s.id ORDER BY s.sequence ${order === "desc" ? sql`DESC` : sql`ASC`} LIMIT ${limit + 1}`;
       const page = rows.slice(0, limit);
       return {
-        subjects: page.map((subject) => ({
-          ...subject,
-          ignored: Boolean(subject.ignored),
-          processed: Boolean(subject.processed),
-        })),
+        subjects: yield* Effect.forEach(page, ({ contextJson, ...subject }) =>
+          Effect.gen(function* () {
+            return {
+              ...subject,
+              context: contextJson ? yield* SubjectContext.decodeSubjectContext(contextJson) : null,
+              contextUncertain: Boolean(subject.contextUncertain),
+              ignored: Boolean(subject.ignored),
+              processed: Boolean(subject.processed),
+            };
+          }),
+        ),
         nextCursor: rows.length > limit ? page[page.length - 1]!.sequence : null,
       };
     },
@@ -245,6 +271,13 @@ const make = Effect.gen(function* () {
               taskId: _task,
               processed: _processed,
               closedAt: _closed,
+              context: _context,
+              contextLabel: _contextLabel,
+              contextReason: _contextReason,
+              contextUpdatedAt: _contextAt,
+              contextError: _contextError,
+              contextUncertain: _uncertain,
+              taskLinkKind: _linkKind,
               ...candidate
             }) => candidate,
           );
@@ -327,13 +360,154 @@ const make = Effect.gen(function* () {
     lock.withPermits(1),
     Effect.mapError((cause) => new InboxSubjectError({ cause })),
   );
-  return InboxSubjectService.of({ status, setEnabled, list, entries, processNext });
+  const processContextNext = Effect.fn("InboxSubjectService.processContextNext")(
+    function* () {
+      const now = DateTime.formatIso(yield* DateTime.now);
+      const claimed = yield* sql.withTransaction(
+        Effect.gen(function* () {
+          const [w] = yield* worker;
+          if (!w!.enabled || w!.next_at > now) return null;
+          const [subject] = yield* sql<{
+            id: string;
+            title: string;
+            summary: string;
+            task_id: string | null;
+            context_next_at: string;
+            context_attempts: number;
+            sequence: number;
+          }>`
+          SELECT s.id,s.title,s.summary,s.task_id,s.context_next_at,s.context_attempts,
+          (SELECT MAX(m.sequence) FROM inbox_subject_entries e JOIN message_inbox m ON m.id=e.entry_id WHERE e.subject_id=s.id) AS sequence
+          FROM inbox_subjects s WHERE ${pendingContext} ORDER BY s.sequence LIMIT 1`;
+          if (!subject || subject.context_next_at > now) return null;
+          const token = yield* crypto.randomUUIDv4;
+          const lease = DateTime.formatIso(
+            DateTime.add(DateTime.makeUnsafe(now), { seconds: 300 }),
+          );
+          const rows =
+            yield* sql`UPDATE inbox_subject_worker SET entry_id=${"context:" + subject.id},token=${token},next_at=${lease},error=NULL
+          WHERE id=1 AND enabled=1 AND next_at<=${now} RETURNING id`;
+          if (!rows.length) return null;
+          yield* sql`UPDATE inbox_subjects SET context_attempts=context_attempts+1 WHERE id=${subject.id}`;
+          return { subject, token };
+        }),
+      );
+      if (!claimed) return;
+      const { subject, token } = claimed;
+      const result = yield* Effect.gen(function* () {
+        if (subject.task_id)
+          return {
+            context: yield* SubjectContext.linkedTaskContext(subject.task_id),
+            reason: "Contexte conservé depuis la tâche liée.",
+            uncertain: false,
+            catalog: null,
+          };
+        const catalog = yield* SubjectContext.contextCatalog;
+        const rows = yield* sql<{
+          payload_json: string;
+        }>`SELECT m.payload_json FROM inbox_subject_entries e
+          JOIN message_inbox m ON m.id=e.entry_id WHERE e.subject_id=${subject.id} AND m.sequence<=${subject.sequence} ORDER BY m.sequence DESC LIMIT 5`;
+        const messages = (yield* Effect.forEach(rows, (r) => decodeEntry(r.payload_json)))
+          .toReversed()
+          .map((m) => ({ source: m.source.kind, text: m.source.message.text.slice(0, 1600) }));
+        const prompt = SubjectContext.contextPrompt(
+          { id: subject.id, title: subject.title, summary: subject.summary },
+          messages,
+          catalog,
+        );
+        if (new TextEncoder().encode(prompt).length > 60000)
+          return yield* new Model.SubjectModelError({ reason: "limit" });
+        const text = yield* model.generate(prompt);
+        if (text.length > 5000) return yield* new Model.SubjectModelError({ reason: "format" });
+        const decision = yield* SubjectContext.decodeContextDecision(text).pipe(
+          Effect.mapError(() => new Model.SubjectModelError({ reason: "format" })),
+        );
+        return {
+          ...decision,
+          context: yield* SubjectContext.resolveContext(decision, catalog),
+          catalog,
+        };
+      }).pipe(
+        Effect.timeoutOrElse({
+          duration: "240 seconds",
+          orElse: () => Effect.fail(new Model.SubjectModelError({ reason: "model" })),
+        }),
+        Effect.result,
+      );
+      const finished = DateTime.formatIso(yield* DateTime.now);
+      yield* sql.withTransaction(
+        Effect.gen(function* () {
+          const [w] = yield* worker;
+          if (w!.token !== token || w!.next_at <= finished) return;
+          const [current] = yield* sql<{
+            closed_at: string | null;
+            task_id: string | null;
+            ignored: number;
+            context_sequence: number;
+          }>`SELECT closed_at,task_id,ignored,context_sequence FROM inbox_subjects WHERE id=${subject.id}`;
+          if (
+            current &&
+            current.closed_at === null &&
+            !current.ignored &&
+            current.task_id === subject.task_id &&
+            current.context_sequence < subject.sequence
+          ) {
+            const stale =
+              result._tag === "Success" &&
+              result.success.catalog &&
+              !(yield* SubjectContext.contextStillValid(
+                result.success.context,
+                result.success.catalog,
+              ));
+            if (result._tag === "Failure" || stale) {
+              const reason = stale
+                ? "stale"
+                : result._tag === "Failure" && isModelError(result.failure)
+                  ? result.failure.reason
+                  : "storage";
+              const seconds =
+                reason === "limit"
+                  ? 1800
+                  : Math.min(1800, 30 * 2 ** Math.min(subject.context_attempts, 6));
+              const retry = DateTime.formatIso(
+                DateTime.add(DateTime.makeUnsafe(finished), { seconds }),
+              );
+              yield* sql`UPDATE inbox_subjects SET context_error=${reason},context_next_at=${retry} WHERE id=${subject.id}`;
+            } else if (result._tag === "Success") {
+              const value = result.success;
+              yield* sql`UPDATE inbox_subjects SET context_json=${yield* SubjectContext.encodeSubjectContext(value.context)},
+              context_reason=${value.reason},context_uncertain=${Number(value.uncertain)},context_model=${value.catalog ? Model.subjectModelSelection.model : "linked_task"},
+              context_sequence=${subject.sequence},context_updated_at=${finished},context_error=NULL,context_next_at='',context_attempts=0,
+              action_version=action_version+1 WHERE id=${subject.id}`;
+            }
+          }
+          yield* sql`UPDATE inbox_subject_worker SET token=NULL,entry_id=NULL,next_at='',attempts=0,error=NULL WHERE id=1 AND token=${token}`;
+        }),
+      );
+    },
+    lock.withPermits(1),
+    Effect.provideService(SqlClient.SqlClient, sql),
+    Effect.mapError((cause) => new InboxSubjectError({ cause })),
+  );
+  return InboxSubjectService.of({
+    status,
+    setEnabled,
+    list,
+    entries,
+    processNext,
+    processContextNext,
+  });
 });
 export const layer = Layer.effect(InboxSubjectService, make);
 export const workerLayer = Layer.effectDiscard(
   Effect.gen(function* () {
     const service = yield* InboxSubjectService;
-    yield* RuntimeAdmission.admit(service.processNext()).pipe(
+    yield* RuntimeAdmission.admit(
+      Effect.gen(function* () {
+        yield* service.processNext();
+        yield* service.processContextNext();
+      }),
+    ).pipe(
       Effect.catch(() => Effect.logWarning("Inbox subject storage unavailable; queue retained.")),
       Effect.repeat(Schedule.spaced("2 seconds")),
       Effect.forkScoped,

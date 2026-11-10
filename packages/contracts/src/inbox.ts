@@ -155,6 +155,13 @@ export class InboxListError extends Schema.TaggedError<InboxListError>()("InboxL
   }
 }
 
+export const InboxSubjectContext = Schema.Struct({
+  kind: Schema.Literals(["project", "chantier", "task"]),
+  id: TrimmedNonEmptyString,
+  projectId: Schema.NullOr(ProjectId),
+});
+export type InboxSubjectContext = typeof InboxSubjectContext.Type;
+
 export const InboxSubject = Schema.Struct({
   sequence: Schema.Int,
   id: Schema.NonEmptyString,
@@ -167,6 +174,13 @@ export const InboxSubject = Schema.Struct({
   taskId: Schema.optionalKey(Schema.NullOr(WorkTask.fields.id)),
   processed: Schema.optionalKey(Schema.Boolean),
   closedAt: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  context: Schema.optionalKey(Schema.NullOr(InboxSubjectContext)),
+  contextLabel: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  contextReason: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  contextUpdatedAt: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  contextError: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  contextUncertain: Schema.optionalKey(Schema.Boolean),
+  taskLinkKind: Schema.optionalKey(Schema.NullOr(Schema.Literals(["created", "completed"]))),
 });
 export type InboxSubject = typeof InboxSubject.Type;
 export const InboxSubjectsPage = Schema.Struct({
@@ -178,6 +192,8 @@ export const InboxSubjectEntriesInput = Schema.Struct({
   subjectId: Schema.NonEmptyString,
 });
 export const InboxGroupingStatus = Schema.Struct({
+  contextsPending: Schema.optionalKey(NonNegativeInt),
+  contextErrors: Schema.optionalKey(NonNegativeInt),
   enabled: Schema.Boolean,
   model: Schema.String,
   instanceId: Schema.String,
@@ -213,6 +229,14 @@ export const InboxSubjectActionInput = Schema.Union([
     title: WorkTaskFields.fields.title,
     description: WorkTaskFields.fields.notes,
     projectId: Schema.NullOr(ProjectId),
+    chantierId: Schema.optionalKey(Schema.NullOr(TrimmedNonEmptyString)),
+  }),
+  Schema.Struct({
+    ...SubjectActionFields,
+    kind: Schema.Literal("complete"),
+    taskId: WorkTask.fields.id,
+    taskVersion: NonNegativeInt,
+    description: WorkTaskFields.fields.notes,
   }),
   Schema.Struct({
     ...SubjectActionFields,
@@ -231,6 +255,7 @@ export const InboxSubjectActionInput = Schema.Union([
 ]);
 export type InboxSubjectActionInput = typeof InboxSubjectActionInput.Type;
 export const InboxSubjectActionResult = Schema.Struct({
+  taskLinkKind: Schema.optionalKey(Schema.NullOr(Schema.Literals(["created", "completed"]))),
   subjectId: InboxSubject.fields.id,
   actionVersion: NonNegativeInt,
   ignored: Schema.Boolean,
@@ -258,15 +283,15 @@ export class InboxSubjectActionError extends Schema.TaggedError<InboxSubjectActi
       case "validation":
         return "Vérifiez le titre et la description avant d’enregistrer.";
       case "closed":
-        return "Ce sujet est définitivement terminé. Sa tâche ne peut plus être mise à jour depuis l’inbox.";
+        return "Le sujet est terminé ou la tâche cible n’est plus ouverte. Actualisez avant de réessayer.";
       case "conflict":
         return "Ce sujet ou cette tâche a changé. Actualisez avant de réessayer.";
       case "missing":
         return "Ce sujet n’est plus disponible.";
       case "linked":
-        return "La mise à jour doit cibler la tâche déjà liée à ce sujet.";
+        return "Cette action doit cibler la tâche liée ou proposée pour ce sujet.";
       case "project":
-        return "Choisissez un projet disponible. Le projet de la tâche cible ne peut pas être changé ici.";
+        return "Choisissez un projet et un chantier disponibles. Le projet d’une tâche existante reste inchangé.";
       case "limit":
         return "Les notes ou les sources dépassent la capacité de la tâche. Réduisez le texte ajouté.";
       case "storage":

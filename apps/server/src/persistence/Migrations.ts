@@ -1,3 +1,4 @@
+import Migration0089 from "./Migrations/089_InboxSubjectContext.ts";
 import Migration0086 from "./Migrations/086_InboxSubjectActions.ts";
 import Migration0087 from "./Migrations/087_InboxSubjectLifecycle.ts";
 import Migration0085 from "./Migrations/085_InboxSubjects.ts";
@@ -218,6 +219,7 @@ export const migrationEntries = [
   [84, "InboxSubjects", Migration0085],
   [85, "InboxSubjectActions", Migration0086],
   [86, "InboxSubjectLifecycle", Migration0087],
+  [88, "InboxSubjectContext", Migration0089],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

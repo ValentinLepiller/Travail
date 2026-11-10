@@ -423,6 +423,15 @@ function Subjects({
                 <>
                   <span className="truncate text-sm font-medium">{subject.title}</span>
                   <span className="truncate text-xs text-muted-foreground">{subject.summary}</span>
+                  <span className="truncate text-xs text-muted-foreground">
+                    {subject.context
+                      ? `${subject.context.kind === "project" ? "Projet" : subject.context.kind === "chantier" ? "Chantier" : "Tâche"} · ${subject.contextLabel ?? "Indisponible"}${subject.contextUncertain ? " · à confirmer" : ""}`
+                      : subject.contextUpdatedAt
+                        ? "Sans contexte identifié"
+                        : subject.contextError
+                          ? "Contexte indisponible"
+                          : "Contexte à identifier"}
+                  </span>
                 </>
               }
               aside={
@@ -451,6 +460,9 @@ function Subjects({
               }
             >
               <p className="mb-2 text-sm text-muted-foreground">{subject.summary}</p>
+              {subject.contextReason ? (
+                <p className="mb-2 text-xs text-muted-foreground">{subject.contextReason}</p>
+              ) : null}
               <SubjectActions
                 environmentId={environmentId}
                 subject={subject}

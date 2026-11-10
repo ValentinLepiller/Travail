@@ -25,7 +25,7 @@ const dependencies = [Inbox.MessageInbox, Invocation.McpInvocationContext];
 export const InboxToolkit = Toolkit.make(
   Tool.make("inbox_subjects", {
     description:
-      "List durable subjects, oldest first by default; order=desc shows newest first. Optional processed=true selects subjects whose current entries were handled or that are permanently closed; false selects pending, including new entries on a task-linked subject. Omitted includes all. closedAt marks final closure after task completion. Bounded cursor pagination. No tasks or execution.",
+      "List durable subjects, oldest first by default; order=desc shows newest first. Optional processed=true selects subjects whose current entries were handled or that are permanently closed; false selects pending, including new entries on a task-linked subject. Omitted includes all. closedAt marks final closure after task completion. context is Luna's project/chantier/task suggestion, distinct from taskId, the task actually linked by a human. Bounded cursor pagination. No tasks or execution.",
     parameters: InboxListInput,
     success: InboxSubjectsPage,
     failure: Schema.Union([Subjects.InboxSubjectError, OrchestratorMcpFailure]),
@@ -43,7 +43,7 @@ export const InboxToolkit = Toolkit.make(
   }).annotate(Tool.Readonly, true),
   Tool.make("inbox_grouping_status", {
     description:
-      "Read durable Luna grouping progress, model, creation/reuse counts and head error. No content returned.",
+      "Read durable Luna grouping and subject context progress, model, creation/reuse counts and errors. No content returned.",
     parameters: Tool.EmptyParams,
     success: InboxGroupingStatus,
     failure: Schema.Union([Subjects.InboxSubjectError, OrchestratorMcpFailure]),
@@ -52,7 +52,7 @@ export const InboxToolkit = Toolkit.make(
   }).annotate(Tool.Readonly, true),
   Tool.make("inbox_grouping_control", {
     description:
-      "Enable or pause durable Luna grouping after Jev, one FIFO entry at a time. Never changes Jev or source messages.",
+      "Enable or pause durable Luna grouping after Jev and context assignment for open subjects, sharing one model lease. Enabling retries failed contexts without reclassifying successful ones. Grouping remains FIFO. Never changes Jev, source messages or tasks.",
     parameters: InboxQualificationControl,
     success: InboxGroupingStatus,
     failure: Schema.Union([Subjects.InboxSubjectError, OrchestratorMcpFailure]),

@@ -2,6 +2,7 @@
 import { RegistryContext } from "@effect/atom-react";
 import {
   EnvironmentId,
+  ProjectId,
   WS_METHODS,
   InboxListError,
   type InboxMessage,
@@ -9,6 +10,7 @@ import {
   type InboxSubjectsPage,
   type InboxSubjectActionInput,
   type InboxSubjectActionResult,
+  type InboxSubject,
   type WorkTask,
 } from "@t3tools/contracts";
 import {
@@ -158,6 +160,7 @@ let actions: Array<{
 }>;
 let subjectDecision: typeof InboxSubjectActionResult.Type | undefined;
 let subjectTask: WorkTask | null;
+let subjectContext: Pick<InboxSubject, "context" | "contextLabel">;
 const existingTask: WorkTask = {
   id: "existing",
   title: "Tâche existante",
@@ -247,6 +250,7 @@ beforeEach(() => {
   controlledSubjects = false;
   subjectDecision = undefined;
   subjectTask = null;
+  subjectContext = {};
   boundary.ends = 0;
   renders = 0;
   streams = 0;
@@ -294,8 +298,12 @@ const setupRuntime = Effect.gen(function* () {
     generation: 1,
   });
   const rpc = {
+    initialConfig: Effect.succeed({
+      environment: { capabilities: { performanceStatistics: false } },
+    }),
     client: {
       [WS_METHODS.workTasksSubscribe]: () => Stream.succeed([subjectTask ?? existingTask]),
+      [WS_METHODS.workChantiersSubscribe]: () => Stream.succeed([]),
       [WS_METHODS.inboxSubjectAction]: (input: InboxSubjectActionInput) =>
         Effect.callback<typeof InboxSubjectActionResult.Type>((resume) => {
           actions.push({
@@ -332,6 +340,7 @@ const setupRuntime = Effect.gen(function* () {
                 entries: 2,
                 taskId: subjectTask?.id ?? null,
                 processed: false,
+                ...subjectContext,
                 ...subjectDecision,
               };
               return {
@@ -958,6 +967,89 @@ it.effect(
       });
     }),
 );
+it.effect(
+  "reviews a task context before completing only its notes and keeps creation available",
+  () =>
+    Effect.gen(function* () {
+      subjectContext = {
+        context: { kind: "task", id: "existing", projectId: null },
+        contextLabel: existingTask.title,
+      };
+      yield* setupRuntime;
+      yield* mountInbox();
+      yield* Effect.promise(async () => {
+        await openSubject();
+        expect(host.textContent).toContain("Créer une tâche");
+        await clickText("Compléter la tâche");
+        expect(actions).toHaveLength(0);
+        expect(host.textContent).toContain(existingTask.notes);
+        expect(host.querySelector("input")).toBeNull();
+        expect(host.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe(
+          "Problème, logs et résolution.",
+        );
+        await act(() =>
+          host
+            .querySelector("form")!
+            .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+        );
+        expect(actions).toHaveLength(1);
+        expect(actions[0]!.input).toMatchObject({
+          kind: "complete",
+          taskId: "existing",
+          taskVersion: 3,
+          description: "Problème, logs et résolution.",
+        });
+        expect(actions[0]!.input).not.toHaveProperty("title");
+        expect(actions[0]!.input).not.toHaveProperty("projectId");
+        await act(() =>
+          actions[0]!.finish({
+            subjectId: "incident",
+            actionVersion: 1,
+            ignored: false,
+            taskId: "existing",
+            taskLinkKind: "completed",
+          }),
+        );
+        expect(host.textContent).toContain("Aucun sujet à traiter.");
+        await clickText("Traités");
+        await openSubject();
+        expect(host.textContent).toContain("Compléter la tâche");
+        expect(host.textContent).not.toContain("Mettre à jour la tâche");
+      });
+    }),
+);
+
+it.effect("prefills a chantier context for creation and lets the human choose no chantier", () =>
+  Effect.gen(function* () {
+    subjectContext = {
+      context: { kind: "chantier", id: "c", projectId: ProjectId.make("p") },
+      contextLabel: "Chantier Alpha",
+    };
+    yield* setupRuntime;
+    yield* mountInbox();
+    yield* Effect.promise(async () => {
+      await openSubject();
+      await clickText("Créer une tâche");
+      const chantier = host.querySelectorAll<HTMLSelectElement>("select")[1]!;
+      expect(chantier.value).toBe("c");
+      await act(() => {
+        chantier.value = "";
+        chantier.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      await act(() =>
+        host
+          .querySelector("form")!
+          .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+      );
+      expect(actions[0]!.input).toMatchObject({
+        kind: "create",
+        projectId: "p",
+        chantierId: null,
+      });
+    });
+  }),
+);
+
 it.effect(
   "targets the already linked task and displays its retained notes before reviewing an addition",
   () =>
