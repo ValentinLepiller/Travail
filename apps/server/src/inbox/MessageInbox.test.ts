@@ -28,6 +28,38 @@ const slack = {
 const layer = Inbox.layer.pipe(Layer.provideMerge(Sqlite.layerMemory));
 
 it.effect(
+  "inserts principal and context together and never replaces an already collected pair",
+  () =>
+    Effect.gen(function* () {
+      const inbox = yield* Inbox.MessageInbox,
+        sql = yield* SqlClient.SqlClient;
+      yield* sql`CREATE TRIGGER require_collected_context BEFORE INSERT ON message_inbox
+      WHEN json_type(NEW.payload_json,'$.context') IS NULL BEGIN SELECT RAISE(FAIL,'context required'); END`;
+      const context = {
+        version: 1 as const,
+        status: "ready" as const,
+        messages: [],
+        truncated: false,
+        reason: null,
+        checkedAt: "2026-11-10T12:00:00Z",
+      };
+      expect(yield* inbox.ingestGmail(gmail, context)).toBe("created");
+      expect(yield* inbox.ingestSlack(slack, context)).toBe("created");
+      const before = yield* inbox.list({});
+      yield* inbox.ingestGmail(
+        { ...gmail, text: "Changed remotely" },
+        { ...context, checkedAt: "later" },
+      );
+      yield* inbox.ingestSlack(
+        { ...slack, text: "Changed remotely" },
+        { ...context, checkedAt: "later" },
+      );
+      expect(yield* inbox.list({})).toEqual(before);
+      expect(before.messages.every((m) => m.context?.status === "ready")).toBe(true);
+    }).pipe(Effect.provide(layer)),
+);
+
+it.effect(
   "stores the full source and deduplicates each message independently of its conversation",
   () =>
     Effect.gen(function* () {

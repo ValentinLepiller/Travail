@@ -303,3 +303,5 @@ Tâches : statuts « À qualifier » et « À préparer » retirés après véri
 Inbox : Luna propose un projet, un chantier ou une tâche ouverte dans son périmètre. Création avec contexte modifiable et complément manuel des notes/sources, sans message à la discussion ni lancement d’agent.
 
 Sujets Inbox : icône native du projet connu, icône générique sinon.
+
+Collecte Inbox : les scripts Gmail/Slack récupèrent le contexte avant l’enregistrement unique ; reprise des anciennes entrées incomplètes dans ces mêmes collectes.

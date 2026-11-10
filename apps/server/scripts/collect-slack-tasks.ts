@@ -2,13 +2,14 @@
 import * as Schema from "effect/Schema";
 import { openNativeApps, connectorThread } from "../../../scripts/connectors/native.ts";
 import { callConnector, connectorData } from "../../../scripts/connectors/adapter.ts";
-import { SlackCollectionInput } from "../src/workTasks/slackTaskRules.ts";
+import { SlackCollectionInput, acceptsSlackMessage } from "../src/workTasks/slackTaskRules.ts";
+import { collectContext, type ContextConnectorCall } from "../src/inbox/readSourceContext.ts";
 import { parseSlackSearchPage } from "../src/workTasks/slackSearchPage.ts";
 
 let input = "";
 for await (const chunk of process.stdin) {
   input += String(chunk);
-  if (input.length > 16_000) throw new Error("Collection input too large");
+  if (input.length > 1_000_000) throw new Error("Collection input too large");
 }
 const request = Schema.decodeSync(Schema.fromJsonString(SlackCollectionInput))(input);
 const client = await openNativeApps();
@@ -60,7 +61,41 @@ try {
       },
     }),
   );
-  console.log(JSON.stringify(parseSlackSearchPage(result, request.workspaceId)));
+  const page = parseSlackSearchPage(result, request.workspaceId);
+  const known = new Set(request.knownIds ?? []);
+  const key = (message: (typeof page.messages)[number]) => `${message.channelId}:${message.ts}`;
+  const recovery = request.recovery ?? [];
+  const recoveredIds = new Set(recovery.map(key));
+  const combined = [...recovery, ...page.messages.filter((m) => !recoveredIds.has(key(m)))];
+  const call: ContextConnectorCall = async (operation, args) =>
+    connectorData(
+      await callConnector(client.rpc, threadId, {
+        operation,
+        arguments: { ...account, ...args },
+      }),
+    );
+  const messages = [];
+  for (const message of combined) {
+    if (message.workspaceId !== request.workspaceId) throw new Error("Recovered source mismatch");
+    const needed =
+      recoveredIds.has(key(message)) ||
+      (!known.has(key(message)) &&
+        acceptsSlackMessage(
+          {
+            workspaceId: request.workspaceId,
+            excludeChannelNames: request.excludeChannelNames ?? [],
+            excludeAuthorIds: request.excludeAuthorIds ?? [],
+            excludeText: request.excludeText ?? [],
+          },
+          message,
+        ));
+    messages.push(
+      needed
+        ? { ...message, context: await collectContext({ kind: "slack", message }, call) }
+        : message,
+    );
+  }
+  console.log(JSON.stringify({ messages, nextCursor: page.nextCursor }));
 } catch {
   // No message bodies, credentials, or connector errors in background logs.
   console.error(

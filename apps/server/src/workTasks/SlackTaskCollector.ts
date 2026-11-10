@@ -1,4 +1,3 @@
-import * as Contexts from "../inbox/InboxContextService.ts";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -64,7 +63,6 @@ const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const config = yield* ServerConfig.ServerConfig;
   const inbox = yield* Inbox.MessageInbox;
-  const contexts = yield* Contexts.InboxContextService;
   const source = yield* Source.SlackTaskSource;
   const lock = yield* Semaphore.make(1);
   const rulesPath = path.join(config.stateDir, "slack-task-rules.json");
@@ -123,6 +121,16 @@ const make = Effect.gen(function* () {
     if (Number(before) <= Number(state.started_at)) return result;
     const after = Math.max(Number(state.started_at), Number(state.checkpoint) - 300).toFixed(6);
     let cursor = state.cursor;
+    const collection = yield* inbox
+      .collectionState({ kind: "slack", identity: rules.workspaceId, after, before })
+      .pipe(
+        Effect.mapError((cause) => new Source.SlackCollectionError({ stage: "storage", cause })),
+      );
+    const recovery = collection.recovery.flatMap((entry) =>
+      entry.kind === "slack" ? [entry.message] : [],
+    );
+    const known = new Set(collection.knownIds);
+    const recoveredIds = new Set(recovery.map((message) => `${message.channelId}:${message.ts}`));
     for (let pageNumber = 0; pageNumber < 10; pageNumber++) {
       const page = yield* source.readPage(rules.collector, {
         workspaceId: rules.workspaceId,
@@ -130,7 +138,22 @@ const make = Effect.gen(function* () {
         before,
         cursor,
         ...(rules.collector.linkId ? { linkId: rules.collector.linkId } : {}),
+        knownIds: [...known].slice(0, 2000),
+        recovery: pageNumber === 0 ? recovery : [],
+        excludeChannelNames: rules.excludeChannelNames,
+        excludeAuthorIds: rules.excludeAuthorIds,
+        excludeText: rules.excludeText,
       });
+      if (
+        pageNumber === 0 &&
+        [...recoveredIds].some(
+          (id) => !page.messages.some((message) => `${message.channelId}:${message.ts}` === id),
+        )
+      )
+        return yield* new Source.SlackCollectionError({
+          stage: "source",
+          cause: "Collector omitted requested recovery",
+        });
       if (page.nextCursor !== null && (page.nextCursor === cursor || page.messages.length === 0)) {
         return yield* new Source.SlackCollectionError({
           stage: "source",
@@ -140,34 +163,39 @@ const make = Effect.gen(function* () {
       for (const message of [...page.messages].sort((a, b) => Number(a.ts) - Number(b.ts))) {
         if (
           message.workspaceId !== rules.workspaceId ||
-          Number(message.ts) < Number(after) ||
-          Number(message.ts) > Number(before)
+          (!recoveredIds.has(`${message.channelId}:${message.ts}`) &&
+            (Number(message.ts) < Number(after) || Number(message.ts) > Number(before)))
         ) {
           return yield* new Source.SlackCollectionError({
             stage: "source",
             cause: "Message outside requested window",
           });
         }
-        if (!acceptsSlackMessage(rules, message)) {
+        if (
+          !recoveredIds.has(`${message.channelId}:${message.ts}`) &&
+          !acceptsSlackMessage(rules, message)
+        ) {
           result.ignored++;
           continue;
         }
+        if (!message.context) {
+          if (!known.has(`${message.channelId}:${message.ts}`))
+            return yield* new Source.SlackCollectionError({
+              stage: "source",
+              cause: "Collector omitted message context",
+            });
+          result.duplicate++;
+          continue;
+        }
         const outcome = yield* inbox
-          .ingestSlack(message)
+          .ingestSlack(message, message.context)
           .pipe(
             Effect.mapError(
               (cause) => new Source.SlackCollectionError({ stage: "storage", cause }),
             ),
           );
         result[outcome]++;
-        if (outcome === "created")
-          yield* contexts
-            .enrich(`slack:${message.workspaceId}:${message.channelId}:${message.ts}`)
-            .pipe(
-              Effect.catch(() =>
-                Effect.logWarning("Inbox context storage failed; principal message retained."),
-              ),
-            );
+        known.add(`${message.channelId}:${message.ts}`);
       }
       cursor = page.nextCursor;
       yield* sql`UPDATE slack_task_collection SET checkpoint = ${cursor ? state.checkpoint : before},

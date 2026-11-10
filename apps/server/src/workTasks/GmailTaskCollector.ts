@@ -1,4 +1,3 @@
-import * as Contexts from "../inbox/InboxContextService.ts";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -62,7 +61,6 @@ const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const config = yield* ServerConfig.ServerConfig;
   const inbox = yield* Inbox.MessageInbox;
-  const contexts = yield* Contexts.InboxContextService;
   const source = yield* Source.GmailTaskSource;
   const lock = yield* Semaphore.make(1);
   const rulesPath = path.join(config.stateDir, "gmail-task-rules.json");
@@ -119,6 +117,16 @@ const make = Effect.gen(function* () {
     if (Number(before) <= Number(state.started_at)) return result;
     const after = Math.max(Number(state.started_at), Number(state.checkpoint) - 300).toFixed(6);
     let cursor = state.cursor;
+    const collection = yield* inbox
+      .collectionState({ kind: "gmail", identity: rules.accountEmail, after, before })
+      .pipe(
+        Effect.mapError((cause) => new Source.GmailCollectionError({ stage: "storage", cause })),
+      );
+    const recovery = collection.recovery.flatMap((entry) =>
+      entry.kind === "gmail" ? [entry.message] : [],
+    );
+    const known = new Set(collection.knownIds);
+    const recoveredIds = new Set(recovery.map((message) => message.id));
     for (let pageNumber = 0; pageNumber < 10; pageNumber++) {
       const page = yield* source.readPage(rules.collector, {
         accountEmail: rules.accountEmail,
@@ -126,7 +134,19 @@ const make = Effect.gen(function* () {
         before,
         cursor,
         ...(rules.collector.linkId ? { linkId: rules.collector.linkId } : {}),
+        knownIds: [...known].slice(0, 2000),
+        recovery: pageNumber === 0 ? recovery : [],
+        excludeSenders: rules.excludeSenders,
+        excludeText: rules.excludeText,
       });
+      if (
+        pageNumber === 0 &&
+        [...recoveredIds].some((id) => !page.messages.some((message) => message.id === id))
+      )
+        return yield* new Source.GmailCollectionError({
+          stage: "source",
+          cause: "Collector omitted requested recovery",
+        });
       if (page.nextCursor !== null && page.nextCursor === cursor) {
         return yield* new Source.GmailCollectionError({
           stage: "source",
@@ -138,34 +158,37 @@ const make = Effect.gen(function* () {
       )) {
         if (
           message.accountEmail !== rules.accountEmail ||
-          Number(message.receivedAt) < Number(after) ||
-          Number(message.receivedAt) > Number(before)
+          (!recoveredIds.has(message.id) &&
+            (Number(message.receivedAt) < Number(after) ||
+              Number(message.receivedAt) > Number(before)))
         ) {
           return yield* new Source.GmailCollectionError({
             stage: "source",
             cause: "Message outside requested window",
           });
         }
-        if (!acceptsGmailMessage(rules, message)) {
+        if (!recoveredIds.has(message.id) && !acceptsGmailMessage(rules, message)) {
           result.ignored++;
           continue;
         }
+        if (!message.context) {
+          if (!known.has(message.id))
+            return yield* new Source.GmailCollectionError({
+              stage: "source",
+              cause: "Collector omitted message context",
+            });
+          result.duplicate++;
+          continue;
+        }
         const outcome = yield* inbox
-          .ingestGmail(message)
+          .ingestGmail(message, message.context)
           .pipe(
             Effect.mapError(
               (cause) => new Source.GmailCollectionError({ stage: "storage", cause }),
             ),
           );
         result[outcome]++;
-        if (outcome === "created")
-          yield* contexts
-            .enrich(`gmail:${message.accountEmail}:${message.id}`)
-            .pipe(
-              Effect.catch(() =>
-                Effect.logWarning("Inbox context storage failed; principal message retained."),
-              ),
-            );
+        known.add(message.id);
       }
       cursor = page.nextCursor;
       yield* sql`UPDATE gmail_task_collection SET checkpoint = ${cursor ? state.checkpoint : before},

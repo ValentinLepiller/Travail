@@ -1,14 +1,9 @@
 // @effect-diagnostics globalConsole:off -- Standalone read-only connector JSON protocol.
-import { InboxSource } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { openNativeApps, connectorThread } from "../../../../scripts/connectors/native.ts";
 import { callConnector, connectorData } from "../../../../scripts/connectors/adapter.ts";
-import { selectContext } from "./contextMessages.ts";
-import {
-  InboxContextReadInput,
-  parseGmailContext,
-  parseSlackContext,
-} from "./contextSourcePages.ts";
+import { readSourceContext } from "./readSourceContext.ts";
+import { InboxContextReadInput } from "./contextSourcePages.ts";
 let raw = "";
 for await (const chunk of process.stdin) {
   raw += String(chunk);
@@ -19,7 +14,6 @@ const client = await openNativeApps();
 const stop = () => client.close();
 process.once("SIGTERM", stop);
 process.once("SIGINT", stop);
-const recovered: Array<typeof InboxSource.Type> = [];
 try {
   const threadId = await connectorThread(client.rpc);
   const call = async (
@@ -43,12 +37,6 @@ try {
     );
     if (profile.email.toLowerCase() !== source.message.accountEmail.toLowerCase())
       throw new Error("Wrong account");
-    const page = parseGmailContext(
-      await call("gmail.thread", { thread_id: source.message.threadId, max_messages: 100 }),
-      source.message,
-    );
-    const context = selectContext(source, page.sources, page.incomplete);
-    console.log(JSON.stringify({ ...context, truncated: context.truncated || page.truncated }));
   } else {
     const workspaces = Schema.decodeUnknownSync(
       Schema.Struct({
@@ -63,46 +51,12 @@ try {
       workspaces.response_metadata.next_cursor
     )
       throw new Error("Wrong workspace");
-    const threaded = source.message.threadTs !== source.message.ts;
-    let cursor: string | null = null;
-    const sources = recovered;
-    for (let n = 0; n < (threaded ? 3 : 1); n++) {
-      const page = parseSlackContext(
-        await call(threaded ? "slack.read" : "slack.readChannel", {
-          channel_id: source.message.channelId,
-          ...(threaded ? { message_ts: source.message.threadTs } : {}),
-          latest: source.message.ts,
-          limit: 20,
-          response_format: "detailed",
-          ...(cursor ? { cursor } : {}),
-        }),
-        source.message,
-        threaded,
-      );
-      sources.push(...page.sources);
-      if (page.nextCursor !== null && page.nextCursor === cursor)
-        throw new Error("Pagination stalled");
-      cursor = page.nextCursor;
-      if (!cursor) break;
-    }
-    // History is newest first: later pages are older and cannot change the last five predecessors.
-    let context = selectContext(source, sources, threaded && cursor !== null);
-    if (!threaded && cursor !== null) {
-      context = {
-        ...context,
-        truncated: true,
-        ...(context.messages.length < 5
-          ? { status: "partial" as const, reason: "limit" as const }
-          : {}),
-      };
-    }
-    console.log(JSON.stringify(context));
   }
+  console.log(JSON.stringify(await readSourceContext(source, call)));
 } catch {
-  const result = recovered.length
-    ? { ...selectContext(source, recovered, true), reason: "source" }
-    : { status: "unavailable", messages: [], truncated: false, reason: "source" };
-  console.log(JSON.stringify(result));
+  console.log(
+    JSON.stringify({ status: "unavailable", messages: [], truncated: false, reason: "source" }),
+  );
 } finally {
   process.removeListener("SIGTERM", stop);
   process.removeListener("SIGINT", stop);

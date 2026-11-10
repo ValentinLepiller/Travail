@@ -1,4 +1,4 @@
-import { SlackTaskMessage } from "@t3tools/contracts";
+import { SlackTaskMessage, InboxContext } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 
 export const SlackTaskRules = Schema.Struct({
@@ -23,16 +23,29 @@ export const SlackCollectionInput = Schema.Struct({
   before: Schema.String,
   cursor: Schema.NullOr(Schema.String),
   linkId: Schema.optionalKey(Schema.String),
+  knownIds: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isMaxLength(2000))),
+  recovery: Schema.optionalKey(Schema.Array(SlackTaskMessage).check(Schema.isMaxLength(1))),
+  excludeChannelNames: Schema.optionalKey(Schema.Array(Schema.String)),
+  excludeAuthorIds: Schema.optionalKey(Schema.Array(Schema.String)),
+  excludeText: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 export type SlackCollectionInput = typeof SlackCollectionInput.Type;
 export const SlackCollectionPage = Schema.Struct({
-  messages: Schema.Array(SlackTaskMessage).check(Schema.isMaxLength(20)),
+  messages: Schema.Array(
+    Schema.Struct({ ...SlackTaskMessage.fields, context: Schema.optionalKey(InboxContext) }),
+  ).check(Schema.isMaxLength(21)),
   nextCursor: Schema.NullOr(Schema.String),
 });
 export type SlackCollectionPage = typeof SlackCollectionPage.Type;
 
 /** Rules are reloaded from the shared file for each collection pass. */
-export function acceptsSlackMessage(rules: SlackTaskRules, message: SlackTaskMessage): boolean {
+export function acceptsSlackMessage(
+  rules: Pick<
+    SlackTaskRules,
+    "workspaceId" | "excludeChannelNames" | "excludeAuthorIds" | "excludeText"
+  >,
+  message: SlackTaskMessage,
+): boolean {
   const channel = message.channelName.replace(/^#/, "").toLowerCase();
   return (
     message.workspaceId === rules.workspaceId &&

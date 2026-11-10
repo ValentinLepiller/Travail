@@ -1,6 +1,4 @@
 import { seedLegacySlackTask, taskImageTestLayer } from "./WorkTaskService.testkit.ts";
-import * as Contexts from "../inbox/InboxContextService.ts";
-import * as ContextSource from "../inbox/InboxContextSource.ts";
 import * as Inbox from "../inbox/MessageInbox.ts";
 import * as SqlClient from "effect/sql/SqlClient";
 import { expect, it } from "@effect/vitest";
@@ -37,22 +35,21 @@ const message = (channelName = "cotily", offset = 1) => ({
   ts: `${start + offset}.000001`,
   threadTs: `${start + 1}.000001`,
   text: "Message client",
+  context: {
+    version: 1 as const,
+    status: "ready" as const,
+    messages: [],
+    truncated: false,
+    reason: null,
+    checkedAt: "2026-10-29T10:00:00Z",
+  },
 });
-const layerTest = (
-  readPage: Source.SlackTaskSource["Service"]["readPage"],
-  readContext: ContextSource.InboxContextSource["Service"]["read"] = () =>
-    Effect.succeed({ status: "ready", messages: [], truncated: false, reason: null }),
-) =>
+const layerTest = (readPage: Source.SlackTaskSource["Service"]["readPage"]) =>
   Collector.layer.pipe(
     Layer.provideMerge(
-      Layer.mergeAll(
-        Inbox.layer,
-        Tasks.layer.pipe(Layer.provide(taskImageTestLayer)),
-        Contexts.layer.pipe(
-          Layer.provide(Inbox.layer),
-          Layer.provide(Layer.succeed(ContextSource.InboxContextSource, { read: readContext })),
-        ),
-      ).pipe(Layer.provideMerge(Sqlite.layerMemory)),
+      Layer.mergeAll(Inbox.layer, Tasks.layer.pipe(Layer.provide(taskImageTestLayer))).pipe(
+        Layer.provideMerge(Sqlite.layerMemory),
+      ),
     ),
     Layer.provide(Layer.succeed(Source.SlackTaskSource, { readPage })),
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "slack-task-collector-" })),
@@ -280,31 +277,81 @@ it.effect("continues after the ten-page budget from the persisted cursor and sam
   );
 });
 
-it.effect("keeps a newly collected principal and progress when context fetching fails", () =>
-  Effect.gen(function* () {
-    const collector = yield* Collector.SlackTaskCollector,
-      fs = yield* FileSystem.FileSystem,
-      inbox = yield* Inbox.MessageInbox;
-    yield* TestClock.setTime(start * 1000);
-    yield* fs.writeFileString((yield* collector.status()).rulesPath, JSON.stringify(rules));
-    yield* collector.sync();
-    yield* TestClock.adjust("2 minutes");
-    expect(yield* collector.sync()).toMatchObject({ created: 1 });
-    const entry = (yield* inbox.list({})).messages[0]!;
-    expect(entry.source.message.text).toBe("Message client");
-    expect(entry.context).toMatchObject({ status: "unavailable", reason: "source" });
-    expect((yield* collector.status()).checkpoint).not.toBe(`${start}.000000`);
-    expect(yield* (yield* Tasks.WorkTaskService).list()).toEqual([]);
-  }).pipe(
-    Effect.scoped,
-    Effect.provide(
-      layerTest(
-        () => Effect.succeed({ messages: [message()], nextCursor: null }),
-        () =>
-          Effect.fail(
-            new ContextSource.InboxContextSourceError({ reason: "source", cause: "offline" }),
-          ),
+it.effect(
+  "does not store a principal or advance when its context is missing, then replays the complete pair",
+  () => {
+    let available = false;
+    return Effect.gen(function* () {
+      const collector = yield* Collector.SlackTaskCollector;
+      const fs = yield* FileSystem.FileSystem;
+      const inbox = yield* Inbox.MessageInbox;
+      yield* TestClock.setTime(start * 1000);
+      yield* fs.writeFileString((yield* collector.status()).rulesPath, JSON.stringify(rules));
+      yield* collector.sync();
+      yield* TestClock.adjust("2 minutes");
+      const before = (yield* collector.status()).checkpoint;
+      const error = yield* collector.sync().pipe(Effect.flip);
+      expect(error.stage).toBe("source");
+      expect((yield* inbox.list({})).messages).toEqual([]);
+      expect((yield* collector.status()).checkpoint).toBe(before);
+      available = true;
+      expect((yield* collector.sync()).created).toBe(1);
+      expect((yield* inbox.list({})).messages[0]!.context?.status).toBe("ready");
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        layerTest(() =>
+          Effect.sync(() => {
+            const full = message();
+            const { context: _context, ...bare } = full;
+            return { messages: [available ? full : bare], nextCursor: null };
+          }),
+        ),
+      ),
+    );
+  },
+);
+
+it.effect(
+  "repairs an older context through collection without reimporting or replacing the principal",
+  () =>
+    Effect.gen(function* () {
+      const collector = yield* Collector.SlackTaskCollector,
+        fs = yield* FileSystem.FileSystem,
+        inbox = yield* Inbox.MessageInbox;
+      yield* TestClock.setTime(start * 1000);
+      yield* fs.writeFileString((yield* collector.status()).rulesPath, JSON.stringify(rules));
+      yield* collector.sync();
+      const { context: _context, ...bare } = message("general", -1000);
+      yield* inbox.ingestSlack(bare);
+      const before = (yield* inbox.list({})).messages[0]!;
+      yield* TestClock.adjust("2 minutes");
+      expect((yield* collector.sync()).duplicate).toBe(1);
+      const after = yield* inbox.read({ id: before.id });
+      expect(after.source).toEqual(before.source);
+      expect(after.collectedAt).toEqual(before.collectedAt);
+      expect(after.context?.status).toBe("ready");
+      expect((yield* inbox.list({})).messages).toHaveLength(1);
+      expect(yield* (yield* Tasks.WorkTaskService).list()).toEqual([]);
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        layerTest((_, input) =>
+          Effect.succeed({
+            messages: (input.recovery ?? []).map((message) => ({
+              ...message,
+              context: {
+                version: 1 as const,
+                status: "ready" as const,
+                messages: [],
+                truncated: false,
+                reason: null,
+                checkedAt: "2026-10-29T10:00:00Z",
+              },
+            })),
+            nextCursor: null,
+          }),
+        ),
       ),
     ),
-  ),
 );

@@ -1,4 +1,4 @@
-import { GmailTaskMessage } from "@t3tools/contracts";
+import { GmailTaskMessage, InboxContext } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { SlackTaskRules } from "./slackTaskRules.ts";
 export { GmailTaskMessage } from "@t3tools/contracts";
@@ -19,14 +19,23 @@ export const GmailCollectionInput = Schema.Struct({
   before: Schema.String,
   cursor: Schema.NullOr(Schema.String),
   linkId: Schema.optionalKey(Schema.String),
+  knownIds: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isMaxLength(2000))),
+  recovery: Schema.optionalKey(Schema.Array(GmailTaskMessage).check(Schema.isMaxLength(1))),
+  excludeSenders: Schema.optionalKey(Schema.Array(Schema.String)),
+  excludeText: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 export type GmailCollectionInput = typeof GmailCollectionInput.Type;
 export const GmailCollectionPage = Schema.Struct({
-  messages: Schema.Array(GmailTaskMessage).check(Schema.isMaxLength(20)),
+  messages: Schema.Array(
+    Schema.Struct({ ...GmailTaskMessage.fields, context: Schema.optionalKey(InboxContext) }),
+  ).check(Schema.isMaxLength(21)),
   nextCursor: Schema.NullOr(Schema.String),
 });
 export type GmailCollectionPage = typeof GmailCollectionPage.Type;
-export function acceptsGmailMessage(rules: GmailTaskRules, message: GmailTaskMessage): boolean {
+export function acceptsGmailMessage(
+  rules: Pick<GmailTaskRules, "accountEmail" | "excludeSenders" | "excludeText">,
+  message: GmailTaskMessage,
+): boolean {
   return (
     message.accountEmail === rules.accountEmail &&
     !rules.excludeSenders.some((sender) =>
