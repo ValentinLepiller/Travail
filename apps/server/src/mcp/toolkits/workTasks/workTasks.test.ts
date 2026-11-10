@@ -87,10 +87,10 @@ it.effect("allows status inspection but denies a read-only caller collection acc
     expect((yield* call("slack_tasks_status")).isError).toBe(false);
     expect((yield* call("work_tasks_list")).isError).toBe(false);
     expect(
-      (yield* call("work_qualification_reserve", scope, {
+      yield* call("work_qualification_reserve", scope, {
         tasks: [{ id: "task", expectedVersion: 1 }],
-      })).isError,
-    ).toBe(true);
+      }).pipe(Effect.flip),
+    ).toBeDefined();
     for (const name of ["work_task_claim", "work_task_release"]) {
       expect((yield* call(name, scope, { id: "task", expectedVersion: 1 })).isError).toBe(true);
       expect(
@@ -153,7 +153,7 @@ it.effect.each(["unqualified", "todo"] as const)(
         sources: [
           { kind: "slack", label: "Précision client", url: "https://example.com/slack/message" },
         ],
-        status: trigger,
+        status: "ready",
         projectId,
         agentThreadId: null,
         dueDate: null,
@@ -195,12 +195,8 @@ it.effect.each(["unqualified", "todo"] as const)(
       expect(read.structuredContent).toMatchObject({ task: { id: target.id, status: "doing" } });
       const reservation = yield* call("work_qualification_reserve", {
         tasks: [{ id: source.id, expectedVersion: source.version }],
-      });
-      expect(reservation.isError).toBe(trigger !== "unqualified");
-      if (trigger === "unqualified")
-        expect(reservation.structuredContent).toEqual([
-          { id: source.id, expectedVersion: source.version },
-        ]);
+      }).pipe(Effect.flip);
+      expect(reservation).toBeDefined();
       expect(
         (yield* call("work_chantier_apply_plan", {
           chantier: { ...chantier, expectedVersion: chantier.version },
@@ -212,7 +208,7 @@ it.effect.each(["unqualified", "todo"] as const)(
       const saved = yield* tasks.save(
         {
           ...source,
-          status: trigger === "todo" ? "review" : "todo",
+          status: "review",
           expectedVersion: source.version,
         },
         caller,

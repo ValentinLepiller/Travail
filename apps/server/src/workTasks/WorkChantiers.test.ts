@@ -321,11 +321,11 @@ it.effect.each(["unqualified", "todo"] as const)(
       const service = yield* setup;
       const sql = yield* SqlClient.SqlClient;
       const c = yield* service.saveChantier(chantier());
-      const attached = yield* service.save({ ...task("attached"), status: trigger });
+      const attached = yield* service.save({ ...task("attached"), status: "ready" });
       const ordinary = yield* service.save({
         ...task("ordinary"),
         chantierId: null,
-        status: trigger,
+        status: "ready",
       });
       const caller = ThreadId.make("thread");
       yield* sql`INSERT INTO autonomous_agents (id, payload_json) VALUES ('worker', ${JSON.stringify({ trigger, paused: true, currentThreadId: null, projectId: "project" })})`;
@@ -343,11 +343,11 @@ it.effect.each(["unqualified", "todo"] as const)(
               caller,
             )
             .pipe(Effect.flip)).reason,
-        ).toBe("chantierScope");
+        ).toBe(trigger === "unqualified" ? "preparation" : "chantierScope");
       }
       expect(
-        (yield* service.save({ ...task("new"), status: trigger }, caller).pipe(Effect.flip)).reason,
-      ).toBe(trigger === "unqualified" ? "conflict" : "chantierScope");
+        (yield* service.save({ ...task("new"), status: "ready" }, caller).pipe(Effect.flip)).reason,
+      ).toBe(trigger === "unqualified" ? "preparation" : "chantierScope");
       expect(
         (yield* service
           .claim(caller, { id: attached.id, expectedVersion: attached.version })
@@ -387,12 +387,14 @@ it.effect.each(["unqualified", "todo"] as const)(
         (yield* service
           .save({ ...ordinary, chantierId: c.id, expectedVersion: ordinary.version }, caller)
           .pipe(Effect.flip)).reason,
-      ).toBe("chantierScope");
-      const updated = yield* service.save(
-        { ...ordinary, title: "Clarifiée", expectedVersion: ordinary.version },
-        caller,
-      );
-      expect(updated.title).toBe("Clarifiée");
+      ).toBe(trigger === "unqualified" ? "preparation" : "chantierScope");
+      if (trigger === "todo") {
+        const updated = yield* service.save(
+          { ...ordinary, title: "Clarifiée", expectedVersion: ordinary.version },
+          caller,
+        );
+        expect(updated.title).toBe("Clarifiée");
+      }
       expect(yield* service.read(attached.id)).toEqual(attached);
       expect(yield* service.readChantier(c.id)).toEqual(c);
       const manual = yield* service.save({
@@ -406,48 +408,4 @@ it.effect.each(["unqualified", "todo"] as const)(
       );
       expect(orchestrated.title).toBe("Orchestré");
     }).pipe(Effect.provide(layer)),
-);
-
-it.effect("qualification cannot absorb a chantier task or move its principal into a chantier", () =>
-  Effect.gen(function* () {
-    const service = yield* setup;
-    const sql = yield* SqlClient.SqlClient;
-    yield* service.saveChantier(chantier());
-    const principal = yield* service.save({
-      ...task("principal"),
-      chantierId: null,
-      status: "unqualified",
-    });
-    const attached = yield* service.save({ ...task("attached"), status: "unqualified" });
-    const other = yield* service.save({
-      ...task("other"),
-      chantierId: null,
-      status: "unqualified",
-    });
-    const caller = ThreadId.make("thread");
-    yield* sql`INSERT INTO autonomous_agents (id,payload_json) VALUES ('qualifier', ${JSON.stringify({ trigger: "unqualified", projectId: "project", currentThreadId: caller, paused: false })})`;
-    yield* sql`INSERT INTO autonomous_agent_runs (thread_id,agent_id,title,prompt,started_at,task_id) VALUES (${caller},'qualifier','Qualification','','',${principal.id})`;
-    for (const [member, chantierId] of [
-      [attached, null],
-      [other, "chantier"],
-    ] as const) {
-      expect(
-        (yield* service
-          .save(
-            {
-              ...principal,
-              chantierId,
-              status: "todo",
-              expectedVersion: principal.version,
-              qualificationGroup: [{ id: member.id, expectedVersion: member.version }],
-            },
-            caller,
-          )
-          .pipe(Effect.flip)).reason,
-      ).toBe("chantierScope");
-    }
-    expect(yield* service.read(principal.id)).toEqual(principal);
-    expect(yield* service.read(attached.id)).toEqual(attached);
-    expect(yield* service.read(other.id)).toEqual(other);
-  }).pipe(Effect.provide(layer)),
 );

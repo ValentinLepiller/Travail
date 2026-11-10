@@ -2,11 +2,10 @@ import { ChatImageAttachment, PROVIDER_SEND_TURN_MAX_ATTACHMENTS } from "./chatA
 import { WorkSource, WorkChantierSaveInput } from "./workChantier.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import * as Schema from "effect/Schema";
+import * as SchemaTransformation from "effect/SchemaTransformation";
 import { NonNegativeInt, TrimmedNonEmptyString, ProjectId, ThreadId } from "./baseSchemas.ts";
 
 export const WorkTaskStatus = Schema.Literals([
-  "unqualified",
-  "todo",
   "ready",
   "doing",
   "review",
@@ -77,6 +76,16 @@ export const WorkTaskFields = Schema.Struct({
 });
 export const WorkTask = Schema.Struct({
   ...WorkTaskFields.fields,
+  // Old databases remain readable; new commands only accept current statuses.
+  status: Schema.Union([WorkTaskStatus, Schema.Literals(["unqualified", "todo"])]).pipe(
+    Schema.decodeTo(
+      WorkTaskStatus,
+      SchemaTransformation.transform({
+        decode: (status) => (status === "unqualified" || status === "todo" ? "ready" : status),
+        encode: (status) => status,
+      }),
+    ),
+  ),
   id: TrimmedNonEmptyString.check(Schema.isMaxLength(100)),
   version: NonNegativeInt,
   qualifiedAt: Schema.optionalKey(Schema.NullOr(Schema.String)),
@@ -132,10 +141,13 @@ export class WorkTaskError extends Schema.TaggedError<WorkTaskError>()("WorkTask
     "cycle",
     "referenced",
     "chantierScope",
+    "status",
   ]),
 }) {
   override get message(): string {
     switch (this.reason) {
+      case "status":
+        return "Ce statut ou cet ancien parcours de qualification a été retiré. Utilise À démarrer pour une nouvelle tâche.";
       case "chantierScope":
         return "Les tâches des chantiers sont gérées par leur orchestrateur. Le Qualifieur et le Coordinateur interviennent uniquement sur les tâches sans chantier.";
       case "dependencies":
@@ -145,7 +157,7 @@ export class WorkTaskError extends Schema.TaggedError<WorkTaskError>()("WorkTask
       case "referenced":
         return "Cette tâche est un prérequis. Retire ses dépendances avant de la supprimer ou de changer son cadre.";
       case "preparation":
-        return "Cette tâche doit être préparée et passée à À démarrer avant de lancer un agent.";
+        return "Cette tâche doit être À démarrer avant de lancer un agent.";
       case "conflict":
         return "Cette tâche a changé. Actualise la liste avant de réessayer.";
       case "project":

@@ -4,7 +4,6 @@ import * as ManagedFolders from "../project/ManagedProjectFolders.ts";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
-import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -130,17 +129,12 @@ it.effect("restores repository agents on a fresh environment without starting wo
       yield* Agents.initializeConfiguredAgents;
       const service = yield* Agents.AutonomousAgentService;
       const agents = yield* service.list();
-      expect(agents.map((agent) => agent.id)).toEqual([
-        "chef-travail",
-        "coordinateur-taches",
-        "qualifieur",
-        "slack-exclusions-review",
-      ]);
+      expect(agents.map((agent) => agent.id)).toEqual(["chef-travail", "slack-exclusions-review"]);
       expect(agents.every((agent) => agent.paused && agent.currentThreadId === null)).toBe(true);
       expect(agents.every((agent) => agent.projectId === null)).toBe(true);
       yield* service.tick();
       expect(f.launched).toHaveLength(0);
-      expect((yield* service.read({ id: "coordinateur-taches" })).memory).toBe("");
+      expect((yield* service.read({ id: "slack-exclusions-review" })).memory).toBe("");
       expect(agents.find((agent) => agent.id === "slack-exclusions-review")?.dailySchedule).toEqual(
         { timeOfDay: "09:00", timeZone: "Europe/Paris" },
       );
@@ -163,7 +157,7 @@ it.effect("restoring repository agents preserves local configuration, memory and
       yield* Agents.initializeConfiguredAgents;
       expect((yield* service.list()).find((agent) => agent.id === config.id)).toEqual(before);
       expect((yield* service.read({ id: config.id })).memory).toBe("Mémoire locale");
-      expect(yield* service.list()).toHaveLength(4);
+      expect(yield* service.list()).toHaveLength(3);
       expect(f.launched).toHaveLength(1);
     }).pipe(Effect.provideContext(f.context));
   }).pipe(Effect.scoped),
@@ -361,10 +355,12 @@ it.effect("serves queued agent questions before ordinary tasks and prevents circ
     const f = yield* fixture;
     yield* Effect.gen(function* () {
       const agents = yield* Agents.AutonomousAgentService;
+      const sql = yield* SqlClient.SqlClient;
       yield* agents.command({ type: "save", config: agentConfig("a") });
-      yield* agents.command({ type: "save", config: agentConfig("b", "unqualified") });
+      yield* agents.command({ type: "save", config: agentConfig("b") });
       yield* agents.command({ type: "resume", id: "a" });
       yield* agents.command({ type: "resume", id: "b" });
+      yield* sql`UPDATE autonomous_agents SET payload_json=json_set(payload_json,'$.nextRunAt',9000000000000) WHERE id='b'`;
       yield* agents.tick();
       const a = (yield* agents.list()).find((x) => x.id === "a")!;
       yield* agents.ask(a.currentThreadId!, "b", "Quel est le périmètre ?");
@@ -389,43 +385,6 @@ it.effect("serves queued agent questions before ordinary tasks and prevents circ
       ).toBe(true);
     }).pipe(Effect.provideContext(f.context));
   }).pipe(Effect.scoped),
-);
-
-it.effect(
-  "does not requalify a task awaiting a human decision and continues with the next task",
-  () =>
-    Effect.gen(function* () {
-      const f = yield* fixture;
-      yield* Effect.gen(function* () {
-        const agents = yield* Agents.AutonomousAgentService;
-        const tasks = yield* Tasks.WorkTaskService;
-        const sql = yield* SqlClient.SqlClient;
-        const fields = {
-          title: "Demande à arbitrer",
-          notes: "",
-          status: "unqualified" as const,
-          projectId: null,
-          agentThreadId: null,
-          dueDate: null,
-          expectedVersion: 0,
-        };
-        yield* tasks.save({ ...fields, id: "task-1" });
-        yield* agents.command({ type: "save", config: agentConfig("qualifier", "unqualified") });
-        yield* agents.command({ type: "resume", id: "qualifier" });
-        yield* agents.tick();
-        const threadId = f.launched[0]!;
-        yield* sql`INSERT INTO agent_requests (id,payload_json) VALUES ('decision', ${`{"threadId":"${threadId}","status":"pending","delivery":"none"}`})`;
-        yield* agents.finish(threadId, "Attente d’arbitrage", "Provisoire");
-        yield* agents.tick();
-        yield* agents.command({ type: "resume", id: "qualifier" });
-        yield* agents.tick();
-        expect(f.launched).toHaveLength(1);
-        yield* tasks.save({ ...fields, id: "task-2", title: "Autre demande" });
-        yield* agents.command({ type: "resume", id: "qualifier" });
-        yield* agents.tick();
-        expect(f.launched).toHaveLength(2);
-      }).pipe(Effect.provideContext(f.context));
-    }).pipe(Effect.scoped),
 );
 
 it.effect(
@@ -472,102 +431,6 @@ it.effect(
     }).pipe(Effect.scoped),
 );
 
-it.effect("qualifies every project's tasks and unassigned tasks from a neutral workspace", () =>
-  Effect.gen(function* () {
-    const f = yield* fixture;
-    yield* Effect.gen(function* () {
-      const agents = yield* Agents.AutonomousAgentService;
-      const tasks = yield* Tasks.WorkTaskService;
-      const sql = yield* SqlClient.SqlClient;
-      const now = "2026-10-30T12:00:00Z";
-      for (const id of ["project-a", "project-b"])
-        yield* sql`INSERT INTO projection_projects (project_id,title,workspace_root,scripts_json,created_at,updated_at) VALUES (${id},${id},${`/tmp/${id}`},'[]',${now},${now})`;
-      for (const [id, projectId] of [
-        ["task-a", ProjectId.make("project-a")],
-        ["task-b", ProjectId.make("project-b")],
-        ["task-unknown", null],
-      ] as const) {
-        yield* tasks.save({
-          id,
-          title: id,
-          notes: "",
-          status: "unqualified",
-          projectId,
-          agentThreadId: null,
-          dueDate: null,
-          expectedVersion: 0,
-        });
-      }
-      yield* agents.command({
-        type: "save",
-        config: agentConfig("global-qualifier", "unqualified"),
-      });
-      expect((yield* agents.list())[0]?.projectId).toBeNull();
-      const processed = new Set<string>();
-      for (let i = 0; i < 3; i++) {
-        yield* agents.command({ type: "resume", id: "global-qualifier" });
-        yield* agents.tick();
-        const active = (yield* agents.list())[0]!.currentThreadId!;
-        const run = (yield* sql<{
-          task_id: string;
-        }>`SELECT task_id FROM autonomous_agent_runs WHERE thread_id = ${active}`)[0]!;
-        processed.add(run.task_id);
-        const task = (yield* tasks.list()).find((t) => t.id === run.task_id)!;
-        if (i === 0) {
-          yield* agents.command({ type: "pause", id: "global-qualifier" });
-          yield* agents.command({ type: "resume", id: "global-qualifier" });
-          expect(f.sentProjects[0]).toBe("scratch");
-          expect(f.sent[0]?.text).toContain("sans Requête systématique");
-        }
-        yield* tasks.save({ ...task, status: "todo", expectedVersion: task.version }, active);
-        yield* agents.finish(active, `Projet de ${task.id} identifié`, "Qualifié");
-        yield* agents.tick();
-      }
-      expect(processed).toEqual(new Set(["task-a", "task-b", "task-unknown"]));
-      expect(f.launchInputs).toHaveLength(3);
-      expect(f.launchInputs.every((input) => input.projectId === "scratch")).toBe(true);
-      expect(f.launchInputs[0]?.initialMessage?.text).toContain(
-        "tous les projets de cette machine",
-      );
-      expect(f.launchInputs[0]?.initialMessage?.text).toContain("t3_project_list");
-      expect(f.launchInputs[0]?.initialMessage?.text).toContain("sans Requête systématique");
-    }).pipe(Effect.provideContext(f.context));
-  }).pipe(Effect.scoped),
-);
-
-it.effect("keeps a project-scoped qualifier inside its selected project", () =>
-  Effect.gen(function* () {
-    const f = yield* fixture;
-    yield* Effect.gen(function* () {
-      const agents = yield* Agents.AutonomousAgentService;
-      const tasks = yield* Tasks.WorkTaskService;
-      const sql = yield* SqlClient.SqlClient;
-      const now = "2026-10-30T12:00:00Z";
-      for (const id of ["project-a", "project-b"]) {
-        yield* sql`INSERT INTO projection_projects (project_id,title,workspace_root,scripts_json,created_at,updated_at) VALUES (${id},${id},${`/tmp/${id}`},'[]',${now},${now})`;
-        yield* tasks.save({
-          id,
-          title: id,
-          notes: "",
-          status: "unqualified",
-          projectId: ProjectId.make(id),
-          agentThreadId: null,
-          dueDate: null,
-          expectedVersion: 0,
-        });
-      }
-      yield* agents.command({
-        type: "save",
-        config: { ...agentConfig("local", "unqualified"), projectId: ProjectId.make("project-a") },
-      });
-      yield* agents.command({ type: "resume", id: "local" });
-      yield* agents.tick();
-      expect(f.launchInputs[0]?.projectId).toBe("project-a");
-      expect(f.launchInputs[0]?.initialMessage?.text).toContain("Tâche project-a");
-    }).pipe(Effect.provideContext(f.context));
-  }).pipe(Effect.scoped),
-);
-
 it.effect("resumes interrupted work when a decision belongs to another thread", () =>
   Effect.gen(function* () {
     const f = yield* fixture;
@@ -599,236 +462,6 @@ it.effect("resumes interrupted work when a decision belongs to another thread", 
   }).pipe(Effect.scoped),
 );
 
-it.effect("prepares only available todo tasks and prevents duplicate coordinator launches", () =>
-  Effect.gen(function* () {
-    const f = yield* fixture;
-    yield* Effect.gen(function* () {
-      const agents = yield* Agents.AutonomousAgentService;
-      const tasks = yield* Tasks.WorkTaskService;
-      for (const id of ["coordinator-a", "coordinator-b"]) {
-        yield* agents.command({
-          type: "save",
-          config: { ...agentConfig(id, "todo"), projectId: null },
-        });
-        yield* agents.command({ type: "resume", id });
-      }
-      for (const status of ["unqualified", "ready", "doing", "done"] as const) {
-        yield* tasks.save({
-          id: status,
-          title: status,
-          notes: "",
-          status,
-          projectId: null,
-          agentThreadId: null,
-          dueDate: null,
-          expectedVersion: 0,
-        });
-      }
-      yield* agents.tick();
-      expect(f.launched).toHaveLength(0);
-      yield* tasks.save({
-        id: "to-prepare",
-        title: "Préparer la demande",
-        notes: "Contexte utile",
-        status: "todo",
-        projectId: null,
-        agentThreadId: null,
-        dueDate: null,
-        expectedVersion: 0,
-      });
-      yield* Effect.all([agents.tick(), agents.tick()], { concurrency: "unbounded" });
-      expect(f.launched).toHaveLength(1);
-      expect(f.launchInputs[0]?.initialMessage?.text).toContain("Tâche to-prepare");
-      expect(f.launchInputs[0]?.initialMessage?.text).toContain("Contexte utile");
-      expect(f.launchInputs[0]?.projectId).toBe("scratch");
-    }).pipe(Effect.provideContext(f.context));
-  }).pipe(Effect.scoped),
-);
-
-it.effect("migrates existing same-scope knowledge once and preserves the original files", () =>
-  Effect.gen(function* () {
-    const f = yield* fixture;
-    yield* Effect.gen(function* () {
-      const agents = yield* Agents.AutonomousAgentService;
-      const fs = yield* FileSystem.FileSystem;
-      const config = yield* Config.ServerConfig;
-      for (const id of ["legacy-a", "legacy-b"]) {
-        yield* agents.command({ type: "save", config: agentConfig(id, "unqualified") });
-        const directory = `${config.stateDir}/autonomous-agents/${id}`;
-        yield* fs.makeDirectory(directory, { recursive: true });
-        yield* fs.writeFileString(`${directory}/MEMORY.md`, `Règle ${id}`);
-      }
-      const shared = yield* agents.read({ id: "legacy-a" });
-      expect(shared.memory).toContain("Règle legacy-a");
-      expect(shared.memory).toContain("Règle legacy-b");
-      yield* fs.writeFileString(
-        `${config.stateDir}/autonomous-agents/legacy-a/MEMORY.md`,
-        "Ancienne copie modifiée",
-      );
-      expect((yield* agents.read({ id: "legacy-b" })).memory).toBe(shared.memory);
-      expect(
-        yield* fs.readFileString(`${config.stateDir}/autonomous-agents/legacy-b/MEMORY.md`),
-      ).toBe("Règle legacy-b");
-      yield* agents.command({
-        type: "save",
-        config: { ...agentConfig("separate", "unqualified"), projectId: ProjectId.make("other") },
-      });
-      expect((yield* agents.read({ id: "separate" })).memory).not.toContain("Règle legacy");
-    }).pipe(Effect.provideContext(f.context));
-  }).pipe(Effect.scoped),
-);
-
-it.effect("allows only one qualifier and launches it with grouping instructions", () =>
-  Effect.gen(function* () {
-    const f = yield* fixture;
-    yield* Effect.gen(function* () {
-      const agents = yield* Agents.AutonomousAgentService;
-      const tasks = yield* Tasks.WorkTaskService;
-      for (const id of ["worker-a", "worker-b"]) {
-        yield* agents.command({ type: "save", config: agentConfig(id, "unqualified") });
-      }
-      yield* agents.command({ type: "resume", id: "worker-a" });
-      expect(
-        (yield* agents.command({ type: "resume", id: "worker-b" }).pipe(Effect.flip)).message,
-      ).toContain("Un seul qualifieur");
-      yield* tasks.save({
-        id: "seed",
-        title: "Demande DM",
-        notes: "",
-        status: "unqualified",
-        projectId: null,
-        agentThreadId: null,
-        dueDate: null,
-        expectedVersion: 0,
-      });
-      yield* agents.tick();
-      expect(f.launched).toHaveLength(1);
-      expect(f.launchInputs[0]?.initialMessage?.text).toContain("work_tasks_list");
-      expect(f.launchInputs[0]?.initialMessage?.text).toContain("qualificationGroup");
-      expect(f.launchInputs[0]?.initialMessage?.text).toContain("deux tâches");
-      yield* agents.command({ type: "pause", id: "worker-a" });
-      yield* agents.command({ type: "resume", id: "worker-b" });
-      expect(
-        (yield* agents.list()).filter((agent) => !agent.paused).map((agent) => agent.id),
-      ).toEqual(["worker-b"]);
-    }).pipe(Effect.provideContext(f.context));
-  }).pipe(Effect.scoped),
-);
-
-it.effect("preserves a batch while parked and resumes with each card's saved status", () =>
-  Effect.gen(function* () {
-    const f = yield* fixture;
-    yield* Effect.gen(function* () {
-      const agents = yield* Agents.AutonomousAgentService;
-      const tasks = yield* Tasks.WorkTaskService;
-      const sql = yield* SqlClient.SqlClient;
-      const cards = [];
-      for (const id of ["schedule", "tracking", "recipe"])
-        cards.push(
-          yield* tasks.save({
-            id,
-            title: id,
-            notes: "Studio Bleu",
-            status: "unqualified",
-            projectId: null,
-            agentThreadId: null,
-            dueDate: null,
-            expectedVersion: 0,
-          }),
-        );
-      yield* agents.command({ type: "save", config: agentConfig("batch", "unqualified") });
-      yield* agents.command({ type: "resume", id: "batch" });
-      yield* agents.tick();
-      const threadId = f.launched[0]!;
-      yield* tasks.reserveQualification(
-        { tasks: cards.map(({ id, version }) => ({ id, expectedVersion: version })) },
-        threadId,
-      );
-      const first = cards[0]!;
-      yield* tasks.save({ ...first, status: "todo", expectedVersion: first.version }, threadId);
-      yield* sql`INSERT INTO agent_requests (id,payload_json) VALUES ('batch-question', ${JSON.stringify({ threadId, status: "pending", delivery: "none" })})`;
-      yield* agents.finish(
-        threadId,
-        "## Apprentissages communs\n\n## État du passage\nDeux cartes restantes.",
-        "Question",
-      );
-      yield* agents.tick();
-      yield* agents.tick();
-      expect(f.launched).toHaveLength(1);
-      yield* sql`DELETE FROM agent_requests WHERE id = 'batch-question'`;
-      yield* agents.enqueueDecision(threadId, "batch-answer", "Poursuivre le lot");
-      yield* agents.tick();
-      const resumed = f.sent.at(-1)!;
-      expect(resumed.threadId).toBe(threadId);
-      expect(resumed.text).toContain("work_qualification_reserve");
-      expect(resumed.text).toContain('"id":"schedule","version":2,"status":"todo"');
-      expect(resumed.text).toContain('"id":"tracking","version":1,"status":"unqualified"');
-      yield* agents.command({ type: "pause", id: "batch" });
-      yield* agents.command({ type: "resume", id: "batch" });
-      expect(f.sent.at(-1)?.text).toContain("Deux cartes restantes.");
-      yield* agents.finish(
-        threadId,
-        "## Apprentissages communs\n\n## État du passage\nSources incertaines pour les deux cartes restantes.",
-        "Lot terminé",
-      );
-      yield* agents.tick();
-      yield* agents.tick();
-      expect(f.launched).toHaveLength(2);
-      expect(f.launchInputs.at(-1)?.initialMessage?.text).toMatch(/Tâche (tracking|recipe),/);
-    }).pipe(Effect.provideContext(f.context));
-  }).pipe(Effect.scoped),
-);
-
-it.effect.each(["unqualified", "todo"] as const)(
-  "%s agents process new and subsequent tasks without a cooldown",
-  (trigger) =>
-    Effect.gen(function* () {
-      const f = yield* fixture;
-      yield* Effect.gen(function* () {
-        const agents = yield* Agents.AutonomousAgentService;
-        const tasks = yield* Tasks.WorkTaskService;
-        const sql = yield* SqlClient.SqlClient;
-        const config = { ...agentConfig("worker", trigger), projectId: null };
-        yield* agents.command({ type: "save", config });
-        yield* agents.command({ type: "resume", id: config.id });
-        yield* agents.tick();
-        // An existing installation may still have a future deadline persisted.
-        yield* sql`UPDATE autonomous_agents SET payload_json = json_set(payload_json, '$.nextRunAt', 9000000000000) WHERE id = ${config.id}`;
-        for (const id of ["first", "second"]) {
-          yield* tasks.save({
-            id,
-            title: id,
-            notes: "",
-            status: trigger,
-            projectId: null,
-            agentThreadId: null,
-            dueDate: null,
-            expectedVersion: 0,
-          });
-        }
-        yield* agents.tick();
-        expect(f.launched).toHaveLength(1);
-        const active = f.launched[0]!;
-        const run = (yield* sql<{
-          task_id: string;
-        }>`SELECT task_id FROM autonomous_agent_runs WHERE thread_id = ${active}`)[0]!;
-        const task = (yield* tasks.list()).find((t) => t.id === run.task_id)!;
-        yield* tasks.save({
-          ...task,
-          status: trigger === "todo" ? "ready" : "rejected",
-          expectedVersion: task.version,
-        });
-        yield* agents.finish(active, "Mémoire", "Terminé");
-        yield* agents.tick();
-        yield* Effect.all([agents.tick(), agents.tick()], { concurrency: "unbounded" });
-        expect(f.launched).toHaveLength(2);
-        expect(f.launchInputs[1]?.initialMessage?.text).toContain(
-          `Tâche ${task.id === "first" ? "second" : "first"}`,
-        );
-      }).pipe(Effect.provideContext(f.context));
-    }).pipe(Effect.scoped),
-);
-
 it.effect("daily agents retain a visible run and wait until the next local morning", () =>
   Effect.gen(function* () {
     const f = yield* fixture;
@@ -856,68 +489,6 @@ it.effect("daily agents retain a visible run and wait until the next local morni
       expect((yield* agents.read({ id: config.id })).history).toHaveLength(1);
     }).pipe(Effect.provideContext(f.context));
   }).pipe(Effect.scoped),
-);
-
-it.effect.each(["unqualified", "todo"] as const)(
-  "%s agents skip chantier tasks and continue with legacy and explicit unassigned tasks",
-  (trigger) =>
-    Effect.gen(function* () {
-      const f = yield* fixture;
-      yield* Effect.gen(function* () {
-        const agents = yield* Agents.AutonomousAgentService;
-        const tasks = yield* Tasks.WorkTaskService;
-        const sql = yield* SqlClient.SqlClient;
-        const now = "2026-11-04T10:00:00Z";
-        yield* sql`INSERT INTO projection_projects (project_id,title,workspace_root,scripts_json,created_at,updated_at) VALUES ('project','Project','/tmp/project','[]',${now},${now})`;
-        yield* tasks.saveChantier({
-          id: "chantier",
-          expectedVersion: 0,
-          title: "Chantier",
-          projectId: ProjectId.make("project"),
-          status: "active",
-          objective: "Objectif",
-          scope: "",
-          decisions: "",
-          targetPeriod: "",
-          sources: [],
-          externalDependencies: [],
-        });
-        const fields = {
-          expectedVersion: 0,
-          title: "Demande",
-          notes: "",
-          status: trigger,
-          projectId: ProjectId.make("project"),
-          agentThreadId: null,
-          dueDate: null,
-        };
-        const attached = yield* tasks.save({ ...fields, id: "attached", chantierId: "chantier" });
-        yield* agents.command({
-          type: "save",
-          config: { ...agentConfig("worker", trigger), projectId: null },
-        });
-        yield* agents.command({ type: "resume", id: "worker" });
-        yield* agents.tick();
-        expect(f.launched).toHaveLength(0);
-        for (const [id, chantierId] of [
-          ["legacy", undefined],
-          ["unassigned", null],
-        ] as const) {
-          yield* tasks.save({ ...fields, id, ...(chantierId === null ? { chantierId } : {}) });
-          if (id === "legacy")
-            yield* sql`UPDATE work_tasks SET payload_json = json_remove(payload_json, '$.chantierId') WHERE id = ${id}`;
-          yield* agents.tick();
-          expect(f.launchInputs.at(-1)?.initialMessage?.text).toContain(`Tâche ${id},`);
-          const current = f.launched.at(-1)!;
-          yield* tasks.save({ ...(yield* tasks.read(id)), status: "ready", expectedVersion: 1 });
-          yield* agents.finish(current, "Mémoire", "Traité");
-          yield* agents.tick();
-        }
-        yield* agents.tick();
-        expect(f.launched).toHaveLength(2);
-        expect(yield* tasks.read(attached.id)).toEqual(attached);
-      }).pipe(Effect.provideContext(f.context));
-    }).pipe(Effect.scoped),
 );
 
 const chefConfig = () =>
@@ -1355,51 +926,6 @@ it.effect("refuses read receipts for another Chef's message or for user messages
 );
 
 it.effect(
-  "manual Inbox todo and unqualified cards do not start a coordinator or qualifier, while an automatic control still does",
-  () =>
-    Effect.gen(function* () {
-      const f = yield* fixture;
-      yield* Effect.gen(function* () {
-        const service = yield* Agents.AutonomousAgentService,
-          tasks = yield* Tasks.WorkTaskService;
-        const sql = yield* SqlClient.SqlClient;
-        yield* sql`INSERT INTO projection_projects(project_id,title,workspace_root,scripts_json,created_at,updated_at) VALUES('test-project','Test','/tmp/test','[]','','')`;
-        for (const trigger of ["todo", "unqualified"] as const) {
-          const config = agentConfig(trigger, trigger);
-          yield* service.command({ type: "save", config });
-          yield* service.command({ type: "resume", id: config.id });
-          yield* tasks.save({
-            id: `manual-${trigger}`,
-            title: "Manuelle",
-            notes: "",
-            status: trigger,
-            projectId: ProjectId.make("test-project"),
-            agentThreadId: null,
-            dueDate: null,
-            expectedVersion: 0,
-            automationMode: "manual",
-          });
-        }
-        yield* service.tick();
-        expect(f.launched).toHaveLength(0);
-        yield* tasks.save({
-          id: "automatic",
-          title: "Automatique témoin",
-          notes: "",
-          status: "todo",
-          projectId: ProjectId.make("test-project"),
-          agentThreadId: null,
-          dueDate: null,
-          expectedVersion: 0,
-        });
-        yield* service.tick();
-        expect(f.launched).toHaveLength(1);
-        expect(f.launchInputs[0]?.initialMessage?.text).toContain("Automatique témoin");
-      }).pipe(Effect.provideContext(f.context));
-    }).pipe(Effect.scoped),
-);
-
-it.effect(
   "creating and enriching a tracked task from Inbox never wakes the Chef, while an automatic edit still wakes it",
   () =>
     Effect.gen(function* () {
@@ -1415,7 +941,7 @@ it.effect(
           id: "tracked",
           title: "Déjà suivie",
           notes: "Notes humaines",
-          status: "todo",
+          status: "ready",
           projectId: config.projectId,
           agentThreadId: null,
           dueDate: null,
@@ -1447,6 +973,7 @@ it.effect(
         });
         yield* service.tick();
         expect(f.launched).toHaveLength(1);
+        yield* sql`UPDATE inbox_subjects SET task_id=${original.id} WHERE id='enrich'`;
         yield* actions.apply({
           kind: "update",
           subjectId: "enrich",
@@ -1472,5 +999,55 @@ it.effect(
         expect(f.launchInputs[1]?.initialMessage?.text).not.toContain("Nouvelle manuelle");
         expect(f.launchInputs[1]?.initialMessage?.text).not.toContain("Déjà suivie");
       }).pipe(Effect.provide(InboxActions.layer), Effect.provideContext(f.context));
+    }).pipe(Effect.scoped),
+);
+
+it.effect.each(["todo", "unqualified"] as const)(
+  "keeps historical %s agents readable but never lets them take ready tasks",
+  (trigger) =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      yield* Effect.gen(function* () {
+        const agents = yield* Agents.AutonomousAgentService;
+        const tasks = yield* Tasks.WorkTaskService;
+        const sql = yield* SqlClient.SqlClient;
+        const config = { ...agentConfig("old-tri", trigger), projectId: null };
+        const stored = {
+          ...config,
+          paused: false,
+          currentThreadId: null,
+          status: "idle",
+          error: null,
+          nextRunAt: 0,
+        };
+        yield* sql`INSERT INTO autonomous_agents(id,payload_json) VALUES(${config.id},${JSON.stringify(stored)})`;
+        yield* sql`INSERT INTO autonomous_agent_runs(thread_id,agent_id,title,prompt,started_at,finished_at)
+        VALUES('historical-run',${config.id},'History','','before','after')`;
+        for (const manual of [false, true])
+          yield* tasks.save({
+            id: `ready-${manual}`,
+            expectedVersion: 0,
+            title: "Action",
+            notes: "",
+            status: "ready",
+            projectId: null,
+            agentThreadId: null,
+            dueDate: null,
+            ...(manual ? { automationMode: "manual" as const } : {}),
+          });
+        yield* agents.tick();
+        expect(f.launched).toHaveLength(0);
+        expect((yield* agents.read({ id: config.id })).history).toHaveLength(1);
+        expect(
+          (yield* agents.command({ type: "resume", id: config.id }).pipe(Effect.flip)).message,
+        ).toContain("retiré");
+        expect(
+          (yield* agents.command({ type: "save", config }).pipe(Effect.flip)).message,
+        ).toContain("retirés");
+        expect((yield* agents.list()).find((a) => a.id === config.id)).toMatchObject(stored);
+        expect((yield* tasks.list()).every((t) => t.status === "ready" && t.version === 1)).toBe(
+          true,
+        );
+      }).pipe(Effect.provideContext(f.context));
     }).pipe(Effect.scoped),
 );

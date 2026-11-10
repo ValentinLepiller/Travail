@@ -73,11 +73,6 @@ export const layer = Access.toLayer(WorkTasksToolkit, {
       return yield* (yield* Tasks.WorkTaskService).claim(threadId, input);
     }),
   ),
-  work_qualification_reserve: Access.actsAsCaller((input) =>
-    Effect.gen(function* () {
-      return yield* (yield* Tasks.WorkTaskService).reserveQualification(input, yield* callerThread);
-    }),
-  ),
   work_task_release: Access.actsAsCaller((input) =>
     Effect.gen(function* () {
       const threadId = yield* callerThread;

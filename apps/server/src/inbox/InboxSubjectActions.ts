@@ -133,7 +133,7 @@ const make = Effect.gen(function* () {
               title: input.title,
               notes,
               sources,
-              status: previous?.status ?? "todo",
+              status: previous?.status ?? "ready",
               projectId: input.projectId,
               agentThreadId: previous?.agentThreadId ?? null,
               dueDate: previous?.dueDate ?? null,

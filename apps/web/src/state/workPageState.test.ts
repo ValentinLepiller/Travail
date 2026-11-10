@@ -12,13 +12,39 @@ const taskDraft = {
   expectedVersion: 3,
   title: "",
   notes: "Texte commencé\nà conserver",
-  status: "todo" as const,
+  status: "ready" as const,
   projectId: null,
   agentThreadId: null,
   dueDate: null,
 };
 
 describe("local work page state", () => {
+  it.each(["todo", "unqualified"])(
+    "keeps an old %s draft while removing its retired filter",
+    async (status) => {
+      window.localStorage.setItem(
+        "travail:task-page:v1:server-a",
+        JSON.stringify({
+          filter: status,
+          search: "texte conservé",
+          projectFilter: "project-a",
+          editing: { ...taskDraft, status, pendingImages: [{ id: "upload", name: "capture.png" }] },
+        }),
+      );
+      const { taskPageState } = await import("./workPageState");
+      expect(taskPageState("server-a").getState()).toEqual({
+        filter: "ready",
+        search: "texte conservé",
+        projectFilter: "project-a",
+        editing: {
+          ...taskDraft,
+          status: "ready",
+          pendingImages: [{ id: "upload", name: "capture.png" }],
+        },
+      });
+    },
+  );
+
   it("restores the selected request, archive and versioned drafts after reloading", async () => {
     const { requestPageState } = await import("./workPageState");
     const key = "request-2";

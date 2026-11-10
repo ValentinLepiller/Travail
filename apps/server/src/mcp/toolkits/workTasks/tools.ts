@@ -12,7 +12,6 @@ import {
   WorkTaskError,
   WorkTaskReadInput,
   WorkTaskClaimInput,
-  WorkQualificationReserveInput,
   WorkTaskTypesConfig,
   SlackTaskMessage,
   OrchestratorMcpFailure,
@@ -92,7 +91,7 @@ export const WorkTasksToolkit = Toolkit.make(
   }),
   Tool.make("work_task_launch", {
     description:
-      "Launch the separate execution discussion for an authorized, prepared task (ready). Requires all prerequisites done and an active chantier. Reuses the associated discussion, never launches blocked work. Select a model from orchestrator_capabilities. Read after uncertain results before retrying.",
+      "Launch the separate execution discussion for an authorized task in ready (À démarrer). Requires all prerequisites done and an active chantier. Reuses the associated discussion, never launches blocked work. Select a model from orchestrator_capabilities. Read after uncertain results before retrying.",
     parameters: WorkTaskLaunchInput,
     success: WorkTask,
     failure: Schema.Union([WorkTaskError, OrchestratorMcpFailure]),
@@ -121,15 +120,6 @@ export const WorkTasksToolkit = Toolkit.make(
     failureMode: "return",
     dependencies,
   }).annotate(Tool.Readonly, true),
-  Tool.make("work_qualification_reserve", {
-    description:
-      "Reserve additional unqualified cards for this active qualifier session, up to 20 including its starting card. Choose cards from the same probable project after reading titles, notes and sources; reserve before editing. Pass current IDs/versions. Reservations persist across interruption and human waits; retries preserve them. Refuses chantier, associated, stale, differently assigned projects or cards reserved by another session. Returns all reserved IDs and current versions; does not qualify, merge or associate execution discussions.",
-    parameters: WorkQualificationReserveInput,
-    success: Schema.Array(WorkTaskClaimInput),
-    failure: Schema.Union([WorkTaskError, OrchestratorMcpFailure]),
-    failureMode: "return",
-    dependencies,
-  }),
   Tool.make("work_task_claim", {
     description:
       "Associate this calling discussion with a native task at the user's request. Refuses a task already assigned to another discussion. Keeps other tasks already assigned to this discussion. No new agent is launched and the status remains manual. A task without a project adopts this discussion's project; a different project or completed/rejected/merged task is refused. Read first and use expectedVersion; on conflict read again. Apply the type prompt to your work together with the user's instructions.",

@@ -5,8 +5,7 @@ import {
   releaseClaimedAttachments,
 } from "../orchestration-v2/AttachmentClaims.ts";
 import { validateTaskDependencies } from "./taskDependencies.ts";
-import { GmailTaskMessage, gmailMessageUrl } from "./gmailTaskRules.ts";
-import { reservedWorkTasks } from "./reservations.ts";
+import { GmailTaskMessage } from "./gmailTaskRules.ts";
 import {
   WorkTask,
   ChatImageAttachment,
@@ -95,12 +94,8 @@ export class WorkTaskService extends Context.Service<
 >()("t3/workTasks/WorkTaskService") {}
 
 const isWorkTaskError = Schema.is(WorkTaskError);
+const isWorkTaskStatus = Schema.is(WorkTask.fields.status);
 const decodeImages = Schema.decodeUnknownEffect(Schema.Array(ChatImageAttachment));
-const validateGmailMessage = Schema.decodeEffect(GmailTaskMessage);
-const validateMessage = Schema.decodeEffect(SlackTaskMessage);
-const taskIdsCodec = Schema.fromJsonString(Schema.Array(Schema.String));
-const decodeTaskIds = Schema.decodeUnknownEffect(taskIdsCodec);
-const encodeTaskIds = Schema.encodeEffect(taskIdsCodec);
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -110,15 +105,12 @@ const make = Effect.gen(function* () {
     Layer.succeed(FileSystem.FileSystem, fileSystem),
     Layer.succeed(ServerConfig.ServerConfig, config),
   );
-  const reservations = reservedWorkTasks.pipe(Effect.provideService(SqlClient.SqlClient, sql));
   const revision = yield* SubscriptionRef.make(0);
   const codec = Schema.fromJsonString(WorkTask);
   const decode = Schema.decodeUnknownEffect(codec);
   const encode = Schema.encodeEffect(codec);
   const messageCodec = Schema.fromJsonString(SlackTaskMessage);
   const decodeMessage = Schema.decodeUnknownEffect(messageCodec);
-  const encodeMessage = Schema.encodeEffect(messageCodec);
-  const encodeGmailMessage = Schema.encodeEffect(Schema.fromJsonString(GmailTaskMessage));
   const storageError = () => new WorkTaskError({ reason: "storage" });
   const changed = SubscriptionRef.update(revision, (value) => value + 1);
 
@@ -188,60 +180,7 @@ const make = Effect.gen(function* () {
   const decodeChantier = Schema.decodeUnknownEffect(chantierCodec);
   const encodeChantier = Schema.encodeEffect(chantierCodec);
   const domainError = (cause: unknown) => (isWorkTaskError(cause) ? cause : storageError());
-  const reserveQualification = Effect.fn("WorkTaskService.reserveQualification")(function* (
-    input: WorkQualificationReserveInput,
-    callerThreadId: ThreadId,
-  ) {
-    return yield* sql
-      .withTransaction(
-        Effect.gen(function* () {
-          const runs = yield* sql<{
-            task_id: string | null;
-            task_ids_json: string;
-            project_id: string | null;
-          }>`SELECT r.task_id, r.task_ids_json, json_extract(a.payload_json, '$.projectId') AS project_id
-        FROM autonomous_agent_runs r JOIN autonomous_agents a ON a.id = r.agent_id
-        WHERE r.thread_id = ${callerThreadId} AND r.finished_at IS NULL
-          AND json_extract(a.payload_json, '$.trigger') = 'unqualified'
-          AND json_extract(a.payload_json, '$.currentThreadId') = ${callerThreadId}
-          AND json_extract(a.payload_json, '$.paused') = 0`;
-          const run = runs[0];
-          if (!run?.task_id) return yield* new WorkTaskError({ reason: "agent" });
-          const previous = yield* decodeTaskIds(run.task_ids_json);
-          const ids = [
-            ...new Set([run.task_id, ...previous, ...input.tasks.map((task) => task.id)]),
-          ];
-          if (
-            !input.tasks.length ||
-            ids.length > 20 ||
-            new Set(input.tasks.map((task) => task.id)).size !== input.tasks.length
-          )
-            return yield* new WorkTaskError({ reason: "conflict" });
-          const reserved = yield* reservations;
-          const projects = new Set<string>();
-          if (run.project_id) projects.add(run.project_id);
-          const cards = yield* Effect.forEach(ids, (id) => read(id));
-          for (const task of cards) {
-            if (task.projectId) projects.add(task.projectId);
-            const expected = input.tasks.find((item) => item.id === task.id);
-            if (
-              task.chantierId ||
-              task.agentThreadId ||
-              (expected &&
-                (task.status !== "unqualified" || task.version !== expected.expectedVersion)) ||
-              reserved.some((item) => item.task_id === task.id && item.thread_id !== callerThreadId)
-            )
-              return yield* new WorkTaskError({ reason: "conflict" });
-          }
-          if (projects.size > 1) return yield* new WorkTaskError({ reason: "project" });
-          const payload = yield* encodeTaskIds(ids);
-          if (payload !== run.task_ids_json)
-            yield* sql`UPDATE autonomous_agent_runs SET task_ids_json = ${payload} WHERE thread_id = ${callerThreadId}`;
-          return cards.map((task) => ({ id: task.id, expectedVersion: task.version }));
-        }),
-      )
-      .pipe(Effect.mapError(domainError));
-  });
+  const reserveQualification = () => Effect.fail(new WorkTaskError({ reason: "status" }));
   const listChantiers = Effect.fn("WorkTaskService.listChantiers")(function* () {
     const rows = yield* sql<{
       payload_json: string;
@@ -421,6 +360,7 @@ const make = Effect.gen(function* () {
     callerThreadId?: ThreadId,
     plannedTasks?: ReadonlyArray<WorkTaskSaveInput>,
   ) {
+    if (!isWorkTaskStatus(input.status)) return yield* new WorkTaskError({ reason: "status" });
     const claimedPaths: string[] = [];
     const task = yield* sql
       .withTransaction(
@@ -486,11 +426,7 @@ const make = Effect.gen(function* () {
             agentThreadId: input.agentThreadId,
             dueDate: input.dueDate,
             version: input.expectedVersion + 1,
-            qualifiedAt:
-              previous?.qualifiedAt ??
-              (input.status === "todo" && (!previous || previous.status === "unqualified")
-                ? now
-                : null),
+            qualifiedAt: previous?.qualifiedAt ?? null,
             createdAt: previous?.createdAt ?? now,
             updatedAt: now,
           };
@@ -546,139 +482,9 @@ const make = Effect.gen(function* () {
     if (!plannedTasks) yield* changed;
     return task;
   });
-  const groupQualification = Effect.fn("WorkTaskService.groupQualification")(function* (
-    input: WorkTaskSaveInput,
-    callerThreadId?: ThreadId,
-  ) {
-    const result = yield* sql
-      .withTransaction(
-        Effect.gen(function* () {
-          if (!callerThreadId) return yield* new WorkTaskError({ reason: "agent" });
-          const runs = yield* sql<{
-            task_id: string | null;
-            project_id: string | null;
-          }>`SELECT r.task_id, json_extract(a.payload_json, '$.projectId') AS project_id
-        FROM autonomous_agent_runs r JOIN autonomous_agents a ON a.id = r.agent_id
-        WHERE r.thread_id = ${callerThreadId} AND json_extract(a.payload_json, '$.trigger') = 'unqualified'
-          AND (r.task_id = ${input.id} OR EXISTS (SELECT 1 FROM json_each(r.task_ids_json) WHERE value = ${input.id}))
-          AND json_extract(a.payload_json, '$.currentThreadId') = ${callerThreadId}
-          AND json_extract(a.payload_json, '$.paused') = 0`;
-          if (!runs[0] || !["unqualified", "todo", "rejected"].includes(input.status))
-            return yield* new WorkTaskError({ reason: "conflict" });
-          const members = input.qualificationGroup ?? [];
-          const ids = [input.id, ...members.map((member) => member.id)];
-          if (new Set(ids).size !== ids.length)
-            return yield* new WorkTaskError({ reason: "conflict" });
-          const all = yield* list();
-          const seed = yield* read(input.id);
-          const grouped = yield* Effect.forEach(members, (member) => read(member.id));
-          const versions = [
-            input.expectedVersion,
-            ...members.map((member) => member.expectedVersion),
-          ];
-          const tasks = [seed, ...grouped];
-          if (input.chantierId || tasks.some((task) => task.chantierId))
-            yield* assertChantierAccess(callerThreadId);
-          for (const [index, task] of tasks.entries()) {
-            if (
-              task.status !== "unqualified" ||
-              task.version !== versions[index] ||
-              task.agentThreadId ||
-              (runs[0].project_id !== null && task.projectId !== runs[0].project_id) ||
-              (task.projectId !== null && task.projectId !== input.projectId) ||
-              (task.chantierId ?? null) !== (seed.chantierId ?? null)
-            )
-              return yield* new WorkTaskError({ reason: "conflict" });
-          }
-          const reserved = yield* reservations;
-          for (const member of grouped) {
-            if (
-              reserved.some(
-                (item) => item.task_id === member.id && item.thread_id !== callerThreadId,
-              ) ||
-              all.some((task) => task.dependsOn?.includes(member.id))
-            )
-              return yield* new WorkTaskError({ reason: "conflict" });
-          }
-          const sources = [
-            ...new Map(
-              tasks
-                .flatMap((task) => task.sources ?? [])
-                .concat(input.sources ?? [])
-                .map((source) => [JSON.stringify(source), source]),
-            ).values(),
-          ];
-          const mergedTaskIds = [
-            ...new Set(
-              tasks
-                .flatMap((task) => task.mergedTaskIds ?? [])
-                .concat(grouped.map((task) => task.id)),
-            ),
-          ];
-          const dueDates = [
-            ...new Set(tasks.map((task) => task.dueDate).filter((date) => date !== null)),
-          ];
-          const typeIds = [
-            ...new Set(tasks.map((task) => task.typeId).filter((type) => type != null)),
-          ];
-          const milestones = [...new Set(tasks.map((task) => task.milestone).filter(Boolean))];
-          const acceptanceCriteria = [
-            ...new Set(tasks.map((task) => task.acceptanceCriteria).filter(Boolean)),
-          ].join("\n\n");
-          if (
-            sources.length > 50 ||
-            mergedTaskIds.length > 200 ||
-            acceptanceCriteria.length > 10000
-          )
-            return yield* new WorkTaskError({ reason: "conflict" });
-          if (dueDates.length > 1 || typeIds.length > 1 || milestones.length > 1)
-            return yield* new WorkTaskError({ reason: "conflict" });
-          const principal = {
-            ...seed,
-            title: input.title,
-            notes: input.notes,
-            status: input.status,
-            projectId: input.projectId,
-            expectedVersion: input.expectedVersion,
-            sources,
-            mergedTaskIds,
-            dueDate: dueDates[0] ?? null,
-            typeId: typeIds[0] ?? null,
-            milestone: milestones[0] ?? "",
-            acceptanceCriteria,
-            dependsOn: [...new Set(tasks.flatMap((task) => task.dependsOn ?? []))],
-            externalDependsOn: [...new Set(tasks.flatMap((task) => task.externalDependsOn ?? []))],
-          };
-          const absorbed = grouped.map((task) => ({
-            ...task,
-            status: "merged" as const,
-            notes: `Fusionnée dans : ${principal.title} — ID : ${principal.id}\n\n${task.notes}`,
-            expectedVersion: task.version,
-          }));
-          if (absorbed.some((task) => task.notes.length > 20000))
-            return yield* new WorkTaskError({ reason: "conflict" });
-          const graph = all.map((task) =>
-            task.id === seed.id
-              ? principal
-              : (absorbed.find((member) => member.id === task.id) ?? {
-                  ...task,
-                  expectedVersion: task.version,
-                }),
-          );
-          const error = validateTaskDependencies(graph, yield* listChantiers());
-          if (error) return yield* error;
-          const saved = yield* saveInternal(principal, callerThreadId, graph);
-          for (const member of absorbed) yield* saveInternal(member, undefined, graph);
-          return saved;
-        }),
-      )
-      .pipe(Effect.mapError((cause) => (isWorkTaskError(cause) ? cause : storageError())));
-    yield* changed;
-    return result;
-  });
   const save = (input: WorkTaskSaveInput, callerThreadId?: ThreadId) =>
     input.qualificationGroup
-      ? groupQualification(input, callerThreadId)
+      ? Effect.fail(new WorkTaskError({ reason: "status" }))
       : saveInternal(input, callerThreadId);
 
   const completeForSettledThread = Effect.fn("WorkTaskService.completeForSettledThread")(function* (
@@ -755,119 +561,9 @@ const make = Effect.gen(function* () {
     yield* changed;
   });
 
-  const ingestGmail = Effect.fn("WorkTaskService.ingestGmail")(function* (input: GmailTaskMessage) {
-    const result = yield* sql
-      .withTransaction(
-        Effect.gen(function* () {
-          const message = yield* validateGmailMessage(input);
-          const existing = yield* sql<{
-            payload_json: string | null;
-          }>`SELECT payload_json FROM work_task_gmail_messages
-        WHERE account_email = ${message.accountEmail} AND message_id = ${message.id}`;
-          const sourceMessage = { ...message, text: message.text.slice(0, 6000) };
-          if (existing[0]) {
-            if (existing[0].payload_json === null) {
-              yield* sql`UPDATE work_task_gmail_messages SET payload_json = ${yield* encodeGmailMessage(sourceMessage)}
-              WHERE account_email = ${message.accountEmail} AND message_id = ${message.id} AND payload_json IS NULL`;
-            }
-            return "duplicate" as const;
-          }
-          const now = DateTime.formatIso(yield* DateTime.now);
-          const url = gmailMessageUrl(message.accountEmail, message.id);
-          const task: WorkTask = {
-            id: `gmail:${message.accountEmail}:${message.id}`,
-            title: (message.subject.trim() || "Nouveau message Gmail").slice(0, 240),
-            notes:
-              `Gmail - ${message.sender}\nCompte : ${message.accountEmail}\n${url}\n\n${message.text}`.slice(
-                0,
-                20_000,
-              ),
-            sources: [
-              {
-                kind: "email",
-                label: message.sender || "Email",
-                url,
-              },
-            ],
-            status: "unqualified",
-            projectId: null,
-            agentThreadId: null,
-            dueDate: null,
-            version: 1,
-            createdAt: now,
-            updatedAt: now,
-          };
-          yield* sql`INSERT INTO work_tasks (id, version, payload_json) VALUES (${task.id}, 1, ${yield* encode(task)})`;
-          yield* sql`INSERT INTO work_task_gmail_messages (account_email, message_id, task_id, payload_json)
-        VALUES (${message.accountEmail}, ${message.id}, ${task.id}, ${yield* encodeGmailMessage(sourceMessage)})`;
-          return "created" as const;
-        }),
-      )
-      .pipe(Effect.mapError(storageError));
-    if (result !== "duplicate") yield* changed;
-    return result;
-  });
-
-  const ingestSlack = Effect.fn("WorkTaskService.ingestSlack")(function* (input: SlackTaskMessage) {
-    const result = yield* sql
-      .withTransaction(
-        Effect.gen(function* () {
-          const message = yield* validateMessage(input);
-          const existing = yield* sql`SELECT task_id FROM work_task_slack_messages
-        WHERE workspace_id = ${message.workspaceId} AND channel_id = ${message.channelId}
-        AND message_ts = ${message.ts}`;
-          if (existing.length > 0) return "duplicate" as const;
-          const candidates = yield* sql<{ payload_json: string }>`SELECT task.payload_json
-        FROM work_task_slack_messages AS source JOIN work_tasks AS task ON source.task_id = task.id
-        WHERE source.workspace_id = ${message.workspaceId} AND source.channel_id = ${message.channelId}
-          AND source.thread_ts = ${message.threadTs} AND json_extract(task.payload_json, '$.status') = 'unqualified'
-        ORDER BY task.rowid DESC LIMIT 1`;
-          const previous = candidates[0] ? yield* decode(candidates[0].payload_json) : null;
-          const now = DateTime.formatIso(yield* DateTime.now);
-          const next: WorkTask = previous
-            ? {
-                ...previous,
-                version: previous.version + 1,
-                updatedAt: now,
-              }
-            : {
-                id: `slack:${message.workspaceId}:${message.channelId}:${message.ts}`,
-                title:
-                  `${message.channelName || "Slack"} — ${message.text.trim() || "Nouveau message"}`
-                    .replace(/\s+/g, " ")
-                    .slice(0, 240)
-                    .trim(),
-                notes: "",
-                sources: [
-                  {
-                    kind: "slack",
-                    label: message.channelName || "Slack",
-                    url: `https://app.slack.com/archives/${message.channelId}/p${message.ts.replace(".", "")}`,
-                  },
-                ],
-                status: "unqualified",
-                projectId: null,
-                agentThreadId: null,
-                dueDate: null,
-                version: 1,
-                createdAt: now,
-                updatedAt: now,
-              };
-          const payload = yield* encode(next);
-          if (previous) {
-            yield* sql`UPDATE work_tasks SET version = ${next.version}, payload_json = ${payload} WHERE id = ${next.id}`;
-          } else {
-            yield* sql`INSERT INTO work_tasks (id, version, payload_json) VALUES (${next.id}, ${next.version}, ${payload})`;
-          }
-          yield* sql`INSERT INTO work_task_slack_messages (workspace_id, channel_id, message_ts, thread_ts, task_id, payload_json)
-        VALUES (${message.workspaceId}, ${message.channelId}, ${message.ts}, ${message.threadTs}, ${next.id}, ${yield* encodeMessage(message)})`;
-          return previous ? ("appended" as const) : ("created" as const);
-        }),
-      )
-      .pipe(Effect.mapError(storageError));
-    if (result !== "duplicate") yield* changed;
-    return result;
-  });
+  // Retain a failure for callers from older integrations; collection now belongs to MessageInbox.
+  const ingestGmail = () => Effect.fail(new WorkTaskError({ reason: "status" }));
+  const ingestSlack = () => Effect.fail(new WorkTaskError({ reason: "status" }));
 
   return WorkTaskService.of({
     listChantiers,

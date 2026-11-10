@@ -205,7 +205,7 @@ it.effect(
           })
           .pipe(Effect.flip),
       ).toMatchObject({ reason: "closed" });
-      yield* tasks.save({ ...done, status: "todo", expectedVersion: done.version });
+      yield* tasks.save({ ...done, status: "ready", expectedVersion: done.version });
       expect((yield* subjects.list({})).subjects.find((s) => s.id === "alpha")!.closedAt).toBe(
         subject.closedAt,
       );
@@ -302,7 +302,7 @@ it.effect(
       expect(task).toMatchObject({
         title: "Titre révisé",
         notes: "Description validée",
-        status: "todo",
+        status: "ready",
         automationMode: "manual",
         agentThreadId: null,
         inboxSubjectIds: ["alpha"],
@@ -476,7 +476,7 @@ it.effect(
         id: "corrupt",
         title: "Existant",
         notes: "Original",
-        status: "todo",
+        status: "ready",
         projectId: null,
         agentThreadId: null,
         dueDate: null,

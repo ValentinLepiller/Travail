@@ -1,4 +1,4 @@
-import { taskImageTestLayer } from "./WorkTaskService.testkit.ts";
+import { seedLegacyGmailTask, taskImageTestLayer } from "./WorkTaskService.testkit.ts";
 import * as Contexts from "../inbox/InboxContextService.ts";
 import * as ContextSource from "../inbox/InboxContextSource.ts";
 import * as Inbox from "../inbox/MessageInbox.ts";
@@ -176,7 +176,7 @@ it.effect(
       const inbox = yield* Inbox.MessageInbox;
       const sql = yield* SqlClient.SqlClient;
       const fs = yield* FileSystem.FileSystem;
-      yield* tasks.ingestGmail(message());
+      yield* seedLegacyGmailTask(message());
       const previous = yield* tasks.list();
       yield* sql`INSERT INTO gmail_task_collection (account_email, started_at, checkpoint, window_end, cursor)
         VALUES (${rules.accountEmail}, ${`${start}.000000`}, ${`${start + 40}.000000`}, ${`${start + 90}.000000`}, 'existing-page')`;

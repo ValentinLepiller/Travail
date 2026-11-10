@@ -1,4 +1,4 @@
-import { taskImageTestLayer } from "./WorkTaskService.testkit.ts";
+import { seedLegacySlackTask, taskImageTestLayer } from "./WorkTaskService.testkit.ts";
 import * as Contexts from "../inbox/InboxContextService.ts";
 import * as ContextSource from "../inbox/InboxContextSource.ts";
 import * as Inbox from "../inbox/MessageInbox.ts";
@@ -188,7 +188,7 @@ it.effect(
       const inbox = yield* Inbox.MessageInbox;
       const sql = yield* SqlClient.SqlClient;
       const fs = yield* FileSystem.FileSystem;
-      yield* tasks.ingestSlack(message());
+      yield* seedLegacySlackTask(message());
       const previous = yield* tasks.list();
       yield* sql`INSERT INTO slack_task_collection (workspace_id, started_at, checkpoint, window_end, cursor)
         VALUES (${rules.workspaceId}, ${`${start}.000000`}, ${`${start + 40}.000000`}, ${`${start + 90}.000000`}, 'existing-page')`;

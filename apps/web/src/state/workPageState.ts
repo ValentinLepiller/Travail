@@ -1,5 +1,6 @@
-import { EnvironmentId, WorkTaskSaveInput } from "@t3tools/contracts";
+import { EnvironmentId, WorkTask, WorkTaskSaveInput } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
+import * as SchemaTransformation from "effect/SchemaTransformation";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import { getLocalStorageItem, setLocalStorageItem } from "../hooks/useLocalStorage";
 
@@ -45,8 +46,6 @@ export const requestPageState = localPageState("request-page", RequestPageState,
 
 const TaskFilter = Schema.Literals([
   "all",
-  "unqualified",
-  "todo",
   "ready",
   "mine",
   "agents",
@@ -59,6 +58,7 @@ const WorkTaskDraft = Schema.Struct({
   ...WorkTaskSaveInput.fields,
   title: Schema.String,
   notes: Schema.String,
+  status: WorkTask.fields.status,
   pendingImages: Schema.optionalKey(
     Schema.Array(
       Schema.Struct({
@@ -72,7 +72,15 @@ const WorkTaskDraft = Schema.Struct({
 export type WorkTaskDraft = typeof WorkTaskDraft.Type;
 
 const TaskPageState = Schema.Struct({
-  filter: TaskFilter,
+  filter: Schema.Union([TaskFilter, Schema.Literals(["unqualified", "todo"])]).pipe(
+    Schema.decodeTo(
+      TaskFilter,
+      SchemaTransformation.transform({
+        decode: (filter) => (filter === "unqualified" || filter === "todo" ? "ready" : filter),
+        encode: (filter) => filter,
+      }),
+    ),
+  ),
   search: Schema.String,
   projectFilter: Schema.String,
   // Incomplete titles are valid local drafts, but remain invalid save inputs.

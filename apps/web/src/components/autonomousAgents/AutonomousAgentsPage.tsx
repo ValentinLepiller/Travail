@@ -19,7 +19,6 @@ import {
   autonomousAgentDetail,
   commandAutonomousAgent,
 } from "../../state/autonomousAgents";
-import { workTasks } from "../../state/workTasks";
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
 import { observeVisibleAnimation } from "../../lib/visibleAnimation";
@@ -83,7 +82,6 @@ export function AutonomousAgentsPage() {
 }
 function Canvas({ environmentId }: { environmentId: EnvironmentId }) {
   const query = useEnvironmentQuery(autonomousAgents({ environmentId, input: {} }));
-  const tasks = useEnvironmentQuery(workTasks({ environmentId, input: {} }));
   const [selected, setSelected] = useState<
     { kind: "agent"; id: string } | { kind: "slack" } | { kind: "gmail" } | null
   >(null);
@@ -177,16 +175,6 @@ function Canvas({ environmentId }: { environmentId: EnvironmentId }) {
                 selected={selected?.kind === "agent" && selected.id === a.id}
                 editing={editing}
                 busy={busy || !allowed}
-                count={
-                  a.trigger !== "interval"
-                    ? (tasks.data?.filter(
-                        (t) =>
-                          !t.chantierId &&
-                          t.status === a.trigger &&
-                          (a.projectId === null || t.projectId === a.projectId),
-                      ).length ?? 0)
-                    : undefined
-                }
                 onSelect={() => setSelected({ kind: "agent", id: a.id })}
                 onPause={() =>
                   void execute({
@@ -333,7 +321,6 @@ function AgentCard({
   selected,
   editing,
   busy,
-  count,
   onSelect,
   onPause,
   onMove,
@@ -342,7 +329,6 @@ function AgentCard({
   selected: boolean;
   editing: boolean;
   busy: boolean;
-  count?: number | undefined;
   onSelect: () => void;
   onPause: () => void;
   onMove: (x: number, y: number) => void;
@@ -423,10 +409,8 @@ function AgentCard({
           {states[agent.status]}
         </p>
       )}
-      {count !== undefined && (
-        <p className="pointer-events-none relative mt-2 text-xs">
-          {count} {agent.trigger === "todo" ? "à préparer" : "à qualifier"} → {agent.name}
-        </p>
+      {agent.trigger !== "interval" && (
+        <p className="pointer-events-none relative mt-2 text-xs">Ancien tri des tâches désactivé</p>
       )}
       {agent.error && (
         <p className="pointer-events-none relative mt-2 text-xs text-destructive">{agent.error}</p>
@@ -676,8 +660,11 @@ function AgentForm({
             })
           }
         >
-          <option value="unqualified">Une tâche à qualifier est disponible</option>
-          <option value="todo">Une tâche à préparer est disponible</option>
+          {draft.trigger !== "interval" && (
+            <option value={draft.trigger} disabled>
+              Ancien tri des tâches (retiré)
+            </option>
+          )}
           <option value="interval">À chaque intervalle</option>
         </select>
       </label>

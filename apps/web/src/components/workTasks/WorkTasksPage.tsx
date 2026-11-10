@@ -108,8 +108,6 @@ function TaskProjectSelect({
 
 const FILTERS = [
   { id: "all", label: "Tout" },
-  { id: "unqualified", label: "À qualifier" },
-  { id: "todo", label: "À préparer" },
   { id: "ready", label: "À démarrer" },
   { id: "mine", label: "Pour moi" },
   { id: "agents", label: "Agents" },
@@ -271,8 +269,6 @@ function EnvironmentTasks({
       )
         return false;
       switch (filter) {
-        case "unqualified":
-        case "todo":
         case "ready":
           return task.status === filter;
         case "mine":
@@ -287,7 +283,7 @@ function EnvironmentTasks({
         case "merged":
           return task.status === filter;
         default:
-          return task.status !== "unqualified" && !isClosedWorkTaskStatus(task.status);
+          return !isClosedWorkTaskStatus(task.status);
       }
     })
     .sort((a, b) => STATUS_PRESENTATION[a.status].rank - STATUS_PRESENTATION[b.status].rank);
@@ -302,7 +298,8 @@ function EnvironmentTasks({
             expectedVersion: 0,
             title: "",
             notes: "",
-            status: "todo",
+            status: "ready",
+            automationMode: "manual",
             chantierId: chantierId ?? null,
             projectId:
               chantier?.projectId ?? (projectFilter ? ProjectId.make(projectFilter) : null),
@@ -541,7 +538,8 @@ function EnvironmentTasks({
                       attachments: editing.attachments ?? [],
                       projectId: editing.projectId,
                       chantierId: chantierId ?? null,
-                      status: "todo",
+                      status: "ready",
+                      automationMode: "manual",
                       agentThreadId: null,
                       dueDate: null,
                     }
@@ -708,8 +706,6 @@ function EnvironmentTasks({
                       onChange={(event) => {
                         const status = event.target.value;
                         if (
-                          status === "unqualified" ||
-                          status === "todo" ||
                           status === "ready" ||
                           status === "doing" ||
                           status === "review" ||
@@ -838,8 +834,7 @@ function EnvironmentTasks({
                 .defaultModelSelection,
             );
             let launchUnavailableReason: string | undefined;
-            if (task.status !== "ready")
-              launchUnavailableReason = "La tâche doit être préparée et passée à À démarrer";
+            if (task.status !== "ready") launchUnavailableReason = "La tâche doit être À démarrer";
             else if (!task.projectId)
               launchUnavailableReason = "Choisis un projet dans les détails";
             else if (!modelSelection)
@@ -869,7 +864,7 @@ function EnvironmentTasks({
                         {
                           ...task,
                           expectedVersion: task.version,
-                          status: checked ? "done" : "todo",
+                          status: checked ? "done" : "ready",
                         },
                         false,
                       )

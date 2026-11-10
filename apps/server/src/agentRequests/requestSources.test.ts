@@ -1,4 +1,8 @@
-import { taskImageTestLayer } from "../workTasks/WorkTaskService.testkit.ts";
+import {
+  seedLegacySlackTask,
+  seedLegacyGmailTask,
+  taskImageTestLayer,
+} from "../workTasks/WorkTaskService.testkit.ts";
 import { expect, it } from "@effect/vitest";
 import { AgentRequestCreate, ThreadId, type SlackTaskMessage } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -44,15 +48,14 @@ const services = Layer.merge(
 
 it.effect("selects the exact Slack reply, keeps its link and freezes it across revisions", () =>
   Effect.gen(function* () {
-    const tasks = yield* Tasks.WorkTaskService;
     const requests = yield* Requests.AgentRequestService;
-    yield* tasks.ingestSlack(message);
+    yield* seedLegacySlackTask(message);
     const reply = {
       ...message,
       ts: "1793278001.000002",
       text: "Le message concerné <script>alert(1)</script>",
     };
-    yield* tasks.ingestSlack(reply);
+    yield* seedLegacySlackTask(reply);
     const created = yield* requests.create(threadId, {
       ...proposal,
       sourceTaskId: `slack:TTEST:CSOURCE:${reply.ts}`,
@@ -86,10 +89,9 @@ it.effect(
   "never assigns a batch's first message to every request; legacy single-task requests resolve",
   () =>
     Effect.gen(function* () {
-      const tasks = yield* Tasks.WorkTaskService;
       const requests = yield* Requests.AgentRequestService;
       const sql = yield* SqlClient.SqlClient;
-      yield* tasks.ingestSlack(message);
+      yield* seedLegacySlackTask(message);
       yield* sql`INSERT INTO autonomous_agents (id, payload_json) VALUES ('qualifier', '{"name":"Qualifieur","trigger":"unqualified"}')`;
       yield* sql`INSERT INTO autonomous_agent_runs (thread_id, agent_id, title, prompt, started_at, task_id, task_ids_json)
       VALUES (${threadId}, 'qualifier', 'Test', '', '', ${taskId}, ${JSON.stringify([taskId, "another-task"])})`;
@@ -129,7 +131,7 @@ it.effect(
         subject: "Validation",
         text: "Le texte original du mail",
       };
-      yield* tasks.ingestGmail(email);
+      yield* seedLegacyGmailTask(email);
       const task = (yield* tasks.list())[0]!;
       yield* tasks.save({
         ...task,
@@ -152,7 +154,7 @@ it.effect(
       });
       expect(legacy.source?.text).toBeNull();
       expect(legacy.source?.url).toBe(created.source?.url);
-      expect(yield* tasks.ingestGmail(email)).toBe("duplicate");
+      yield* sql`UPDATE work_task_gmail_messages SET payload_json=${JSON.stringify(email)} WHERE account_email=${email.accountEmail} AND message_id=${email.id}`;
       const refreshed = yield* requests.create(threadId, {
         ...proposal,
         id: "refreshed",
@@ -186,9 +188,8 @@ it.effect(
 
 it.effect("bounds large Unicode excerpts without losing their source", () =>
   Effect.gen(function* () {
-    const tasks = yield* Tasks.WorkTaskService;
     const requests = yield* Requests.AgentRequestService;
-    yield* tasks.ingestSlack({ ...message, text: "😀".repeat(5000) });
+    yield* seedLegacySlackTask({ ...message, text: "😀".repeat(5000) });
     const created = yield* requests.create(threadId, { ...proposal, sourceTaskId: taskId });
     expect(created.source?.text).toBe("😀".repeat(3000));
     expect(created.source?.url).toBeTruthy();
@@ -227,7 +228,7 @@ it.effect("uses a uniquely linked task's source, but does not choose among sever
       title: "Plusieurs sources",
       notes: "",
       sources: [source, { ...source, url: "https://example.com/decision/43" }],
-      status: "todo",
+      status: "ready",
       projectId: null,
       agentThreadId: null,
       dueDate: null,
