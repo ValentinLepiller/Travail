@@ -112,7 +112,7 @@ function ChefList({ environmentId }: { environmentId: EnvironmentId }) {
   );
 }
 
-function ChefConversation({
+export function ChefConversation({
   agent,
   environmentId,
 }: {
@@ -254,7 +254,13 @@ function ChefConversation({
             }
           >
             {agent.paused || agent.status === "blocked" ? <PlayIcon /> : <PauseIcon />}
-            {agent.paused || agent.status === "blocked" ? "Démarrer" : "Pause"}
+            {agent.kind === "chantier-chef"
+              ? agent.paused || agent.status === "blocked"
+                ? "Réveiller le Chef"
+                : "Mettre le Chef en veille"
+              : agent.paused || agent.status === "blocked"
+                ? "Démarrer"
+                : "Pause"}
           </Button>
           <Button
             variant="ghost"

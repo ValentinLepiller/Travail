@@ -91,3 +91,5 @@ export * from "./autonomousAgent.ts";
 export * from "./workChantier.ts";
 export * from "./smsCode.ts";
 export * from "./agentRequestChat.ts";
+
+export * from "./workChantierV2.ts";

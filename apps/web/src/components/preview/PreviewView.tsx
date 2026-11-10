@@ -98,6 +98,7 @@ interface Props {
   tabId?: string | null;
   configuredUrls?: ReadonlyArray<string> | undefined;
   visible: boolean;
+  onCaptureAnnotation?: (annotation: PreviewAnnotationPayload) => void;
   onSendAnnotation?: (
     annotation: PreviewAnnotationPayload,
     image: ComposerImageAttachment | null,
@@ -147,13 +148,14 @@ export function PreviewView({
   tabId: requestedTabId,
   configuredUrls,
   visible,
+  onCaptureAnnotation,
   onSendAnnotation,
 }: Props) {
   const [focusUrlNonce, setFocusUrlNonce] = useState<number | undefined>(undefined);
   const [pickActive, setPickActive] = useState(false);
   const canSendAnnotation =
     useEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope) &&
-    Boolean(onSendAnnotation);
+    Boolean(onSendAnnotation || onCaptureAnnotation);
   const activeRecordingTabIds = useActiveBrowserRecordingTabIds();
   const pickActiveRef = useRef<{ cancelled: boolean } | null>(null);
   const isMountedRef = useRef(true);
@@ -824,7 +826,7 @@ export function PreviewView({
       try {
         await previewBridge.setAnnotationSendEnabled?.(
           runtimeTabId,
-          Boolean(onSendAnnotation) &&
+          Boolean(onSendAnnotation || onCaptureAnnotation) &&
             readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope),
         );
         if (pickRequest.cancelled) return;
@@ -839,6 +841,13 @@ export function PreviewView({
           submitted = true;
         }
         const { annotation: picked, submission, screenshotFailed = false } = result;
+        if (
+          onCaptureAnnotation &&
+          readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope)
+        ) {
+          onCaptureAnnotation(picked);
+          return;
+        }
         // The structured annotation is still sendable when its optional crop
         // stalls or fails, so tell the user what they lost and keep going
         // instead of holding the composer for an attachment that never lands.
@@ -911,7 +920,14 @@ export function PreviewView({
         }
       }
     })();
-  }, [addImage, addPreviewAnnotation, onSendAnnotation, runtimeTabId, threadRef]);
+  }, [
+    addImage,
+    addPreviewAnnotation,
+    onCaptureAnnotation,
+    onSendAnnotation,
+    runtimeTabId,
+    threadRef,
+  ]);
 
   useEffect(() => {
     if (!pickActive || !previewBridge || !runtimeTabId) return;

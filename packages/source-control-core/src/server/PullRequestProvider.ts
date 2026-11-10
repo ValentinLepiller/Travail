@@ -609,6 +609,7 @@ export interface PullRequestProviderApi {
       readonly action: PullRequestAction;
       readonly stackNumber?: number;
       readonly expectedStackHeads?: ReadonlyArray<PullRequestStackHead>;
+      readonly expectedHeadSha?: string;
       /** Apply `mergeMessageRewrite` to the merge message; never sent to a host without one. */
       readonly removeAgentCreditsOnMerge?: boolean;
       /** Meaningful for `merge` and `enable-auto-merge`; absent takes the host's own default. */

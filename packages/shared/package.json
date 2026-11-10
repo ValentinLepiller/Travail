@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./sha256": {
+      "types": "./src/sha256.ts",
+      "import": "./src/sha256.ts"
+    },
     "./munimComputerUse": {
       "types": "./src/munimComputerUse.ts",
       "import": "./src/munimComputerUse.ts"

@@ -132,6 +132,10 @@ export const WorkChantierPlanInput = Schema.Struct({
 export type WorkChantierPlanInput = typeof WorkChantierPlanInput.Type;
 export class WorkTaskError extends Schema.TaggedError<WorkTaskError>()("WorkTaskError", {
   reason: Schema.Literals([
+    "notificationLimit",
+    "approval",
+    "parallelism",
+    "generation",
     "storage",
     "conflict",
     "project",
@@ -146,6 +150,14 @@ export class WorkTaskError extends Schema.TaggedError<WorkTaskError>()("WorkTask
 }) {
   override get message(): string {
     switch (this.reason) {
+      case "notificationLimit":
+        return "Ce sujet dépasse la limite de 200 messages pour un envoi au chantier.";
+      case "approval":
+        return "Une validation du cadrage, de la tâche ou du dernier code est nécessaire.";
+      case "parallelism":
+        return "Le plafond de tâches actives de ce projet est atteint.";
+      case "generation":
+        return "Cette opération ne correspond pas à la génération du chantier.";
       case "status":
         return "Ce statut ou cet ancien parcours de qualification a été retiré. Utilise À démarrer pour une nouvelle tâche.";
       case "chantierScope":

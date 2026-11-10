@@ -5,7 +5,8 @@ import { ModelSelection } from "./modelSelection.ts";
 const AgentId = Schema.String.check(Schema.isPattern(/^[a-zA-Z0-9_-]{1,80}$/));
 export const AutonomousAgentConfig = Schema.Struct({
   id: AgentId,
-  kind: Schema.optionalKey(Schema.Literals(["agent", "chef"])),
+  kind: Schema.optionalKey(Schema.Literals(["agent", "chef", "chantier-chef"])),
+  chantierId: Schema.optionalKey(TrimmedNonEmptyString.check(Schema.isMaxLength(100))),
   wakeOnTaskChanges: Schema.optionalKey(Schema.Boolean),
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(100)),
   mission: TrimmedNonEmptyString.check(Schema.isMaxLength(20000)),
@@ -49,7 +50,7 @@ export type AutonomousAgent = typeof AutonomousAgent.Type;
 export const ChefMessage = Schema.Struct({
   id: TrimmedNonEmptyString.check(Schema.isMaxLength(100)),
   role: Schema.Literals(["user", "assistant"]),
-  text: TrimmedNonEmptyString.check(Schema.isMaxLength(5000)),
+  text: TrimmedNonEmptyString.check(Schema.isMaxLength(21000)),
   threadId: Schema.NullOr(ThreadId),
   createdAt: Schema.String,
 });
@@ -94,7 +95,7 @@ export const AutonomousAgentCommand = Schema.Union([
   Schema.Struct({ type: Schema.Literal("export"), id: AgentId, threadId: ThreadId }),
   Schema.Struct({ type: Schema.Literal("archive"), id: AgentId }),
   Schema.Struct({ type: Schema.Literal("unarchive"), id: AgentId }),
-  Schema.Struct({ type: Schema.Literal("pause"), id: AgentId }),
+  Schema.Struct({ type: Schema.Literals(["pause", "sleep", "stop"]), id: AgentId }),
   Schema.Struct({ type: Schema.Literal("resume"), id: AgentId }),
   Schema.Struct({
     type: Schema.Literal("memory"),

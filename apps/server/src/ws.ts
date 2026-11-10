@@ -1,3 +1,4 @@
+import * as ChantierCoordinator from "./workTasks/WorkChantierCoordinator.ts";
 import * as InboxActions from "./inbox/InboxSubjectActions.ts";
 import * as InboxSubjects from "./inbox/InboxSubjectService.ts";
 import * as InboxQualifications from "./inbox/InboxQualificationService.ts";
@@ -1284,6 +1285,7 @@ const layerWsRpc = (
     const agentRequests = yield* Requests.AgentRequestService;
     const requestChat = yield* RequestChat.AgentRequestChatService;
     const autonomous = yield* Autonomous.AutonomousAgentService;
+    const chantierCoordinator = yield* ChantierCoordinator.WorkChantierCoordinator;
     const taskAgents = yield* TaskAgents.WorkTaskAgentService;
     const inbox = yield* Inbox.MessageInbox;
     const subjects = yield* InboxSubjects.InboxSubjectService;
@@ -2180,7 +2182,18 @@ const layerWsRpc = (
       [WS_METHODS.workChantiersSubscribe]: () => workTasks.subscribeChantiers(),
       [WS_METHODS.workChantiersSave]: (input) => workTasks.saveChantier(input),
       [WS_METHODS.workChantiersPlan]: (input) => workTasks.applyPlan(input),
-      [WS_METHODS.workChantiersLaunch]: (input) => taskAgents.launchChantier(input),
+      [WS_METHODS.workChantiersLaunch]: (input) =>
+        Effect.gen(function* () {
+          const c = yield* workTasks.readChantier(input.id);
+          return yield* c.generation === "v2"
+            ? chantierCoordinator.launch(input)
+            : taskAgents.launchChantier(input);
+        }),
+      [WS_METHODS.workChantiersV2Command]: (input) => chantierCoordinator.command(input),
+      [WS_METHODS.workChantiersNotifySubject]: (input) => chantierCoordinator.notifySubject(input),
+      [WS_METHODS.workChantiersNotify]: (input) => chantierCoordinator.notify(input),
+      [WS_METHODS.workChantiersPolicyRead]: (input) => workTasks.chantierPolicy(input.projectId),
+      [WS_METHODS.workChantiersPolicySave]: (input) => workTasks.saveChantierPolicy(input),
       [WS_METHODS.workTasksTypes]: () => workTasks.subscribeTypes(),
       [WS_METHODS.workTasksSaveTypes]: (input) => workTasks.saveTypes(input),
       [WS_METHODS.workTasksLaunch]: (input) => taskAgents.launch(input),

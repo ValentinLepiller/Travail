@@ -1,3 +1,4 @@
+import * as ChantierCoordinator from "../workTasks/WorkChantierCoordinator.ts";
 import * as Subjects from "../inbox/InboxSubjectService.ts";
 import * as Jev from "../inbox/JevClient.ts";
 import * as QualificationSqlite from "../persistence/Sqlite.ts";
@@ -1031,6 +1032,7 @@ it.effect("HTTP tool discovery only advertises monitors to monitoring credential
           ),
         ),
         Layer.provide(Layer.mock(TaskAgents.WorkTaskAgentService)({})),
+        Layer.provide(Layer.mock(ChantierCoordinator.WorkChantierCoordinator)({})),
         Layer.provide(Layer.mock(SlackTasks.SlackTaskCollector)({})),
       ),
       {

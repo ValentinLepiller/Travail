@@ -1,3 +1,4 @@
+import * as WorkTasks from "../workTasks/WorkTaskService.ts";
 import {
   canonicalRepositoryKey,
   isSshRemoteUrl,
@@ -766,6 +767,7 @@ const observeRead = Effect.fnUntraced(function* <A, E, R>(read: Effect.Effect<A,
 });
 
 export const make = Effect.gen(function* () {
+  const workTasks = yield* Effect.serviceOption(WorkTasks.WorkTaskService);
   const mergedPullRequests = yield* PubSub.sliding<PullRequestMergeEvent>(64);
   const stateChanges = yield* PubSub.sliding<ThreadPullRequestKey>(64);
   const pullRequestRefreshes = yield* SubscriptionRef.make(0);
@@ -2293,6 +2295,9 @@ export const make = Effect.gen(function* () {
                     host: project.host,
                     number: input.number,
                     action: input.action,
+                    ...(input.expectedHeadSha === undefined
+                      ? {}
+                      : { expectedHeadSha: input.expectedHeadSha }),
                     ...(removeAgentCreditsOnMerge ? { removeAgentCreditsOnMerge: true } : {}),
                     ...(input.stackNumber === undefined ? {} : { stackNumber: input.stackNumber }),
                     ...(input.expectedStackHeads === undefined
@@ -3755,6 +3760,35 @@ export const make = Effect.gen(function* () {
     "PullRequestService.runActionAndInvalidate",
   )(function* (input) {
     const ref = yield* canonicalRef(input);
+    if (Option.isSome(workTasks) && ["merge", "enable-auto-merge"].includes(input.action)) {
+      const detail = yield* detailUncached(ref);
+      const managed = yield* workTasks.value
+        .assertChantierMerge({
+          projectId: input.projectId,
+          url: detail.url,
+          head: detail.headSha ?? "",
+          stack: input.stackNumber !== undefined,
+          auto: input.action === "enable-auto-merge",
+        })
+        .pipe(
+          Effect.mapError(
+            () =>
+              new PullRequestOperationError({
+                operation: "runAction",
+                detail:
+                  "Ce chantier attend les accords indépendants de Valentin et du Chef sur le dernier code, et doit être actif.",
+              }),
+          ),
+        );
+      if (managed) {
+        if (detail.provider !== "github")
+          return yield* new PullRequestOperationError({
+            operation: "runAction",
+            detail: "Le merge vérifié des Chantiers V2 est disponible pour GitHub uniquement.",
+          });
+        input = { ...input, expectedHeadSha: detail.headSha! };
+      }
+    }
     yield* readCache.invalidate(refScope(ref));
     const repository = yield* runAction(input).pipe(
       Effect.ensuring(readCache.invalidate(refScope(ref))),

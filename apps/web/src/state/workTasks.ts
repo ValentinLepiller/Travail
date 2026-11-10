@@ -60,3 +60,27 @@ export const launchWorkChantier = createEnvironmentRpcCommand(connectionAtomRunt
   label: "work-chantiers:launch",
   tag: WS_METHODS.workChantiersLaunch,
 });
+
+export const commandWorkChantierV2 = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "work-chantiers:v2-command",
+  tag: WS_METHODS.workChantiersV2Command,
+});
+export const notifyWorkChantier = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "work-chantiers:notify",
+  tag: WS_METHODS.workChantiersNotify,
+});
+export const chantierProjectPolicy = createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
+  label: "work-chantiers:policy",
+  tag: WS_METHODS.workChantiersPolicyRead,
+  idleTtlMs: 0,
+  staleTimeMs: 0,
+});
+export const saveChantierProjectPolicy = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "work-chantiers:policy-save",
+  tag: WS_METHODS.workChantiersPolicySave,
+});
+
+export const notifyChantierSubject = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "work-chantiers:notify-subject",
+  tag: WS_METHODS.workChantiersNotifySubject,
+});

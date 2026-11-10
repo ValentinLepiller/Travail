@@ -1,3 +1,4 @@
+import * as ChantierCoordinator from "./workTasks/WorkChantierCoordinator.ts";
 import * as WorkTaskSettlementWorker from "./workTasks/WorkTaskSettlementWorker.ts";
 import * as WorkTasks from "./workTasks/WorkTaskService.ts";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
@@ -365,6 +366,7 @@ const layerRepositoryIdentityResolver = Layer.effect(
 ).pipe(Layer.provide(layerSourceControlProviderRegistry), Layer.provide(ProcessRunner.layer));
 
 const layerPullRequestService = PullRequestService.layer.pipe(
+  Layer.provide(WorkTasks.layer),
   Layer.provide(PullRequestProviderRegistry.layer),
   // Where the viewed-file marks live for a host that keeps none of its own.
   Layer.provide(PullRequestFilesViewed.layer),
@@ -593,6 +595,7 @@ const layerProviderInstallationRefresh = Layer.effectDiscard(
 );
 
 const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
+  ChantierCoordinator.layer.pipe(Layer.provide(layerPullRequestService)),
   AgentAwarenessRelay.layer,
   // Asks T3 Connect to deliver webhooks it held while this environment was offline.
   HeldHooksWaker.layer,

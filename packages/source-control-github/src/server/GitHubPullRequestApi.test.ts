@@ -2205,6 +2205,44 @@ layer("GitHubPullRequestApi.layer", (it) => {
     }),
   );
 
+  it.effect("pins a chantier merge to its approved head", () =>
+    Effect.gen(function* () {
+      route(["query PullRequestActionState", actionState()]);
+      const cli = yield* GitHubPullRequestApi.GitHubPullRequestApi;
+      yield* cli.runPullRequestAction({
+        cwd: "/w",
+        repository: "acme/web",
+        host: "github.com",
+        number: 7,
+        action: "merge",
+        expectedHeadSha: "approved-head",
+      });
+      expect(variablesOf("mergePullRequest(")).toEqual([
+        {
+          input: { pullRequestId: "PR_7", mergeMethod: "MERGE", expectedHeadOid: "approved-head" },
+        },
+      ]);
+    }),
+  );
+  it.effect("refuses an unpinned future merge through a queue for a chantier", () =>
+    Effect.gen(function* () {
+      route(["query PullRequestActionState", actionState({ isMergeQueueEnabled: true })]);
+      const cli = yield* GitHubPullRequestApi.GitHubPullRequestApi;
+      yield* cli
+        .runPullRequestAction({
+          cwd: "/w",
+          repository: "acme/web",
+          host: "github.com",
+          number: 7,
+          action: "merge",
+          expectedHeadSha: "approved-head",
+        })
+        .pipe(Effect.flip);
+      expect(variablesOf("mergePullRequest(")).toEqual([]);
+      expect(variablesOf("enablePullRequestAutoMerge(")).toEqual([]);
+    }),
+  );
+
   it.effect("merges with the strategy it was asked for", () =>
     Effect.gen(function* () {
       route(["query PullRequestActionState", actionState()]);

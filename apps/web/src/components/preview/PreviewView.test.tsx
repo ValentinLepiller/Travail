@@ -599,6 +599,38 @@ describe("PreviewView navigation", () => {
     expect(mocks.addPreviewAnnotation).toHaveBeenCalledWith(TEST_THREAD_REF, annotation);
   });
 
+  it.each(["attach", "send"])(
+    "routes %s annotations to an embedded dossier without a chat draft",
+    async (submission) => {
+      const annotation = {
+        id: "annotation-dossier",
+        pageUrl: "https://example.com/prototype",
+        pageTitle: "Prototype",
+        comment: "Confirmer la vente après ce clic",
+        elements: [],
+        regions: [],
+        strokes: [],
+        styleChanges: [],
+        screenshot: null,
+        createdAt: "2026-11-10T00:00:00.000Z",
+      };
+      const onCaptureAnnotation = vi.fn();
+      mocks.pickElement.mockResolvedValue({ annotation, submission });
+      renderToStaticMarkup(
+        <PreviewView
+          threadRef={TEST_THREAD_REF}
+          tabId="tab-1"
+          visible
+          onCaptureAnnotation={onCaptureAnnotation}
+        />,
+      );
+      mocks.toggleAnnotation?.();
+      await vi.waitFor(() => expect(onCaptureAnnotation).toHaveBeenCalledWith(annotation));
+      expect(mocks.addPreviewAnnotation).not.toHaveBeenCalled();
+      expect(mocks.addImage).not.toHaveBeenCalled();
+    },
+  );
+
   it("retains the annotation locally when its own environment loses access during capture", async () => {
     const annotation = {
       id: "annotation-revoked",

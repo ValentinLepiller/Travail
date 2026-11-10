@@ -36,10 +36,16 @@ export const contextCatalog = Effect.gen(function* () {
     title: string;
     objective: string;
     scope: string;
+    generation: "legacy" | "v2";
+    status: string;
+    chefAgentId: string | null;
   }>`
     SELECT c.id,json_extract(c.payload_json,'$.projectId') AS projectId,c.version,
     json_extract(c.payload_json,'$.title') AS title,json_extract(c.payload_json,'$.objective') AS objective,
-    substr(json_extract(c.payload_json,'$.scope'),1,1600) AS scope
+    substr(json_extract(c.payload_json,'$.scope'),1,1600) AS scope,
+    COALESCE(json_extract(c.payload_json,'$.generation'),'legacy') AS generation,
+    json_extract(c.payload_json,'$.status') AS status,
+    json_extract(c.payload_json,'$.v2.chefAgentId') AS chefAgentId
     FROM work_chantiers c JOIN projection_projects p ON p.project_id=json_extract(c.payload_json,'$.projectId')
     WHERE p.deleted_at IS NULL AND json_extract(c.payload_json,'$.status') IS NOT 'done' ORDER BY c.id LIMIT 101`;
   const rows = yield* sql<{ payload_json: string }>`SELECT payload_json FROM work_tasks

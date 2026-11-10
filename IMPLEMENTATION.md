@@ -303,3 +303,7 @@ Tâches : statuts « À qualifier » et « À préparer » retirés après véri
 Inbox : Luna propose un projet, un chantier ou une tâche ouverte dans son périmètre. Création avec contexte modifiable et complément manuel des notes/sources, sans message à la discussion ni lancement d’agent.
 
 Sujets Inbox : icône native du projet connu, icône générique sinon.
+
+Chantiers V2 — candidat du 10/11/2026 : génération distincte, historiques/orchestrateurs conservés ; Chef autonome à sessions courtes, cadrage et tâches approuvés, dossier/prototype annotable, mémoire, plan progressif, plafond par projet, pause/arrêt et clôture/réouverture. Accords indépendants sur le dernier code avant merge, go de déploiement séparé ; notifications Inbox ponctuelles et dédupliquées. Dernière livraison Inbox `c146ee8ff` reprise ; migration 89 après SideChats (87) et InboxSubjectContext (88).
+
+Preuves : 290 tests ciblés puis 35 contrôles Chef, builds serveur/web, types ciblés et `$simplify` ; recette navigateur intégrée sur données isolées (bureau/téléphone, prototype après archivage, annotations, tâche, pause, bilan, réouverture et notifications aux deux générations), vrai Chef à sessions courtes. Sources installées préservées dans `/tmp/travail-chantiers-v2-candidate-20261110`. Typage serveur complet : aucune erreur TS, 26 avertissements Effect hérités. Merge automatique GitHub direct uniquement ; pas de nouvel écran React Native. Candidat corrigé après recette : nouvel accord requis avant publication et installation quotidienne ; aucune intervention sur les agents RGC.

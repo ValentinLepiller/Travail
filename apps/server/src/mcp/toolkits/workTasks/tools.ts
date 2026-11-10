@@ -1,3 +1,5 @@
+import * as ChantierCoordinator from "../../../workTasks/WorkChantierCoordinator.ts";
+import { AgentRequest, ChantierApprovalInput, ChantierV2Command } from "@t3tools/contracts";
 import {
   WorkChantier,
   WorkChantierReadInput,
@@ -31,6 +33,24 @@ const dependencies = [
   Invocation.McpInvocationContext,
 ];
 export const WorkTasksToolkit = Toolkit.make(
+  Tool.make("work_chantier_v2_request_approval", {
+    description:
+      "Ask Valentin in Requêtes to approve one exact V2 chantier operation, with its current version and reviewed material. After acceptance apply the same command with approvalRequestId set to requestId. Any scope/version change requires a fresh approval. Does not grant approval itself.",
+    parameters: ChantierApprovalInput,
+    success: AgentRequest,
+    failure: Schema.Union([WorkTaskError, OrchestratorMcpFailure]),
+    failureMode: "return",
+    dependencies: [...dependencies, ChantierCoordinator.WorkChantierCoordinator],
+  }),
+  Tool.make("work_chantier_v2_command", {
+    description:
+      "Update your V2 chantier dossier/memory, review the latest PR head or record proven completion. Human framing/task/merge/deployment approvals cannot be granted by an agent. Uses expected versions; does not alter legacy chantiers. Two independent head approvals trigger merge, without a third consent. Deployment is separate.",
+    parameters: Schema.Struct({ command: ChantierV2Command }),
+    success: WorkChantier,
+    failure: Schema.Union([WorkTaskError, OrchestratorMcpFailure]),
+    failureMode: "return",
+    dependencies: [...dependencies, ChantierCoordinator.WorkChantierCoordinator],
+  }),
   Tool.make("work_chantiers_list", {
     description:
       "List native Travail chantiers and their orchestrator discussion IDs. Find the chantier linked to this thread before planning or updating it.",
