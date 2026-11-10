@@ -1,3 +1,4 @@
+import { WorkChantierV2 } from "./WorkChantierV2";
 import { BotIcon, ListTodoIcon, GitBranchIcon, FileTextIcon } from "lucide-react";
 import { lazy, Suspense, useState, type ReactNode } from "react";
 import { useAtomValue } from "@effect/atom-react";
@@ -89,6 +90,24 @@ export function WorkChantiersView({
     navigate({
       search: { tab: "chantiers", chantier: id, view: nextView, task, environment: environmentId },
     });
+  const createDraft = (generation: "legacy" | "v2") => {
+    const project = projects[0];
+    if (!project) return;
+    setDraft({
+      id: randomUUID(),
+      expectedVersion: 0,
+      title: "",
+      generation,
+      projectId: project.id,
+      status: "draft",
+      objective: "",
+      scope: "",
+      decisions: "",
+      targetPeriod: "",
+      sources: [],
+      externalDependencies: [],
+    });
+  };
   const launchDiscussion = async (item: WorkChantier) => {
     const project = projects.find((p) => p.id === item.projectId);
     if (!project) {
@@ -174,7 +193,9 @@ export function WorkChantiersView({
               >
                 ← Tous les chantiers
               </button>
-              <h2 className="text-xl font-semibold">{chantier.title}</h2>
+              <h2 className="text-xl font-semibold">
+                {chantier.title} · {chantier.generation === "v2" ? "V2" : "Ancien chantier"}
+              </h2>
             </div>
             <Button
               variant="outline"
@@ -195,12 +216,22 @@ export function WorkChantiersView({
                   onClick={() => void open(chantier.id, id as keyof typeof VIEWS)}
                 >
                   <Icon aria-hidden="true" />
-                  {label}
+                  {id === "discussion" && chantier.generation === "v2" ? "Chef de chantier" : label}
                 </Button>
               );
             })}
           </div>
+          {chantier.generation === "v2" && (view === "discussion" || view === "context") && (
+            <WorkChantierV2
+              environmentId={environmentId}
+              chantier={chantier}
+              tasks={tasks}
+              discussion={view === "discussion"}
+              onLaunch={() => void launchDiscussion(chantier)}
+            />
+          )}
           {view === "discussion" &&
+            chantier.generation !== "v2" &&
             (chantier.orchestratorThreadId ? (
               <ChantierDiscussion environmentId={environmentId} chantier={chantier} tasks={tasks} />
             ) : (
@@ -227,7 +258,7 @@ export function WorkChantiersView({
               onDiscuss={() => void open(chantier.id)}
             />
           )}
-          {view === "context" && (
+          {view === "context" && chantier.generation !== "v2" && (
             <div className="grid gap-4 md:grid-cols-2">
               {[
                 ["Objectif", chantier.objective],
@@ -288,26 +319,18 @@ export function WorkChantiersView({
                 Un objectif, ses tâches et une discussion pour le piloter.
               </p>
             </div>
-            <Button
-              disabled={!canSave || !projects.length}
-              onClick={() =>
-                setDraft({
-                  id: randomUUID(),
-                  expectedVersion: 0,
-                  title: "",
-                  projectId: projects[0]!.id,
-                  status: "draft",
-                  objective: "",
-                  scope: "",
-                  decisions: "",
-                  targetPeriod: "",
-                  sources: [],
-                  externalDependencies: [],
-                })
-              }
-            >
-              Nouveau chantier
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                disabled={!canSave || !projects.length}
+                onClick={() => createDraft("legacy")}
+              >
+                Nouveau chantier ancien modèle
+              </Button>
+              <Button disabled={!canSave || !projects.length} onClick={() => createDraft("v2")}>
+                Nouveau chantier V2
+              </Button>
+            </div>
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
             <Input
@@ -364,7 +387,7 @@ export function WorkChantiersView({
                         className="flex items-center gap-2 text-left font-medium hover:underline"
                       >
                         {project && <ProjectFavicon project={project} className="size-4" />}
-                        {c.title}
+                        {c.title} · {c.generation === "v2" ? "V2" : "Ancien"}
                       </button>
                       <p className="text-sm text-muted-foreground">
                         {project?.title ?? "Projet indisponible"} ·{" "}
@@ -379,7 +402,7 @@ export function WorkChantiersView({
                     <div className="flex items-center gap-3">
                       <Badge variant="secondary">{STATUS[c.status]}</Badge>
                       <Button size="sm" variant="outline" onClick={() => void open(c.id)}>
-                        Orchestrateur
+                        {c.generation === "v2" ? "Chef de chantier" : "Orchestrateur"}
                       </Button>
                     </div>
                   </div>
@@ -538,6 +561,7 @@ function ChantierForm({
           <label className="space-y-1 text-sm">
             <span>État</span>
             <select
+              disabled={draft.generation === "v2"}
               className="w-full rounded-lg border bg-background p-2"
               value={draft.status}
               onChange={(e) =>

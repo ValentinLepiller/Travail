@@ -1,3 +1,4 @@
+import * as ChantierCoordinator from "../../../workTasks/WorkChantierCoordinator.ts";
 import * as Contexts from "../../../inbox/InboxContextService.ts";
 import * as ContextSource from "../../../inbox/InboxContextSource.ts";
 import * as Inbox from "../../../inbox/MessageInbox.ts";
@@ -51,6 +52,7 @@ const layer = McpHttpServer.toolkitRegistration(WorkTasksToolkit, Handlers.layer
   Layer.provideMerge(McpServer.McpServer.layer),
   Layer.provideMerge(collectorLayer),
   Layer.provide(Layer.mock(TaskAgents.WorkTaskAgentService)({})),
+  Layer.provide(Layer.mock(ChantierCoordinator.WorkChantierCoordinator)({})),
   Layer.provide(AccessTestkit.liveThreadsLayer),
 );
 const client = McpSchema.McpServerClient.of({

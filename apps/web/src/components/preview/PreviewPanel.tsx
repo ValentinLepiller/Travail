@@ -20,6 +20,7 @@ interface Props {
   tabId?: string | null;
   configuredUrls?: ReadonlyArray<string> | undefined;
   visible: boolean;
+  onCaptureAnnotation?: (annotation: PreviewAnnotationPayload) => void;
   onSendAnnotation?: (
     annotation: PreviewAnnotationPayload,
     image: ComposerImageAttachment | null,
@@ -32,6 +33,7 @@ export function PreviewPanel({
   tabId,
   configuredUrls,
   visible,
+  onCaptureAnnotation,
   onSendAnnotation,
 }: Props) {
   const available = usePreviewAvailable(threadRef.environmentId);
@@ -57,6 +59,7 @@ export function PreviewPanel({
         {...(tabId !== undefined ? { tabId } : {})}
         configuredUrls={configuredUrls}
         visible={visible}
+        {...(onCaptureAnnotation ? { onCaptureAnnotation } : {})}
         {...(onSendAnnotation ? { onSendAnnotation } : {})}
       />
     </PreviewPanelShell>

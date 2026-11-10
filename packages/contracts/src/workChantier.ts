@@ -1,3 +1,4 @@
+import { ChantierV2State } from "./workChantierV2.ts";
 import * as Schema from "effect/Schema";
 import { NonNegativeInt, ProjectId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { ModelSelection } from "./modelSelection.ts";
@@ -29,6 +30,8 @@ export const WorkChantierFields = Schema.Struct({
 });
 export const WorkChantier = Schema.Struct({
   ...WorkChantierFields.fields,
+  generation: Schema.optionalKey(Schema.Literals(["legacy", "v2"])),
+  v2: Schema.optionalKey(ChantierV2State),
   id: TrimmedNonEmptyString.check(Schema.isMaxLength(100)),
   version: NonNegativeInt,
   orchestratorThreadId: Schema.NullOr(ThreadId),
@@ -38,6 +41,7 @@ export const WorkChantier = Schema.Struct({
 export type WorkChantier = typeof WorkChantier.Type;
 export const WorkChantierReadInput = Schema.Struct({ id: WorkChantier.fields.id });
 export const WorkChantierSaveInput = Schema.Struct({
+  generation: Schema.optionalKey(Schema.Literals(["legacy", "v2"])),
   ...WorkChantierFields.fields,
   id: WorkChantier.fields.id,
   expectedVersion: NonNegativeInt,

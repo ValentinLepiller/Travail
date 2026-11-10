@@ -1,3 +1,4 @@
+import { ChantierV2Command } from "./workChantierV2.ts";
 import * as Schema from "effect/Schema";
 import { NonNegativeInt, TrimmedNonEmptyString, ThreadId } from "./baseSchemas.ts";
 import { WorkSource } from "./workChantier.ts";
@@ -22,6 +23,7 @@ export const AgentRequestAction = Schema.Union([
   }),
 ]);
 export const AgentRequestContent = Schema.Struct({
+  chantierApproval: Schema.optionalKey(ChantierV2Command),
   source: Schema.optionalKey(Schema.NullOr(AgentRequestSource)),
   sourceTaskId: Schema.optionalKey(ShortText),
   qualification: Schema.optionalKey(

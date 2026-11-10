@@ -1,3 +1,4 @@
+import { InformChantier } from "./InformChantier";
 import { SubjectActions } from "./SubjectActions";
 import { InboxCard } from "./InboxCard";
 import {
@@ -498,6 +499,7 @@ function Subjects({
                   setDecisions((current) => ({ ...current, [result.subjectId]: result }))
                 }
               />
+              <InformChantier environmentId={environmentId} subject={subject} />
               <SubjectEntries
                 key={subject.id}
                 environmentId={environmentId}

@@ -1,4 +1,10 @@
 import {
+  ChantierV2Command,
+  ChantierNotifySubjectInput,
+  ChantierNotifyInput,
+  ChantierProjectPolicy,
+} from "./workChantierV2.ts";
+import {
   InboxSubjectActionInput,
   InboxSubjectActionResult,
   InboxSubjectActionError,
@@ -648,6 +654,11 @@ export const WS_METHODS = {
   workChantiersSave: "workChantiers.save",
   workChantiersPlan: "workChantiers.plan",
   workChantiersLaunch: "workChantiers.launch",
+  workChantiersV2Command: "workChantiers.v2Command",
+  workChantiersNotifySubject: "workChantiers.notifySubject",
+  workChantiersNotify: "workChantiers.notify",
+  workChantiersPolicyRead: "workChantiers.policyRead",
+  workChantiersPolicySave: "workChantiers.policySave",
   workTasksTypes: "workTasks.types",
   workTasksSaveTypes: "workTasks.saveTypes",
   workTasksLaunch: "workTasks.launch",
@@ -2261,6 +2272,31 @@ const WsSlackTaskFiltersRpc = Rpc.make(WS_METHODS.slackTaskFilters, {
   }),
   error: Schema.Union([WorkTaskError, EnvironmentAuthorizationError]),
 });
+const WsWorkChantiersV2CommandRpc = Rpc.make(WS_METHODS.workChantiersV2Command, {
+  payload: ChantierV2Command,
+  success: WorkChantier,
+  error: WorkTaskError,
+});
+const WsWorkChantiersNotifySubjectRpc = Rpc.make(WS_METHODS.workChantiersNotifySubject, {
+  payload: ChantierNotifySubjectInput,
+  success: Schema.Void,
+  error: WorkTaskError,
+});
+const WsWorkChantiersNotifyRpc = Rpc.make(WS_METHODS.workChantiersNotify, {
+  payload: ChantierNotifyInput,
+  success: Schema.Void,
+  error: WorkTaskError,
+});
+const WsWorkChantiersPolicyReadRpc = Rpc.make(WS_METHODS.workChantiersPolicyRead, {
+  payload: Schema.Struct({ projectId: ChantierProjectPolicy.fields.projectId }),
+  success: ChantierProjectPolicy,
+  error: WorkTaskError,
+});
+const WsWorkChantiersPolicySaveRpc = Rpc.make(WS_METHODS.workChantiersPolicySave, {
+  payload: ChantierProjectPolicy,
+  success: ChantierProjectPolicy,
+  error: WorkTaskError,
+});
 const WsWorkChantiersSubscribeRpc = Rpc.make(WS_METHODS.workChantiersSubscribe, {
   payload: Schema.Struct({}),
   success: Schema.Array(WorkChantier),
@@ -2501,6 +2537,11 @@ export const WsRpcGroupFirst = RpcGroup.make(
   WsAutonomousAgentsCommandRpc,
   WsAutonomousAgentsReadRpc,
   WsSlackTaskFiltersRpc,
+  WsWorkChantiersV2CommandRpc,
+  WsWorkChantiersNotifySubjectRpc,
+  WsWorkChantiersNotifyRpc,
+  WsWorkChantiersPolicyReadRpc,
+  WsWorkChantiersPolicySaveRpc,
   WsWorkChantiersSubscribeRpc,
   WsWorkChantiersSaveRpc,
   WsWorkChantiersPlanRpc,

@@ -1,3 +1,4 @@
+import { sha256Hex } from "@t3tools/shared/sha256";
 import {
   CommandId,
   ThreadId,
@@ -47,6 +48,8 @@ export const layer = Layer.effect(
             const chantier = yield* tasks.readChantier(input.id);
             if (chantier.version !== input.expectedVersion)
               return yield* new WorkTaskError({ reason: "conflict" });
+            if (chantier.generation === "v2")
+              return yield* new WorkTaskError({ reason: "generation" });
             if (chantier.orchestratorThreadId) return chantier;
             const threadId = ThreadId.make(`chantier-${chantier.id}`);
             yield* launcher
@@ -97,10 +100,15 @@ export const layer = Layer.effect(
             if (task.agentThreadId) return task;
             if (task.status !== "ready") return yield* new WorkTaskError({ reason: "preparation" });
             if (!task.projectId) return yield* new WorkTaskError({ reason: "project" });
+            const chantier = task.chantierId ? yield* tasks.readChantier(task.chantierId) : null;
+            const review = chantier?.v2?.reviews.find((r) => r.taskId === task.id);
             const config = yield* tasks.types();
             const type = config.types.find((t) => t.id === task.typeId);
             const messages = yield* tasks.messages(task.id);
             const text = [
+              chantier?.generation === "v2"
+                ? `Tâche approuvée par Valentin. Pour du code : modifications locales, commits, push sur ta branche dédiée et ouverture de PR autorisés. Aucun merge ni déploiement sans le service Chantiers V2 et ses accords indépendants. Respecte les composants, l'organisation et les exigences du projet. Prototype de référence : ${chantier.v2?.prototype.url ?? "aucun"} ; code d'exemple : ${chantier.v2?.prototype.codeReference ?? "aucun"}. Lis le dossier au besoin, ne le recopie pas. Les consentements email/Slack restent applicables.`
+                : null,
               type?.prompt,
               task.title,
               task.notes,
@@ -132,7 +140,14 @@ export const layer = Layer.effect(
                 modelSelection: input.modelSelection,
                 runtimeMode: "full-access",
                 interactionMode: "default",
-                workspaceStrategy: { type: "root" },
+                workspaceStrategy:
+                  chantier?.generation === "v2" && review?.kind === "code"
+                    ? {
+                        type: "worktree",
+                        baseRef: "HEAD",
+                        branch: `chantier/${sha256Hex(task.id).slice(0, 24)}`,
+                      }
+                    : { type: "root" },
                 createdBy: "user",
                 creationSource: "web",
                 initialMessage: { text, attachments: task.attachments ?? [] },

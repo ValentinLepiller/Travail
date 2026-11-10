@@ -36,6 +36,24 @@ it.effect.each([false, true])(
     const launches: Launch.ThreadLaunchInput[] = [];
     const tasks = Layer.mock(Tasks.WorkTaskService)({
       assertCanStart: () => Effect.void,
+      readChantier: () =>
+        Effect.succeed({
+          id: "chantier",
+          generation: "legacy",
+          title: "Legacy",
+          projectId: ProjectId.make("project"),
+          status: "active",
+          objective: "",
+          scope: "",
+          decisions: "",
+          targetPeriod: "",
+          sources: [],
+          externalDependencies: [],
+          version: 1,
+          orchestratorThreadId: null,
+          createdAt: "now",
+          updatedAt: "now",
+        }),
       list: () => Effect.succeed([task]),
       read: () => Effect.succeed(task),
       types: () =>

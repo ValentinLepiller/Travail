@@ -61,6 +61,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.autonomousAgentsSubscribe]: AuthOrchestrationReadScope,
   [WS_METHODS.autonomousAgentsRead]: AuthOrchestrationReadScope,
   [WS_METHODS.slackTaskFilters]: AuthOrchestrationReadScope,
+  [WS_METHODS.workChantiersPolicyRead]: AuthOrchestrationReadScope,
   [WS_METHODS.workChantiersSubscribe]: AuthOrchestrationReadScope,
   [WS_METHODS.workTasksTypes]: AuthOrchestrationReadScope,
   [WS_METHODS.workTasksSubscribe]: AuthOrchestrationReadScope,

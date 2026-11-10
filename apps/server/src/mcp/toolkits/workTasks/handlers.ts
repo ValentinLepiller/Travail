@@ -1,3 +1,4 @@
+import * as ChantierCoordinator from "../../../workTasks/WorkChantierCoordinator.ts";
 import * as Agents from "../../../workTasks/WorkTaskAgentService.ts";
 import { WorkTaskError } from "@t3tools/contracts";
 import * as Tasks from "../../../workTasks/WorkTaskService.ts";
@@ -13,6 +14,22 @@ const callerThread = Effect.gen(function* () {
   return caller.id;
 });
 export const layer = Access.toLayer(WorkTasksToolkit, {
+  work_chantier_v2_request_approval: Access.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      return yield* (yield* ChantierCoordinator.WorkChantierCoordinator).requestApproval(
+        input,
+        yield* callerThread,
+      );
+    }),
+  ),
+  work_chantier_v2_command: Access.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      return yield* (yield* ChantierCoordinator.WorkChantierCoordinator).command(
+        input.command,
+        yield* callerThread,
+      );
+    }),
+  ),
   work_chantiers_list: Access.reads(() =>
     Effect.flatMap(Tasks.WorkTaskService, (service) => service.listChantiers()),
   ),

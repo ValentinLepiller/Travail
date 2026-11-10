@@ -1,3 +1,4 @@
+import * as ChantierCoordinator from "../../../workTasks/WorkChantierCoordinator.ts";
 import * as Subjects from "../../../inbox/InboxSubjectService.ts";
 import * as Jev from "../../../inbox/JevClient.ts";
 import * as QualificationSqlite from "../../../persistence/Sqlite.ts";
@@ -71,6 +72,7 @@ const layerStubServices = Layer.mergeAll(
   ),
   Layer.mock(Contexts.InboxContextService)({}),
   Layer.mock(TaskAgents.WorkTaskAgentService)({}),
+  Layer.mock(ChantierCoordinator.WorkChantierCoordinator)({}),
   Layer.mock(SecretRequests.SecretRequests)({}),
   Layer.mock(ProjectService.ProjectService)({}),
   Layer.mock(PullRequestReviewGuideService.PullRequestReviewGuideService)({}),

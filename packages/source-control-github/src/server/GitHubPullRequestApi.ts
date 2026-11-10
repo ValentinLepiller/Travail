@@ -737,6 +737,7 @@ export class GitHubPullRequestApi extends Context.Service<
       readonly action: PullRequestAction;
       readonly stackNumber?: number;
       readonly expectedStackHeads?: ReadonlyArray<PullRequestStackHead>;
+      readonly expectedHeadSha?: string;
       readonly removeAgentCreditsOnMerge?: boolean;
       readonly mergeMethod?: PullRequestMergeMethod;
       readonly updateMethod?: PullRequestUpdateMethod;
@@ -2746,7 +2747,7 @@ export const make = Effect.gen(function* () {
           });
         }
         let body: string | undefined;
-        let expectedHead: string | undefined;
+        let expectedHead: string | undefined = input.expectedHeadSha;
         if (input.removeAgentCreditsOnMerge === true && input.mergeMethod !== "rebase") {
           const message = yield* graphqlRead({
             cwd: input.cwd,
@@ -2767,7 +2768,7 @@ export const make = Effect.gen(function* () {
             const cleaned = removeAgentCredits(message.viewerMergeBodyText);
             if (cleaned !== message.viewerMergeBodyText) {
               body = cleaned;
-              expectedHead = message.headRefOid;
+              expectedHead ??= message.headRefOid;
             }
           }
         }
@@ -2779,6 +2780,14 @@ export const make = Effect.gen(function* () {
           state.isMergeQueueEnabled === true ||
           (action === "enable-auto-merge" &&
             !IMMEDIATELY_MERGEABLE.has(state.mergeStateStatus?.toUpperCase() ?? ""));
+        if (auto && input.expectedHeadSha)
+          return yield* new GitHubPullRequestReadError({
+            cwd: input.cwd,
+            operation: "runPullRequestAction",
+            cause: new Error(
+              "A head-approved chantier requires a direct merge; auto-merge and merge queues are not supported.",
+            ),
+          });
         yield* graphql({
           host: input.host,
           operation: "runPullRequestAction",
