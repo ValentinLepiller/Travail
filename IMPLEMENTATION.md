@@ -301,3 +301,5 @@ Inbox : les nouveaux messages remettent un sujet à traiter en conservant sa tâ
 Tâches : statuts « À qualifier » et « À préparer » retirés après vérification du stock vide. Créations et réouvertures en « À démarrer », avec exécution explicite ; anciens filtres, brouillons et historiques restent lisibles. Les anciens déclencheurs de tri ne reprennent aucune tâche.
 
 Inbox : Luna propose un projet, un chantier ou une tâche ouverte dans son périmètre. Création avec contexte modifiable et complément manuel des notes/sources, sans message à la discussion ni lancement d’agent.
+
+Sujets Inbox : icône native du projet connu, icône générique sinon.

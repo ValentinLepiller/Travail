@@ -57,7 +57,7 @@ vi.mock("../connection/runtime", async () => {
   ) as typeof boundary.runtime;
   return { connectionAtomRuntime: boundary.runtime };
 });
-vi.mock("./entities", () => ({ useProjects: () => [] }));
+vi.mock("./entities", () => ({ useProjects: () => [], useProject: () => null }));
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children }: { children: ReactNode }) => <a href="/tasks">{children}</a>,
 }));

@@ -12,7 +12,15 @@ import {
 } from "react";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { LayersIcon, MailIcon } from "lucide-react";
-import type { EnvironmentId, InboxMessage, InboxSubjectActionResult } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  InboxMessage,
+  InboxSubjectActionResult,
+  ProjectId,
+} from "@t3tools/contracts";
+import { scopeProjectRef } from "@t3tools/client-runtime/environment";
+import { useProject } from "../../state/entities";
+import { ProjectFavicon } from "../ProjectFavicon";
 import { useEnvironmentSelection } from "../../hooks/useEnvironmentSelection";
 import { useInboxSubjects, useInboxSubjectEntries } from "../../state/inboxSubjects";
 import { useInboxMessages } from "../../state/inbox";
@@ -369,6 +377,21 @@ function SubjectEntries({
     </div>
   );
 }
+function SubjectProjectIcon({
+  environmentId,
+  projectId,
+}: {
+  environmentId: EnvironmentId;
+  projectId: ProjectId | null | undefined;
+}) {
+  const project = useProject(projectId ? scopeProjectRef(environmentId, projectId) : null);
+  return project ? (
+    <ProjectFavicon project={project} className="size-5" />
+  ) : (
+    <LayersIcon className="size-5" aria-hidden="true" />
+  );
+}
+
 function Subjects({
   environmentId,
   onRefresh,
@@ -418,7 +441,12 @@ function Subjects({
                   open ? subject.id : current === subject.id ? null : current,
                 )
               }
-              icon={<LayersIcon className="size-5" aria-hidden="true" />}
+              icon={
+                <SubjectProjectIcon
+                  environmentId={environmentId}
+                  projectId={subject.context?.projectId}
+                />
+              }
               heading={
                 <>
                   <span className="truncate text-sm font-medium">{subject.title}</span>
