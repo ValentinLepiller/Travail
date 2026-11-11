@@ -3,6 +3,7 @@ import {
   BotIcon,
   ChefHatIcon,
   HomeIcon,
+  HardHatIcon,
   InboxIcon,
   MailIcon,
   ListTodoIcon,
@@ -25,13 +26,19 @@ const destinations = [
   { to: "/", label: "Discussions", Icon: HomeIcon },
   { to: "/inbox", label: "Inbox", Icon: MailIcon },
   { to: "/requests", label: "Requêtes", Icon: InboxIcon },
-  { to: "/tasks", label: "Tâches", Icon: ListTodoIcon },
+  { to: "/tasks", tab: "tasks", label: "Tâches", Icon: ListTodoIcon },
+  { to: "/tasks", tab: "chantiers", label: "Chantiers V2", Icon: HardHatIcon },
   { to: "/agents", label: "Auto", Icon: BotIcon },
   { to: "/chefs", label: "Chefs", Icon: ChefHatIcon },
   { to: "/pull-requests", label: "PR", Icon: PullRequestGlyph.pullRequest },
   { to: "/usage", label: "Usage", Icon: ChartNoAxesColumnIcon },
   { to: "/settings", label: "Réglages", Icon: SettingsIcon },
 ] as const;
+
+function navigationSearch(destination: (typeof destinations)[number]) {
+  if (destination.to === "/tasks") return { tab: destination.tab };
+  return destination.to === "/pull-requests" ? readPullRequestListPreferences() : {};
+}
 
 function RequestCount({ environmentId }: { environmentId: EnvironmentId }) {
   const query = useEnvironmentQuery(agentRequests({ environmentId, input: {} }));
@@ -89,6 +96,9 @@ function NavigationIcon({ to, Icon }: Pick<(typeof destinations)[number], "to" |
 export function AppNavigation() {
   const pullRequestsSupported = usePullRequestsSupported();
   const pathname = useLocation({ select: (location) => location.pathname });
+  const taskTab = useLocation({
+    select: (location) => (location.search.tab === "chantiers" ? "chantiers" : "tasks"),
+  });
   return (
     <nav
       aria-label="Navigation principale"
@@ -96,7 +106,8 @@ export function AppNavigation() {
     >
       {destinations
         .filter(({ to }) => to !== "/pull-requests" || pullRequestsSupported)
-        .map(({ to, label, Icon }) => {
+        .map((destination) => {
+          const { to, label, Icon } = destination;
           const active =
             to === "/"
               ? ![
@@ -110,14 +121,15 @@ export function AppNavigation() {
                   "/pull-requests",
                   "/status",
                 ].some((path) => pathname === path || pathname.startsWith(`${path}/`))
-              : pathname === to || pathname.startsWith(`${to}/`);
+              : (pathname === to || pathname.startsWith(`${to}/`)) &&
+                (to !== "/tasks" || taskTab === destination.tab);
           return (
-            <Tooltip key={to}>
+            <Tooltip key={label}>
               <TooltipTrigger
                 render={
                   <Link
                     to={to}
-                    search={to === "/pull-requests" ? readPullRequestListPreferences() : {}}
+                    search={navigationSearch(destination)}
                     aria-label={label}
                     aria-current={active ? "page" : undefined}
                     className={cn(
@@ -129,7 +141,7 @@ export function AppNavigation() {
                     )}
                   >
                     <NavigationIcon to={to} Icon={Icon} />
-                    <span>{label}</span>
+                    <span className="text-center leading-tight">{label}</span>
                   </Link>
                 }
               />
@@ -152,21 +164,26 @@ export function MobileAppNavigation() {
       <div className="grid grid-cols-4 gap-1">
         {destinations
           .filter(({ to }) => to !== "/pull-requests" || pullRequestsSupported)
-          .map(({ to, label, Icon }) => (
-            <Link
-              key={to}
-              to={to}
-              search={to === "/pull-requests" ? readPullRequestListPreferences() : {}}
-              activeOptions={{ exact: to === "/" }}
-              activeProps={{ className: "bg-primary/15 text-primary", "aria-current": "page" }}
-              inactiveProps={{ className: "text-sidebar-foreground/70 hover:bg-sidebar-row-hover" }}
-              onClick={() => setOpenMobile(false)}
-              className="flex min-h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-lg px-1 py-2 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-            >
-              <NavigationIcon to={to} Icon={Icon} />
-              <span>{label}</span>
-            </Link>
-          ))}
+          .map((destination) => {
+            const { to, label, Icon } = destination;
+            return (
+              <Link
+                key={label}
+                to={to}
+                search={navigationSearch(destination)}
+                activeOptions={{ exact: to === "/" }}
+                activeProps={{ className: "bg-primary/15 text-primary", "aria-current": "page" }}
+                inactiveProps={{
+                  className: "text-sidebar-foreground/70 hover:bg-sidebar-row-hover",
+                }}
+                onClick={() => setOpenMobile(false)}
+                className="flex min-h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-lg px-1 py-2 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              >
+                <NavigationIcon to={to} Icon={Icon} />
+                <span>{label}</span>
+              </Link>
+            );
+          })}
       </div>
     </nav>
   );

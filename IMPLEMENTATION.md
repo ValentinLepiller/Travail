@@ -311,3 +311,5 @@ Chantiers V2 — candidat du 10/11/2026 : génération distincte, historiques/or
 Preuves : 290 tests ciblés puis 35 contrôles Chef, builds serveur/web, types ciblés et `$simplify` ; recette navigateur intégrée sur données isolées (bureau/téléphone, prototype après archivage, annotations, tâche, pause, bilan, réouverture et notifications aux deux générations), vrai Chef à sessions courtes. Sources installées préservées dans `/tmp/travail-chantiers-v2-candidate-20261110`. Typage serveur complet : aucune erreur TS, 26 avertissements Effect hérités. Merge automatique GitHub direct uniquement ; pas de nouvel écran React Native. Candidat corrigé après recette : nouvel accord requis avant publication et installation quotidienne ; aucune intervention sur les agents RGC.
 
 Inbox : avancement Jev/Luna actualisé automatiquement ; Luna peut rattacher un lot de messages liés à la tête de file, avec validation atomique et budgets conservés.
+
+Navigation Chantiers V2 : entrée directe dans la barre latérale et le menu mobile, sélection distincte de Tâches ; parcours vérifié dans le navigateur intégré sur bureau et téléphone. Correctif client seul, accès à l’ancien RGC conservé.

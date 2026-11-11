@@ -134,7 +134,9 @@ export function WorkTasksPage() {
     <SidebarInset className="h-dvh min-h-0 overflow-hidden">
       <WorkspacePageHeader electron={isElectron}>
         <ListTodoIcon className="size-4 text-muted-foreground" />
-        <h1 className="text-sm font-medium">Tâches</h1>
+        <h1 className="text-sm font-medium">
+          {search.tab === "chantiers" ? "Chantiers V2" : "Tâches"}
+        </h1>
       </WorkspacePageHeader>
       <div className="min-h-0 flex-1 overflow-y-auto">
         <WorkspacePageContainer width="expanded" className="max-w-none">
