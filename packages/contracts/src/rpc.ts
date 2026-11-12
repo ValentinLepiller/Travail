@@ -5,6 +5,16 @@ import {
   ChantierProjectPolicy,
 } from "./workChantierV2.ts";
 import {
+  ChefCommand,
+  ChefDossierDetail,
+  ChefDossiersPage,
+  ChefError,
+  ChefMemoryPage,
+  ChefPageInput,
+  ChefReadInput,
+  ChefStatus,
+} from "./globalChef.ts";
+import {
   InboxSubjectActionInput,
   InboxSubjectActionResult,
   InboxSubjectActionError,
@@ -639,6 +649,11 @@ export const WS_METHODS = {
   agentRequestChatStop: "agentRequestChat.stop",
   agentRequestChatClear: "agentRequestChat.clear",
   inboxList: "inbox.list",
+  globalChefStatus: "globalChef.status",
+  globalChefList: "globalChef.list",
+  globalChefRead: "globalChef.read",
+  globalChefMemory: "globalChef.memory",
+  globalChefCommand: "globalChef.command",
   inboxSubjectAction: "inbox.subjectAction",
   inboxSubjects: "inbox.subjects",
   inboxSubjectEntries: "inbox.subjectEntries",
@@ -2210,6 +2225,31 @@ const WsInboxSubjectActionRpc = Rpc.make(WS_METHODS.inboxSubjectAction, {
   success: InboxSubjectActionResult,
   error: Schema.Union([InboxSubjectActionError, WorkTaskError, EnvironmentAuthorizationError]),
 });
+const WsGlobalChefStatusRpc = Rpc.make(WS_METHODS.globalChefStatus, {
+  payload: Schema.Struct({}),
+  success: ChefStatus,
+  error: Schema.Union([ChefError, EnvironmentAuthorizationError]),
+});
+const WsGlobalChefListRpc = Rpc.make(WS_METHODS.globalChefList, {
+  payload: ChefPageInput,
+  success: ChefDossiersPage,
+  error: Schema.Union([ChefError, EnvironmentAuthorizationError]),
+});
+const WsGlobalChefReadRpc = Rpc.make(WS_METHODS.globalChefRead, {
+  payload: ChefReadInput,
+  success: ChefDossierDetail,
+  error: Schema.Union([ChefError, EnvironmentAuthorizationError]),
+});
+const WsGlobalChefMemoryRpc = Rpc.make(WS_METHODS.globalChefMemory, {
+  payload: ChefPageInput,
+  success: ChefMemoryPage,
+  error: Schema.Union([ChefError, EnvironmentAuthorizationError]),
+});
+const WsGlobalChefCommandRpc = Rpc.make(WS_METHODS.globalChefCommand, {
+  payload: ChefCommand,
+  success: Schema.Void,
+  error: Schema.Union([ChefError, EnvironmentAuthorizationError]),
+});
 const WsInboxSubjectsRpc = Rpc.make(WS_METHODS.inboxSubjects, {
   payload: InboxListInput,
   success: InboxSubjectsPage,
@@ -2527,6 +2567,11 @@ export const WsRpcGroupFirst = RpcGroup.make(
   WsAgentRequestChatClearRpc,
   WsInboxListRpc,
   WsInboxSubjectActionRpc,
+  WsGlobalChefStatusRpc,
+  WsGlobalChefListRpc,
+  WsGlobalChefReadRpc,
+  WsGlobalChefMemoryRpc,
+  WsGlobalChefCommandRpc,
   WsInboxSubjectsRpc,
   WsInboxSubjectEntriesRpc,
   WsInboxGroupingStatusRpc,

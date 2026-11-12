@@ -8,6 +8,7 @@ import * as Inbox from "../inbox/MessageInbox.ts";
 import * as TaskAgents from "../workTasks/WorkTaskAgentService.ts";
 import * as Autonomous from "../autonomousAgents/AutonomousAgentService.ts";
 import * as WorkTasks from "../workTasks/WorkTaskService.ts";
+import * as GlobalChef from "../globalChef/GlobalChefService.ts";
 import * as Requests from "../agentRequests/AgentRequestService.ts";
 import * as SlackTasks from "../workTasks/SlackTaskCollector.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
@@ -1016,6 +1017,7 @@ it.effect("HTTP tool discovery only advertises monitors to monitoring credential
     yield* HttpRouter.serve(
       McpHttpServer.layer.pipe(
         Layer.provide(Layer.mock(Requests.AgentRequestService)({})),
+        Layer.provide(Layer.mock(GlobalChef.GlobalChefService)({})),
         Layer.provide(Layer.mock(Autonomous.AutonomousAgentService)({})),
         Layer.provide(Layer.mock(WorkTasks.WorkTaskService)({})),
         Layer.provide(Layer.mock(Contexts.InboxContextService)({})),

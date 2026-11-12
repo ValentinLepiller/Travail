@@ -1,5 +1,5 @@
 "use client";
-import { ListTodoIcon, MailIcon } from "lucide-react";
+import { ChefHatIcon, ListTodoIcon, MailIcon } from "lucide-react";
 
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
@@ -2310,6 +2310,16 @@ function OpenCommandPaletteDialog(props: {
     icon: <MailIcon className={ITEM_ICON_CLASS} />,
     run: async () => {
       await navigate({ to: "/inbox" });
+    },
+  });
+  actionItems.push({
+    kind: "action",
+    value: "action:global-chef",
+    searchTerms: ["chef", "dossiers", "mémoire", "décisions"],
+    title: "Ouvrir Le Chef",
+    icon: <ChefHatIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/chef", search: {} });
     },
   });
 

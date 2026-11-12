@@ -3,6 +3,18 @@ import {
   InboxSubjectsPage,
   InboxSubjectEntriesInput,
 } from "@t3tools/contracts";
+import {
+  ChefDossierDetail,
+  ChefDossierReplyInput,
+  ChefDossiersPage,
+  ChefError,
+  ChefMemoryPage,
+  ChefPageInput,
+  ChefReadInput,
+  ChefSettings,
+  ChefStatus,
+} from "@t3tools/contracts";
+import * as Chef from "../../../globalChef/GlobalChefService.ts";
 import * as Subjects from "../../../inbox/InboxSubjectService.ts";
 import * as Qualifications from "../../../inbox/InboxQualificationService.ts";
 import { InboxQualificationControl, InboxQualificationStatus } from "@t3tools/contracts";
@@ -23,6 +35,68 @@ import * as Invocation from "../../McpInvocationContext.ts";
 
 const dependencies = [Inbox.MessageInbox, Invocation.McpInvocationContext];
 export const InboxToolkit = Toolkit.make(
+  Tool.make("chef_status", {
+    description:
+      "Read global Chef settings and progress. Waiting dossiers never block unrelated subjects. No action or model is triggered.",
+    parameters: Tool.EmptyParams,
+    success: ChefStatus,
+    failure: Schema.Union([ChefError, OrchestratorMcpFailure]),
+    failureMode: "return",
+    dependencies: [Chef.GlobalChefService, Invocation.McpInvocationContext],
+  }).annotate(Tool.Readonly, true),
+  Tool.make("chef_dossiers", {
+    description:
+      "List global Chef dossiers in bounded pages, newest first. archived=true reads completed/closed dossiers.",
+    parameters: ChefPageInput,
+    success: ChefDossiersPage,
+    failure: Schema.Union([ChefError, OrchestratorMcpFailure]),
+    failureMode: "return",
+    dependencies: [Chef.GlobalChefService, Invocation.McpInvocationContext],
+  }).annotate(Tool.Readonly, true),
+  Tool.make("chef_dossier_read", {
+    description:
+      "Read a Chef dossier conversation, distinct from execution-agent threads. before pages through older messages. Never resumes an agent.",
+    parameters: ChefReadInput,
+    success: ChefDossierDetail,
+    failure: Schema.Union([ChefError, OrchestratorMcpFailure]),
+    failureMode: "return",
+    dependencies: [Chef.GlobalChefService, Invocation.McpInvocationContext],
+  }).annotate(Tool.Readonly, true),
+  Tool.make("chef_memory", {
+    description:
+      "Read the Chef's human-approved memory phrases and their scopes in bounded pages. No memory writes are exposed to agents.",
+    parameters: ChefPageInput,
+    success: ChefMemoryPage,
+    failure: Schema.Union([ChefError, OrchestratorMcpFailure]),
+    failureMode: "return",
+    dependencies: [Chef.GlobalChefService, Invocation.McpInvocationContext],
+  }).annotate(Tool.Readonly, true),
+  Tool.make("chef_control", {
+    description:
+      "Configure or pause the global Chef's subject-decision worker. It consumes Luna-ready subjects, preserves independent waiting dossiers and asks approval for unknown behavior. Does not grant rules or launch execution agents.",
+    parameters: ChefSettings,
+    success: ChefStatus,
+    failure: Schema.Union([ChefError, OrchestratorMcpFailure]),
+    failureMode: "return",
+    dependencies: [
+      Chef.GlobalChefService,
+      Invocation.McpInvocationContext,
+      Threads.ThreadManagementService,
+    ],
+  }),
+  Tool.make("chef_dossier_reply", {
+    description:
+      "Reply to the global Chef after receiving a dossier handoff. Only its designated active project/chantier Chef may reply. A reply supplies context and never grants new permissions or writes memory. Use a stable messageId.",
+    parameters: ChefDossierReplyInput,
+    success: Schema.Void,
+    failure: Schema.Union([ChefError, OrchestratorMcpFailure]),
+    failureMode: "return",
+    dependencies: [
+      Chef.GlobalChefService,
+      Invocation.McpInvocationContext,
+      Threads.ThreadManagementService,
+    ],
+  }),
   Tool.make("inbox_subjects", {
     description:
       "List durable subjects, oldest first by default; order=desc shows newest first. Optional processed=true selects subjects whose current entries were handled or that are permanently closed; false selects pending, including new entries on a task-linked subject. Omitted includes all. closedAt marks final closure after task completion. context is Luna's project/chantier/task suggestion, distinct from taskId, the task actually linked by a human. Bounded cursor pagination. No tasks or execution.",

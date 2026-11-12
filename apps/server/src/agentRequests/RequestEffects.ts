@@ -43,6 +43,7 @@ export const layer = Layer.effect(
       },
       notify: (request) =>
         Effect.gen(function* () {
+          if (request.chef) return;
           const thread = yield* threads.getThreadShell(request.threadId);
           if (!thread || thread.deletedAt !== null)
             return yield* new AgentRequestError({ reason: "agent" });

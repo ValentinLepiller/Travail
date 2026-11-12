@@ -1,5 +1,6 @@
 import * as ChantierCoordinator from "./workTasks/WorkChantierCoordinator.ts";
 import * as InboxActions from "./inbox/InboxSubjectActions.ts";
+import * as GlobalChef from "./globalChef/GlobalChefService.ts";
 import * as InboxSubjects from "./inbox/InboxSubjectService.ts";
 import * as InboxQualifications from "./inbox/InboxQualificationService.ts";
 import { InboxListError } from "@t3tools/contracts";
@@ -1283,6 +1284,7 @@ const layerWsRpc = (
     const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
     const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
     const agentRequests = yield* Requests.AgentRequestService;
+    const globalChef = yield* GlobalChef.GlobalChefService;
     const requestChat = yield* RequestChat.AgentRequestChatService;
     const autonomous = yield* Autonomous.AutonomousAgentService;
     const chantierCoordinator = yield* ChantierCoordinator.WorkChantierCoordinator;
@@ -2143,6 +2145,11 @@ const layerWsRpc = (
           ),
         ),
       [WS_METHODS.agentRequestsSubscribe]: () => agentRequests.subscribe(),
+      [WS_METHODS.globalChefStatus]: () => globalChef.status(),
+      [WS_METHODS.globalChefList]: (input) => globalChef.list(input),
+      [WS_METHODS.globalChefRead]: (input) => globalChef.read(input),
+      [WS_METHODS.globalChefMemory]: (input) => globalChef.memory(input),
+      [WS_METHODS.globalChefCommand]: (input) => globalChef.command(input),
       [WS_METHODS.agentRequestsRespond]: (input) => agentRequests.respond(input),
       [WS_METHODS.agentRequestsRetryDelivery]: (input) => agentRequests.retryDelivery(input),
       [WS_METHODS.agentRequestChatSubscribe]: (input) => requestChat.subscribe(input.id),

@@ -2,6 +2,7 @@ import { ChantierV2Command } from "./workChantierV2.ts";
 import * as Schema from "effect/Schema";
 import { NonNegativeInt, TrimmedNonEmptyString, ThreadId } from "./baseSchemas.ts";
 import { WorkSource } from "./workChantier.ts";
+import { ChefRequest } from "./globalChef.ts";
 
 const ShortText = TrimmedNonEmptyString.check(Schema.isMaxLength(500));
 export const AgentRequestSource = Schema.Struct({
@@ -45,6 +46,7 @@ export const AgentRequestCreate = Schema.Struct({
 export type AgentRequestCreate = typeof AgentRequestCreate.Type;
 export const AgentRequest = Schema.Struct({
   ...AgentRequestCreate.fields,
+  chef: Schema.optionalKey(ChefRequest),
   autonomousAgent: Schema.optionalKey(
     Schema.Struct({
       name: ShortText,
@@ -82,6 +84,7 @@ export const AgentRequestRespond = Schema.Struct({
   expectedVersion: NonNegativeInt,
   decision: Schema.Literals(["accept", "reject", "revise", "answer", "ignore"]),
   text: Schema.String.check(Schema.isMaxLength(20_000)),
+  remember: Schema.optionalKey(Schema.Boolean),
 });
 export type AgentRequestRespond = typeof AgentRequestRespond.Type;
 export const AgentRequestComplete = Schema.Struct({

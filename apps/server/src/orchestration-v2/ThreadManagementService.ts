@@ -10,6 +10,7 @@ import type {
 import {
   type ChatAttachment,
   CommandId,
+  isChefDossierThread,
   MessageId,
   OrchestrationV2StopWorkflowError,
   type OrchestrationV2StopWorkflowInput,
@@ -652,10 +653,20 @@ const make = Effect.gen(function* () {
   };
 
   const dispatch: ThreadManagementServiceShape["dispatch"] = (command) =>
-    ensureCommandTranscripts(command).pipe(
-      Effect.andThen(assertDispatchTargetEnabled(command)),
-      Effect.andThen(orchestrator.dispatch(command)),
-    );
+    Effect.gen(function* () {
+      // Dossier threads are navigation records; their conversation runs through GlobalChefService.
+      if (
+        (command.type === "message.dispatch" && isChefDossierThread(command.threadId)) ||
+        (command.type === "delegated_task.request" && isChefDossierThread(command.parentThreadId))
+      )
+        return yield* new Orchestrator.OrchestratorCommandRejectedError({
+          commandId: command.commandId,
+          commandType: command.type,
+        });
+      yield* ensureCommandTranscripts(command);
+      yield* assertDispatchTargetEnabled(command);
+      return yield* orchestrator.dispatch(command);
+    });
 
   const getProjectThread: ThreadManagementServiceShape["getProjectThread"] = (input) =>
     getThreadProjection(input.threadId).pipe(

@@ -962,3 +962,25 @@ it.effect.each([
     expect(dispatched).toEqual(settles ? ["thread.settle"] : []);
   }),
 );
+
+it.effect("a Chef dossier header never dispatches a provider turn", () => {
+  const dispatched: string[] = [];
+  return Effect.gen(function* () {
+    const threads = yield* ThreadManagementService.ThreadManagementService;
+    const error = yield* threads
+      .dispatch({
+        type: "message.dispatch",
+        commandId: CommandId.make("chef-header-turn"),
+        threadId: ThreadId.make("chef-dossier:subject"),
+        messageId: MessageId.make("chef-header-message"),
+        text: "Lancer",
+        attachments: [],
+        dispatchMode: { type: "queue_after_active" },
+        createdBy: "user",
+        creationSource: "web",
+      })
+      .pipe(Effect.flip);
+    expect(error._tag).toBe("OrchestratorCommandRejectedError");
+    expect(dispatched).toEqual([]);
+  }).pipe(Effect.provide(layerDispatchChokepointTest(ServerSettings.layerTest({}))(dispatched)));
+});

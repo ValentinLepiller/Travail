@@ -1,3 +1,9 @@
+import * as GlobalChef from "../../../globalChef/GlobalChefService.ts";
+import * as ChefRuntime from "../../../globalChef/ChefRuntime.ts";
+import * as ChefActions from "../../../inbox/InboxSubjectActions.ts";
+import * as Tasks from "../../../workTasks/WorkTaskService.ts";
+import * as Requests from "../../../agentRequests/AgentRequestService.ts";
+import * as RequestEffects from "../../../agentRequests/RequestEffects.ts";
 import * as Subjects from "../../../inbox/InboxSubjectService.ts";
 import * as SubjectModel from "../../../inbox/InboxSubjectModel.ts";
 import * as Qualifications from "../../../inbox/InboxQualificationService.ts";
@@ -23,6 +29,28 @@ const layer = McpHttpServer.toolkitRegistration(InboxToolkit, Handlers.layer).pi
   Layer.provideMerge(McpServer.McpServer.layer),
   Layer.provideMerge(
     Layer.mergeAll(
+      GlobalChef.layer.pipe(
+        Layer.provide(ChefActions.layer.pipe(Layer.provide(Tasks.layer))),
+        Layer.provide(Tasks.layer),
+        Layer.provide(
+          Requests.layer.pipe(
+            Layer.provide(
+              Layer.succeed(RequestEffects.RequestEffects, {
+                execute: () => Effect.die("No command in a read-only Chef test"),
+                notify: () => Effect.die("No notification in a read-only Chef test"),
+              }),
+            ),
+          ),
+        ),
+        Layer.provide(
+          Layer.succeed(ChefRuntime.ChefRuntime, {
+            generate: () => Effect.die("Read-only tools must not call a model"),
+            ensureDossier: () => Effect.die("Read-only tools must not create a thread"),
+            conversation: () => Effect.die("No conversation source was requested"),
+            notify: () => Effect.die("Read-only tools must not notify a Chef"),
+          }),
+        ),
+      ),
       Qualifications.layer.pipe(
         Layer.provide(
           Layer.succeed(Jev.JevClient, {
@@ -95,6 +123,23 @@ it.effect(
       };
       yield* inbox.ingestSlack(message);
       yield* inbox.ingestSlack({ ...message, ts: "1793278001.000001" });
+      expect((yield* call("chef_status")).structuredContent).toMatchObject({
+        settings: { enabled: false },
+        pending: 0,
+        errors: 0,
+      });
+      expect((yield* call("chef_dossiers", { limit: 5 })).structuredContent).toEqual({
+        dossiers: [],
+        nextCursor: null,
+      });
+      expect((yield* call("chef_memory", { limit: 5 })).structuredContent).toEqual({
+        memories: [],
+        nextCursor: null,
+      });
+      expect(
+        (yield* call("chef_control", { enabled: false, projectId: null, modelSelection: null }))
+          .isError,
+      ).toBe(true);
       expect((yield* call("inbox_context_backfill", {})).isError).toBe(true);
       expect((yield* call("inbox_qualification_control", { enabled: true })).isError).toBe(true);
       expect((yield* call("inbox_qualification_status")).structuredContent).toMatchObject({

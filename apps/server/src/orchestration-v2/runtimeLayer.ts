@@ -1,4 +1,6 @@
 import * as InboxActions from "../inbox/InboxSubjectActions.ts";
+import * as GlobalChef from "../globalChef/GlobalChefService.ts";
+import * as ChefRuntime from "../globalChef/ChefRuntime.ts";
 import * as InboxSubjects from "../inbox/InboxSubjectService.ts";
 import * as InboxSubjectModel from "../inbox/InboxSubjectModel.ts";
 import * as InboxQualifications from "../inbox/InboxQualificationService.ts";
@@ -411,6 +413,20 @@ const layerInboxQualificationsProvided = InboxQualifications.layer.pipe(
 const layerInboxSubjectsProvided = InboxSubjects.layer.pipe(
   Layer.provide(InboxSubjectModel.layer.pipe(Layer.provide(TextGeneration.layer))),
 );
+const layerInboxActionsProvided = InboxActions.layer.pipe(Layer.provide(WorkTasks.layer));
+const layerGlobalChefProvided = GlobalChef.layer.pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      layerRequestsProvided,
+      layerInboxActionsProvided,
+      WorkTasks.layer,
+      ChefRuntime.layer.pipe(
+        Layer.provide(Layer.mergeAll(layerThreadManagementProvided, layerAutonomousProvided)),
+        Layer.provide(TextGeneration.layer),
+      ),
+    ),
+  ),
+);
 
 export const layerProduction = Layer.mergeAll(
   layer.pipe(Layer.provide(layerProjectService)),
@@ -423,7 +439,9 @@ export const layerProduction = Layer.mergeAll(
   Autonomous.workerLayer.pipe(Layer.provide(layerAutonomousProvided)),
   TaskAgents.layer.pipe(Layer.provide(Layer.mergeAll(layerThreadLaunchProvided, WorkTasks.layer))),
   WorkTasks.layer,
-  InboxActions.layer.pipe(Layer.provide(WorkTasks.layer)),
+  layerInboxActionsProvided,
+  layerGlobalChefProvided,
+  GlobalChef.workerLayer.pipe(Layer.provide(layerGlobalChefProvided)),
   Inbox.layer,
   layerInboxContextsProvided,
   layerInboxSubjectsProvided,

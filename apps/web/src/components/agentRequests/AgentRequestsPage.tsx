@@ -26,6 +26,7 @@ import { useResizableWidth } from "../../hooks/useResizableWidth";
 import { RightPanelResizeHandle } from "../preview/RightPanelResizeHandle";
 import { RequestTemporaryChat } from "./RequestTemporaryChat";
 import { RequestSourcePreview } from "./RequestSourcePreview";
+import { MemoryScope, memoryActionLabels } from "../globalChef/MemoryScope";
 
 const ChatView = lazy(() => import("../ChatView"));
 
@@ -139,7 +140,7 @@ function RequestInbox({ environmentId }: { environmentId: EnvironmentId }) {
     page.setState({ discussion });
   const archive = useStore(page, (state) => state.archive);
   const selected = useStore(page, (state) => state.selected);
-  const requests = query.data ?? [];
+  const requests = (query.data ?? []).filter((r) => !r.chef);
   const { pendingCount, visible, current } = requestQueue(requests, archive, selected);
   useEffect(() => {
     if (query.data !== null && current?.id && current.id !== selected) {
@@ -238,7 +239,7 @@ function RequestInbox({ environmentId }: { environmentId: EnvironmentId }) {
             </div>
           )}
         </main>
-        {discussion && current && (
+        {discussion && current && !current.chef && (
           <RequestDiscussion
             key={current.id}
             request={current}
@@ -364,6 +365,7 @@ export function RequestCard({
   inline = false,
   onOpenDiscussion,
   onOpenTemporaryDiscussion,
+  onOpenDossier,
 }: {
   request: AgentRequest;
   environmentId: EnvironmentId;
@@ -371,6 +373,7 @@ export function RequestCard({
   inline?: boolean;
   onOpenDiscussion?: () => void;
   onOpenTemporaryDiscussion?: () => void;
+  onOpenDossier?: (id: string) => void;
 }) {
   const compact = request.autonomousAgent?.qualifier === true && request.action?.kind !== "command";
   const source =
@@ -382,13 +385,19 @@ export function RequestCard({
   const canRetry = useAtomValue(retryRequestDelivery.permissionAtom(environmentId));
   const respond = useAtomCommand(respondToRequest);
   const retry = useAtomCommand(retryRequestDelivery);
-  const submit = async (decision: AgentRequestRespond["decision"]) => {
+  const submit = async (decision: AgentRequestRespond["decision"], remember = false) => {
     setBusy(true);
     setError(null);
     try {
       const result = await respond({
         environmentId,
-        input: { id: request.id, expectedVersion: request.version, decision, text },
+        input: {
+          id: request.id,
+          expectedVersion: request.version,
+          decision,
+          text,
+          ...(request.chef ? { remember } : {}),
+        },
       });
       if (result._tag === "Failure") {
         setError(String(squashAtomCommandFailure(result)));
@@ -444,7 +453,9 @@ export function RequestCard({
   return (
     <article className="mx-auto flex max-w-3xl flex-col gap-6">
       {!inline &&
-        (request.autonomousAgent ? (
+        (request.chef ? (
+          <p className="text-sm font-medium text-primary">Le Chef · Dossier</p>
+        ) : request.autonomousAgent ? (
           <RequestAgent request={request} />
         ) : (
           <RequestProject project={project ?? null} />
@@ -452,12 +463,26 @@ export function RequestCard({
       <div className="flex items-center justify-between gap-4 text-sm text-muted-foreground">
         <span>{statusLabels[request.status]}</span>
         <div className="flex flex-wrap items-center justify-end gap-1">
-          {!inline && onOpenTemporaryDiscussion && (
+          {!inline && !request.chef && onOpenTemporaryDiscussion && (
             <Button variant="outline" onClick={onOpenTemporaryDiscussion}>
               Discussion temporaire
             </Button>
           )}
-          {!inline &&
+          {request.chef ? (
+            onOpenDossier ? (
+              <Button variant="outline" onClick={() => onOpenDossier(request.chef!.dossierIds[0]!)}>
+                En discuter
+              </Button>
+            ) : (
+              <Link
+                to="/$environmentId/$threadId"
+                params={{ environmentId, threadId: request.threadId }}
+              >
+                Ouvrir le dossier du Chef
+              </Link>
+            )
+          ) : (
+            !inline &&
             (onOpenDiscussion ? (
               <Button variant="ghost" onClick={onOpenDiscussion}>
                 Voir la discussion
@@ -469,7 +494,8 @@ export function RequestCard({
               >
                 Voir la discussion
               </Link>
-            ))}
+            ))
+          )}
         </div>
       </div>
       <div>
@@ -478,6 +504,29 @@ export function RequestCard({
         <h2 className="text-2xl font-semibold">{requestTitle(request)}</h2>
       </div>
       <RequestSourcePreview source={request.source} />
+      {request.chef?.memory && (
+        <section className="rounded-2xl border bg-muted/30 p-4">
+          <h3 className="mb-2 text-sm font-medium">Phrase proposée pour la mémoire</h3>
+          <blockquote className="whitespace-pre-wrap">{request.chef.memory.text}</blockquote>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Portée : <MemoryScope scope={request.chef.memory.scope} environmentId={environmentId} />
+            {" · "}
+            {request.chef.memory.action
+              ? `Règle · ${memoryActionLabels[request.chef.memory.action]}`
+              : "Fait"}
+            {" · "}
+            {request.chef.memory.topic}
+          </p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Enregistrée uniquement si tu choisis « Mémoriser ».
+          </p>
+        </section>
+      )}
+      {request.chef && request.status === "accepted" && (
+        <p role="status" className="text-sm text-muted-foreground">
+          {actionLabels[request.actionStatus]}
+        </p>
+      )}
       {compact && (request.details || request.action) ? (
         <details>
           <summary className="cursor-pointer text-sm text-muted-foreground">
@@ -514,7 +563,11 @@ export function RequestCard({
               <Button disabled={busy || !canRespond} onClick={() => void submit("accept")}>
                 {request.action?.kind === "command"
                   ? `Accepter et ${request.action.label}`
-                  : "Accepter la requête"}
+                  : request.chef
+                    ? request.chef.memoryOnly
+                      ? "Continuer sans mémoriser"
+                      : "Action"
+                    : "Accepter la requête"}
               </Button>
             ) : (
               <Button
@@ -522,6 +575,19 @@ export function RequestCard({
                 onClick={() => void submit("answer")}
               >
                 Envoyer la réponse
+              </Button>
+            )}
+            {request.kind === "approval" && request.chef?.memory && (
+              <Button
+                variant="outline"
+                disabled={busy || !canRespond}
+                onClick={() => void submit("accept", true)}
+              >
+                {request.chef.memoryOnly
+                  ? "Mémoriser"
+                  : request.chef.memory.kind === "rule"
+                    ? "Action + mémoriser la règle"
+                    : "Action + mémoriser"}
               </Button>
             )}
             <Button

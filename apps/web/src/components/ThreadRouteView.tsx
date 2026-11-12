@@ -1,6 +1,7 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
-import { useNavigate } from "@tanstack/react-router";
+import { chefDossierThreadPrefix, isChefDossierThread } from "@t3tools/contracts";
+import { Navigate, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import ChatView from "./ChatView";
@@ -40,6 +41,21 @@ import { serverTabKey, useWorkspaceTabsStore } from "../workspaceTabsStore";
  * an element only survives a route swap when the same parent renders it.
  */
 export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
+  if (target.kind === "server" && isChefDossierThread(target.threadRef.threadId)) {
+    return (
+      <Navigate
+        to="/chef"
+        search={{
+          environment: target.threadRef.environmentId,
+          dossier: target.threadRef.threadId.slice(chefDossierThreadPrefix.length),
+        }}
+        replace
+      />
+    );
+  }
+  return <AgentThreadRouteView target={target} />;
+}
+function AgentThreadRouteView({ target }: { target: ThreadRouteTarget }) {
   const navigate = useNavigate();
   const draftId = target.kind === "draft" ? target.draftId : null;
   const draftSession = useComposerDraftStore((store) =>

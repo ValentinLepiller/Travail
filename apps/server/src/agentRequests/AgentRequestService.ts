@@ -6,6 +6,7 @@ import {
   type AgentRequestUpdate,
   type AgentRequestRespond,
   type ThreadId,
+  type ChefRequest,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -31,6 +32,22 @@ export class AgentRequestService extends Context.Service<
       threadId: ThreadId,
       input: AgentRequestCreate,
     ) => Effect.Effect<AgentRequest, AgentRequestError>;
+    readonly createChef: (
+      threadId: ThreadId,
+      input: AgentRequestCreate,
+      chef: ChefRequest,
+    ) => Effect.Effect<AgentRequest, AgentRequestError>;
+    readonly updateChef: (
+      threadId: ThreadId,
+      input: AgentRequestUpdate,
+      chef: ChefRequest,
+    ) => Effect.Effect<AgentRequest, AgentRequestError>;
+    readonly completeChef: (input: {
+      id: string;
+      expectedVersion: number;
+      succeeded: boolean;
+      summary: string;
+    }) => Effect.Effect<AgentRequest, AgentRequestError>;
     readonly update: (
       threadId: ThreadId,
       input: AgentRequestUpdate,
@@ -144,7 +161,7 @@ const make = Effect.gen(function* () {
     request.version === version
       ? Effect.void
       : Effect.fail(new AgentRequestError({ reason: "conflict" }));
-  const create = (threadId: ThreadId, input: AgentRequestCreate) =>
+  const create = (threadId: ThreadId, input: AgentRequestCreate, chef?: ChefRequest) =>
     mutate(
       Effect.gen(function* () {
         const existing = yield* sql<{
@@ -160,9 +177,12 @@ const make = Effect.gen(function* () {
         }
         if (input.kind === "text" && input.action !== null)
           return yield* new AgentRequestError({ reason: "invalid" });
+        if (chef && (input.kind !== "approval" || input.action !== null))
+          return yield* new AgentRequestError({ reason: "invalid" });
         const at = yield* now;
         return yield* putWithSource({
           ...input,
+          ...(chef ? { chef } : {}),
           threadId,
           version: 1,
           status: "pending",
@@ -175,11 +195,13 @@ const make = Effect.gen(function* () {
         });
       }),
     );
-  const update = (threadId: ThreadId, input: AgentRequestUpdate) =>
+  const update = (threadId: ThreadId, input: AgentRequestUpdate, chef?: ChefRequest) =>
     mutate(
       Effect.gen(function* () {
         const previous = yield* get(input.id);
         yield* check(previous, input.expectedVersion);
+        if (Boolean(previous.chef) !== Boolean(chef) || (chef && input.action !== null))
+          return yield* new AgentRequestError({ reason: "invalid" });
         if (
           previous.threadId !== threadId ||
           !["pending", "revision"].includes(previous.status) ||
@@ -189,7 +211,7 @@ const make = Effect.gen(function* () {
         if (input.kind === "text" && input.action !== null)
           return yield* new AgentRequestError({ reason: "invalid" });
         const { expectedVersion: _, withdraw, ...content } = input;
-        const next = { ...previous, ...content };
+        const next = { ...previous, ...content, ...(chef ? { chef } : {}) };
         if (
           content.sourceTaskId !== undefined &&
           content.sourceTaskId !== previous.sourceTaskId &&
@@ -220,6 +242,8 @@ const make = Effect.gen(function* () {
         yield* check(previous, input.expectedVersion);
         if (previous.status !== "pending")
           return yield* new AgentRequestError({ reason: "invalid" });
+        if (input.remember && (input.decision !== "accept" || !previous.chef?.memory))
+          return yield* new AgentRequestError({ reason: "invalid" });
         if (
           (input.decision === "accept" && previous.kind !== "approval") ||
           (input.decision === "answer" && previous.kind !== "text")
@@ -241,6 +265,14 @@ const make = Effect.gen(function* () {
         )[input.decision];
         return yield* put({
           ...previous,
+          ...(previous.chef
+            ? {
+                chef: {
+                  ...previous.chef,
+                  remember: input.decision === "accept" && input.remember === true,
+                },
+              }
+            : {}),
           version: previous.version + 1,
           status,
           response: input.decision === "ignore" ? "" : input.text,
@@ -248,7 +280,7 @@ const make = Effect.gen(function* () {
             ...previous.history,
             { at, text: input.decision === "ignore" ? "ignored" : `${status} : ${input.text}` },
           ],
-          delivery: input.decision === "ignore" ? "none" : "pending",
+          delivery: previous.chef || input.decision === "ignore" ? "none" : "pending",
           updatedAt: at,
         });
       }),
@@ -273,6 +305,22 @@ const make = Effect.gen(function* () {
           version: previous.version + 1,
           updatedAt: at,
           history: [...previous.history, { at, text: input.summary }],
+        });
+      }),
+    );
+  const completeChef: AgentRequestService["Service"]["completeChef"] = (input) =>
+    mutate(
+      Effect.gen(function* () {
+        const previous = yield* get(input.id);
+        yield* check(previous, input.expectedVersion);
+        if (!previous.chef || previous.status !== "accepted" || previous.actionStatus !== "idle")
+          return yield* new AgentRequestError({ reason: "invalid" });
+        return yield* put({
+          ...previous,
+          actionStatus: input.succeeded ? "succeeded" : "failed",
+          version: previous.version + 1,
+          updatedAt: yield* now,
+          history: [...previous.history, { at: yield* now, text: input.summary }],
         });
       }),
     );
@@ -332,6 +380,9 @@ const make = Effect.gen(function* () {
     subscribe: () => SubscriptionRef.changes(revision).pipe(Stream.mapEffect(list)),
     create,
     update,
+    createChef: (threadId, input, chef) => create(threadId, input, chef),
+    updateChef: (threadId, input, chef) => update(threadId, input, chef),
+    completeChef,
     respond,
     complete,
     retryDelivery,

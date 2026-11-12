@@ -44,6 +44,7 @@ import { Route as ChatPullRequestsRouteImport } from './routes/_chat.pull-reques
 import { Route as ChatNewRouteImport } from './routes/_chat.new'
 import { Route as ChatInboxRouteImport } from './routes/_chat.inbox'
 import { Route as ChatChefsRouteImport } from './routes/_chat.chefs'
+import { Route as ChatChefRouteImport } from './routes/_chat.chef'
 import { Route as ChatAgentsRouteImport } from './routes/_chat.agents'
 import { Route as SettingsPluginsPluginIdRouteImport } from './routes/settings.plugins_.$pluginId'
 import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
@@ -224,6 +225,11 @@ const ChatChefsRoute = ChatChefsRouteImport.update({
   path: '/chefs',
   getParentRoute: () => ChatRoute,
 } as any)
+const ChatChefRoute = ChatChefRouteImport.update({
+  id: '/chef',
+  path: '/chef',
+  getParentRoute: () => ChatRoute,
+} as any)
 const ChatAgentsRoute = ChatAgentsRouteImport.update({
   id: '/agents',
   path: '/agents',
@@ -256,6 +262,7 @@ export interface FileRoutesByFullPath {
   '/usage': typeof UsageRoute
   '/welcome': typeof WelcomeRoute
   '/agents': typeof ChatAgentsRoute
+  '/chef': typeof ChatChefRoute
   '/chefs': typeof ChatChefsRoute
   '/inbox': typeof ChatInboxRoute
   '/new': typeof ChatNewRoute
@@ -295,6 +302,7 @@ export interface FileRoutesByTo {
   '/usage': typeof UsageRoute
   '/welcome': typeof WelcomeRoute
   '/agents': typeof ChatAgentsRoute
+  '/chef': typeof ChatChefRoute
   '/chefs': typeof ChatChefsRoute
   '/inbox': typeof ChatInboxRoute
   '/new': typeof ChatNewRoute
@@ -337,6 +345,7 @@ export interface FileRoutesById {
   '/usage': typeof UsageRoute
   '/welcome': typeof WelcomeRoute
   '/_chat/agents': typeof ChatAgentsRoute
+  '/_chat/chef': typeof ChatChefRoute
   '/_chat/chefs': typeof ChatChefsRoute
   '/_chat/inbox': typeof ChatInboxRoute
   '/_chat/new': typeof ChatNewRoute
@@ -380,6 +389,7 @@ export interface FileRouteTypes {
     | '/usage'
     | '/welcome'
     | '/agents'
+    | '/chef'
     | '/chefs'
     | '/inbox'
     | '/new'
@@ -419,6 +429,7 @@ export interface FileRouteTypes {
     | '/usage'
     | '/welcome'
     | '/agents'
+    | '/chef'
     | '/chefs'
     | '/inbox'
     | '/new'
@@ -460,6 +471,7 @@ export interface FileRouteTypes {
     | '/usage'
     | '/welcome'
     | '/_chat/agents'
+    | '/_chat/chef'
     | '/_chat/chefs'
     | '/_chat/inbox'
     | '/_chat/new'
@@ -751,6 +763,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatChefsRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/_chat/chef': {
+      id: '/_chat/chef'
+      path: '/chef'
+      fullPath: '/chef'
+      preLoaderRoute: typeof ChatChefRouteImport
+      parentRoute: typeof ChatRoute
+    }
     '/_chat/agents': {
       id: '/_chat/agents'
       path: '/agents'
@@ -784,6 +803,7 @@ declare module '@tanstack/react-router' {
 
 interface ChatRouteChildren {
   ChatAgentsRoute: typeof ChatAgentsRoute
+  ChatChefRoute: typeof ChatChefRoute
   ChatChefsRoute: typeof ChatChefsRoute
   ChatInboxRoute: typeof ChatInboxRoute
   ChatNewRoute: typeof ChatNewRoute
@@ -797,6 +817,7 @@ interface ChatRouteChildren {
 
 const ChatRouteChildren: ChatRouteChildren = {
   ChatAgentsRoute: ChatAgentsRoute,
+  ChatChefRoute: ChatChefRoute,
   ChatChefsRoute: ChatChefsRoute,
   ChatInboxRoute: ChatInboxRoute,
   ChatNewRoute: ChatNewRoute,

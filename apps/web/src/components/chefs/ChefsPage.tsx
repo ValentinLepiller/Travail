@@ -16,6 +16,7 @@ import { RequestCard } from "../agentRequests/AgentRequestsPage";
 import { agentRequests } from "../../state/agentRequests";
 import { isElectron } from "../../env";
 import { randomUUID, cn } from "../../lib/utils";
+import { chefMessageKeyDown } from "../../lib/chefMessageKeyDown";
 import { SidebarInset } from "../ui/sidebar";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { Button } from "../ui/button";
@@ -456,30 +457,7 @@ export function ChefConversation({
                   maxLength={5000}
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
-                  onKeyDown={(event) => {
-                    if (
-                      event.key !== "Enter" ||
-                      event.shiftKey ||
-                      event.altKey ||
-                      event.metaKey ||
-                      event.nativeEvent.isComposing ||
-                      event.nativeEvent.keyCode === 229
-                    )
-                      return;
-                    event.preventDefault();
-                    if (event.ctrlKey) {
-                      const input = event.currentTarget;
-                      if (
-                        input.value.length - (input.selectionEnd - input.selectionStart) <
-                        input.maxLength
-                      ) {
-                        input.setRangeText("\n", input.selectionStart, input.selectionEnd, "end");
-                        setDraft(input.value);
-                      }
-                      return;
-                    }
-                    if (!event.repeat) event.currentTarget.form?.requestSubmit();
-                  }}
+                  onKeyDown={(event) => chefMessageKeyDown(event, setDraft)}
                   disabled={busy || !allowed}
                 />
               </div>

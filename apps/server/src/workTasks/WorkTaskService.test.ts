@@ -598,3 +598,30 @@ it.effect(
       ),
     ),
 );
+
+it.effect("a passive Chef dossier cannot become a task execution discussion", () =>
+  Effect.gen(function* () {
+    const service = yield* Tasks.WorkTaskService,
+      sql = yield* SqlClient.SqlClient;
+    yield* sql`INSERT INTO orchestration_v2_projection_threads(thread_id,project_id,title,default_provider,runtime_mode,interaction_mode,created_at,updated_at,payload_json)
+    VALUES('chef-dossier:alpha','project','Dossier du Chef','codex','approval-required','default','','','{}')`;
+    const error = yield* service
+      .save({
+        id: "task",
+        expectedVersion: 0,
+        title: "Corriger",
+        notes: "",
+        status: "ready",
+        projectId: null,
+        agentThreadId: ThreadId.make("chef-dossier:alpha"),
+        dueDate: null,
+      })
+      .pipe(Effect.flip);
+    expect(error.reason).toBe("agent");
+    expect(yield* service.list()).toEqual([]);
+  }).pipe(
+    Effect.provide(
+      Tasks.layer.pipe(Layer.provide(taskImageTestLayer), Layer.provideMerge(Sqlite.layerMemory)),
+    ),
+  ),
+);

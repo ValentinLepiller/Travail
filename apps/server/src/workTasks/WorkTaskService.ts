@@ -29,6 +29,7 @@ import {
   type WorkQualificationReserveInput,
   WorkTaskTypesConfig,
   WorkTaskError,
+  isChefDossierThread,
   SlackTaskMessage,
   type WorkTaskSaveInput,
   type WorkTaskDeleteInput,
@@ -584,6 +585,8 @@ const make = Effect.gen(function* () {
             if (projects.length === 0) return yield* new WorkTaskError({ reason: "project" });
           }
           if (input.agentThreadId !== null) {
+            if (isChefDossierThread(input.agentThreadId))
+              return yield* new WorkTaskError({ reason: "agent" });
             const agents = yield* sql`SELECT project_id FROM orchestration_v2_projection_threads
           WHERE thread_id = ${input.agentThreadId} AND deleted_at IS NULL
           AND (${input.projectId} IS NULL OR project_id = ${input.projectId})`;

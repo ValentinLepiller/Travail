@@ -1,0 +1,959 @@
+import { expect, it } from "@effect/vitest";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import {
+  ChefError,
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+  type ChefMemoryDraft,
+} from "@t3tools/contracts";
+import * as FileSystem from "effect/FileSystem";
+import * as Deferred from "effect/Deferred";
+import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
+import * as SqlClient from "effect/sql/SqlClient";
+import * as Requests from "../agentRequests/AgentRequestService.ts";
+import * as RequestEffects from "../agentRequests/RequestEffects.ts";
+import * as Config from "../config.ts";
+import * as Actions from "../inbox/InboxSubjectActions.ts";
+import * as Inbox from "../inbox/MessageInbox.ts";
+import * as Sqlite from "../persistence/Sqlite.ts";
+import * as Tasks from "../workTasks/WorkTaskService.ts";
+import * as Chef from "./GlobalChefService.ts";
+import * as Runtime from "./ChefRuntime.ts";
+import type { ChefPlan } from "./chefDecision.ts";
+
+const encode = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+const projectId = ProjectId.make("chef-project");
+const modelSelection = { instanceId: ProviderInstanceId.make("test"), model: "fixture" };
+const memory: ChefMemoryDraft = {
+  kind: "rule",
+  text: "Créer une tâche pour les demandes de correction du projet.",
+  scope: { kind: "project", id: projectId },
+  topic: "Demandes de correction",
+  action: "create",
+};
+const plan = (extra: Partial<ChefPlan> = {}): ChefPlan => ({
+  kind: "create",
+  title: "Corriger le formulaire",
+  description: "Corriger le formulaire selon le message source.",
+  taskId: null,
+  threadId: null,
+  reason: "Demande explicite de correction.",
+  uncertain: false,
+  memory,
+  ruleId: null,
+  matchingRuleIds: extra.ruleId ? [extra.ruleId] : [],
+  ...extra,
+});
+const reply = (extra: Partial<ChefPlan> = {}) =>
+  encode({ reply: "Je propose de créer la tâche.", plan: plan(extra) });
+const layer = (
+  generate: Runtime.ChefRuntime["Service"]["generate"] = () => Effect.succeed(reply()),
+  notify: Runtime.ChefRuntime["Service"]["notify"] = () => Effect.void,
+  db: ReturnType<typeof Sqlite.layerFromPath> = Sqlite.layerMemory,
+) =>
+  Chef.layer.pipe(
+    Layer.provideMerge(Actions.layer.pipe(Layer.provideMerge(Tasks.layer))),
+    Layer.provideMerge(Inbox.layer),
+    Layer.provideMerge(
+      Requests.layer.pipe(
+        Layer.provide(
+          Layer.succeed(RequestEffects.RequestEffects, {
+            execute: () => Effect.die("No command execution from Chef requests"),
+            notify: () => Effect.die("No execution thread may be resumed by a Chef request"),
+          }),
+        ),
+      ),
+    ),
+    Layer.provide(
+      Layer.succeed(Runtime.ChefRuntime, {
+        generate,
+        notify,
+        ensureDossier: () => Effect.void,
+        conversation: () => Effect.succeed({ text: "Échange lu", truncated: false }),
+      }),
+    ),
+    Layer.provideMerge(db),
+    Layer.provideMerge(Config.layerTest(process.cwd(), { prefix: "chef-test-" })),
+    Layer.provideMerge(NodeServices.layer),
+  );
+const seed = (id = "alpha") =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql`INSERT OR IGNORE INTO projection_projects(project_id,title,workspace_root,scripts_json,created_at,updated_at)
+    VALUES(${projectId},'Projet test','/tmp/chef-test','[]','','')`;
+    yield* (yield* Inbox.MessageInbox).ingestGmail({
+      accountEmail: "me@example.com",
+      id,
+      threadId: id,
+      receivedAt: "1793278000.000001",
+      sender: "Client <client@example.com>",
+      subject: "Correction",
+      text: `Corriger ${id}`,
+    });
+    yield* sql`INSERT INTO inbox_subjects(id,title,summary,created_at,context_json,context_updated_at)
+    VALUES(${id},${`Correction ${id}`},'Demande de correction','',${encode({ kind: "project", id: projectId, projectId })},'2026-11-12T00:00:00Z')`;
+    yield* sql`INSERT INTO inbox_subject_entries(entry_id,subject_id,linked_at,decision_json)
+    VALUES(${`gmail:me@example.com:${id}`},${id},'','{}')`;
+    yield* sql`UPDATE inbox_subjects SET context_sequence=(SELECT MAX(sequence) FROM message_inbox) WHERE id=${id}`;
+  });
+const enable = Effect.gen(function* () {
+  yield* (yield* Chef.GlobalChefService).command({
+    type: "configure",
+    enabled: true,
+    projectId,
+    modelSelection,
+  });
+});
+
+it.effect(
+  "approval creates one sourced ready task, never memorizes implicitly and never resumes its discussion",
+  () =>
+    Effect.gen(function* () {
+      const service = yield* Chef.GlobalChefService,
+        requests = yield* Requests.AgentRequestService,
+        tasks = yield* Tasks.WorkTaskService;
+      yield* seed();
+      yield* enable;
+      yield* service.processNext();
+      expect(yield* tasks.list()).toHaveLength(0);
+      const [r] = yield* requests.list();
+      expect(r?.chef?.memory?.text).toBe(memory.text);
+      yield* requests.respond({
+        id: r!.id,
+        expectedVersion: r!.version,
+        decision: "accept",
+        text: "",
+      });
+      yield* requests.drain();
+      yield* service.processNext();
+      yield* service.processNext();
+      const [task] = yield* tasks.list();
+      expect(task).toMatchObject({
+        status: "ready",
+        automationMode: "manual",
+        agentThreadId: null,
+        inboxSubjectIds: ["alpha"],
+      });
+      expect(task?.sources?.[0]?.kind).toBe("email");
+      expect(yield* tasks.list()).toHaveLength(1);
+      expect((yield* service.memory({})).memories).toHaveLength(0);
+      expect((yield* requests.list())[0]).toMatchObject({
+        actionStatus: "succeeded",
+        delivery: "none",
+        chef: { remember: false },
+      });
+    }).pipe(Effect.provide(layer())),
+);
+
+it.effect(
+  "memorize saves exactly the displayed phrase and authorizes only matching future actions",
+  () => {
+    let ruleId: string | null = null;
+    return Effect.gen(function* () {
+      const service = yield* Chef.GlobalChefService,
+        requests = yield* Requests.AgentRequestService,
+        tasks = yield* Tasks.WorkTaskService;
+      yield* seed();
+      yield* enable;
+      yield* service.processNext();
+      const [r] = yield* requests.list();
+      yield* requests.respond({
+        id: r!.id,
+        expectedVersion: r!.version,
+        decision: "accept",
+        remember: true,
+        text: "",
+      });
+      yield* service.processNext();
+      const [m] = (yield* service.memory({})).memories;
+      expect(m?.text).toBe(memory.text);
+      ruleId = m!.id;
+      yield* seed("beta");
+      yield* service.processNext();
+      yield* service.processNext();
+      expect(yield* tasks.list()).toHaveLength(2);
+      expect(yield* requests.list()).toHaveLength(1);
+    }).pipe(Effect.provide(layer(() => Effect.sync(() => reply({ ruleId })))));
+  },
+);
+
+it.effect(
+  "equivalent cases share one versioned request and one-off acceptance stays limited to the reviewed batch",
+  () =>
+    Effect.gen(function* () {
+      const service = yield* Chef.GlobalChefService,
+        requests = yield* Requests.AgentRequestService;
+      yield* seed();
+      yield* seed("beta");
+      yield* enable;
+      yield* service.processNext();
+      yield* service.processNext();
+      const [r] = yield* requests.list();
+      expect(yield* requests.list()).toHaveLength(1);
+      expect(r?.chef?.dossierIds).toEqual(["alpha", "beta"]);
+      expect(r?.version).toBe(2);
+      yield* requests.respond({
+        id: r!.id,
+        expectedVersion: r!.version,
+        decision: "accept",
+        text: "",
+      });
+      yield* seed("gamma");
+      yield* service.processNext();
+      expect(yield* (yield* Tasks.WorkTaskService).list()).toHaveLength(2);
+      expect(yield* requests.list()).toHaveLength(2);
+      expect((yield* service.read({ id: "gamma" })).dossier.state).toBe("waiting");
+    }).pipe(Effect.provide(layer())),
+);
+
+it.effect("a waiting request or a failing model never blocks independent dossiers", () => {
+  let calls = 0;
+  return Effect.gen(function* () {
+    const service = yield* Chef.GlobalChefService;
+    yield* seed();
+    yield* seed("beta");
+    yield* seed("gamma");
+    yield* enable;
+    yield* service.processNext();
+    yield* service.processNext();
+    yield* service.processNext();
+    expect((yield* service.read({ id: "alpha" })).dossier.state).toBe("error");
+    expect((yield* service.read({ id: "beta" })).dossier.state).toBe("waiting");
+    expect((yield* service.read({ id: "gamma" })).dossier.state).toBe("waiting");
+    expect((yield* service.status()).errors).toBe(1);
+    expect(calls).toBe(3);
+  }).pipe(
+    Effect.provide(layer(() => Effect.sync(() => (++calls === 1 ? "invalid-json" : reply())))),
+  );
+});
+
+it.effect("pause stays responsive while the model runs and discards its later proposal", () =>
+  Effect.gen(function* () {
+    const entered = yield* Deferred.make<void>(),
+      release = yield* Deferred.make<void>();
+    yield* Effect.gen(function* () {
+      const service = yield* Chef.GlobalChefService;
+      yield* seed();
+      yield* enable;
+      const fiber = yield* service.processNext().pipe(Effect.forkChild);
+      yield* Deferred.await(entered);
+      yield* service.command({ type: "configure", enabled: false, projectId, modelSelection });
+      yield* Deferred.succeed(release, undefined);
+      yield* Fiber.join(fiber);
+      expect(yield* (yield* Requests.AgentRequestService).list()).toHaveLength(0);
+      expect((yield* service.memory({})).memories).toHaveLength(0);
+    }).pipe(
+      Effect.provide(
+        layer(() =>
+          Deferred.succeed(entered, undefined).pipe(
+            Effect.andThen(Deferred.await(release)),
+            Effect.as(reply()),
+          ),
+        ),
+      ),
+    );
+  }),
+);
+
+it.effect(
+  "a requested change updates the same grouped request only after all proposals are refreshed",
+  () =>
+    Effect.gen(function* () {
+      const service = yield* Chef.GlobalChefService,
+        requests = yield* Requests.AgentRequestService;
+      yield* seed();
+      yield* seed("beta");
+      yield* enable;
+      yield* service.processNext();
+      yield* service.processNext();
+      const [r] = yield* requests.list();
+      yield* requests.respond({
+        id: r!.id,
+        expectedVersion: r!.version,
+        decision: "revise",
+        text: "Précise les tests attendus.",
+      });
+      yield* service.processNext();
+      expect((yield* requests.list())[0]?.status).toBe("revision");
+      yield* service.processNext();
+      const [revised] = yield* requests.list();
+      expect(yield* requests.list()).toHaveLength(1);
+      expect(revised).toMatchObject({ id: r!.id, status: "pending", version: 4 });
+      expect(revised?.chef?.dossierIds).toEqual(["alpha", "beta"]);
+    }).pipe(Effect.provide(layer())),
+);
+
+it.effect("a stale subject approval has no task or memory side effects", () =>
+  Effect.gen(function* () {
+    const service = yield* Chef.GlobalChefService,
+      requests = yield* Requests.AgentRequestService,
+      sql = yield* SqlClient.SqlClient;
+    yield* seed();
+    yield* enable;
+    yield* service.processNext();
+    const [r] = yield* requests.list();
+    yield* requests.respond({
+      id: r!.id,
+      expectedVersion: r!.version,
+      decision: "accept",
+      remember: true,
+      text: "",
+    });
+    yield* sql`UPDATE inbox_subjects SET action_version=action_version+1 WHERE id='alpha'`;
+    yield* service.processNext();
+    expect(yield* (yield* Tasks.WorkTaskService).list()).toHaveLength(0);
+    expect((yield* service.memory({})).memories).toHaveLength(0);
+    expect((yield* requests.list())[0]?.actionStatus).toBe("failed");
+  }).pipe(Effect.provide(layer())),
+);
+
+it.effect("completing an existing task preserves its initial request and linked discussion", () =>
+  Effect.gen(function* () {
+    const service = yield* Chef.GlobalChefService,
+      requests = yield* Requests.AgentRequestService,
+      tasks = yield* Tasks.WorkTaskService,
+      sql = yield* SqlClient.SqlClient;
+    yield* seed();
+    yield* sql`INSERT INTO orchestration_v2_projection_threads(thread_id,project_id,title,default_provider,runtime_mode,interaction_mode,created_at,updated_at,payload_json)
+    VALUES('existing-chat',${projectId},'Correction','codex','approval-required','default','','','{}')`;
+    const task = yield* tasks.save({
+      id: "existing",
+      expectedVersion: 0,
+      title: "Demande initiale",
+      notes: "Notes humaines intouchées",
+      projectId,
+      agentThreadId: ThreadId.make("existing-chat"),
+      status: "doing",
+      dueDate: null,
+    });
+    yield* enable;
+    yield* service.processNext();
+    const [r] = yield* requests.list();
+    yield* requests.respond({
+      id: r!.id,
+      expectedVersion: r!.version,
+      decision: "accept",
+      text: "",
+    });
+    yield* service.processNext();
+    const saved = yield* tasks.read(task.id);
+    expect(saved.title).toBe("Demande initiale");
+    expect(saved.notes).toContain("Notes humaines intouchées");
+    expect(saved.notes).toContain("Nouveauté sourcée");
+    expect(saved.agentThreadId).toBe("existing-chat");
+    expect(saved.status).toBe("doing");
+    expect(saved.inboxSubjectIds).toEqual(["alpha"]);
+    expect((yield* service.memory({})).memories).toHaveLength(0);
+  }).pipe(
+    Effect.provide(
+      layer(() =>
+        Effect.succeed(
+          reply({
+            kind: "complete",
+            taskId: "existing",
+            title: "Un titre à ne pas substituer",
+            description: "Nouveauté sourcée",
+            memory: { ...memory, action: "complete" },
+          }),
+        ),
+      ),
+    ),
+  ),
+);
+
+it.effect("a newly disabled rule invalidates an automatic action already queued", () => {
+  let ruleId: string | null = null;
+  return Effect.gen(function* () {
+    const service = yield* Chef.GlobalChefService,
+      requests = yield* Requests.AgentRequestService,
+      tasks = yield* Tasks.WorkTaskService;
+    yield* seed();
+    yield* enable;
+    yield* service.processNext();
+    const [r] = yield* requests.list();
+    yield* requests.respond({
+      id: r!.id,
+      expectedVersion: r!.version,
+      decision: "accept",
+      remember: true,
+      text: "",
+    });
+    yield* service.processNext();
+    const [m] = (yield* service.memory({})).memories;
+    ruleId = m!.id;
+    yield* seed("beta");
+    yield* service.processNext();
+    yield* service.command({ type: "memory", ...m!, expectedVersion: m!.version, enabled: false });
+    yield* service.processNext();
+    expect(yield* tasks.list()).toHaveLength(1);
+    expect((yield* service.memory({})).memories[0]?.enabled).toBe(false);
+    expect((yield* service.read({ id: "beta" })).dossier.state).toBe("error");
+  }).pipe(Effect.provide(layer(() => Effect.sync(() => reply({ ruleId })))));
+});
+
+it.effect("a fact proposal creates no task and is saved only by an explicit memorize choice", () =>
+  Effect.gen(function* () {
+    const service = yield* Chef.GlobalChefService,
+      requests = yield* Requests.AgentRequestService;
+    yield* seed();
+    yield* seed("beta");
+    yield* enable;
+    yield* service.processNext();
+    yield* service.processNext();
+    const all = yield* requests.list();
+    expect(all).toHaveLength(2);
+    yield* requests.respond({
+      id: all[0]!.id,
+      expectedVersion: all[0]!.version,
+      decision: "accept",
+      text: "",
+    });
+    yield* requests.respond({
+      id: all[1]!.id,
+      expectedVersion: all[1]!.version,
+      decision: "accept",
+      remember: true,
+      text: "",
+    });
+    yield* service.processNext();
+    const memories = (yield* service.memory({})).memories;
+    expect(memories).toHaveLength(1);
+    expect(memories[0]).toMatchObject({
+      kind: "fact",
+      action: null,
+      text: "Charlotte est l’interlocutrice du projet.",
+    });
+    expect(yield* (yield* Tasks.WorkTaskService).list()).toHaveLength(0);
+  }).pipe(
+    Effect.provide(
+      layer(() =>
+        Effect.succeed(
+          reply({
+            kind: "remember",
+            title: "Contexte du projet",
+            memory: {
+              ...memory,
+              kind: "fact",
+              action: null,
+              text: "Charlotte est l’interlocutrice du projet.",
+            },
+          }),
+        ),
+      ),
+    ),
+  ),
+);
+
+it.effect(
+  "manual Inbox handling withdraws the obsolete proposal without repeating Luna or a task action",
+  () =>
+    Effect.gen(function* () {
+      const service = yield* Chef.GlobalChefService,
+        requests = yield* Requests.AgentRequestService;
+      yield* seed();
+      yield* enable;
+      yield* service.processNext();
+      yield* (yield* Actions.InboxSubjectActions).apply({
+        kind: "ignore",
+        subjectId: "alpha",
+        expectedVersion: 0,
+        requestId: "human-ignore",
+        ignored: true,
+      });
+      yield* service.processNext();
+      expect((yield* requests.list())[0]?.status).toBe("withdrawn");
+      expect((yield* service.read({ id: "alpha" })).dossier.state).toBe("done");
+      expect(yield* (yield* Tasks.WorkTaskService).list()).toHaveLength(0);
+    }).pipe(Effect.provide(layer())),
+);
+
+it.effect(
+  "a committed action survives a failed receipt finalization and a database reopen without a duplicate",
+  () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const dir = yield* fs.makeTempDirectoryScoped({ prefix: "chef-recovery-" });
+      const db = Sqlite.layerFromPath(`${dir}/state.sqlite`);
+      yield* Effect.gen(function* () {
+        const service = yield* Chef.GlobalChefService,
+          requests = yield* Requests.AgentRequestService,
+          sql = yield* SqlClient.SqlClient;
+        yield* seed();
+        yield* enable;
+        yield* service.processNext();
+        const [r] = yield* requests.list();
+        yield* requests.respond({
+          id: r!.id,
+          expectedVersion: r!.version,
+          decision: "accept",
+          remember: true,
+          text: "",
+        });
+        yield* sql`CREATE TRIGGER fail_finalization BEFORE UPDATE ON chef_decisions WHEN NEW.state='done'
+      BEGIN SELECT RAISE(ABORT,'test interruption'); END`;
+        expect((yield* service.processNext().pipe(Effect.flip)).reason).toBe("storage");
+        expect(yield* (yield* Tasks.WorkTaskService).list()).toHaveLength(1);
+        expect((yield* service.memory({})).memories).toHaveLength(0);
+      }).pipe(Effect.provide(layer(undefined, undefined, db)));
+      yield* Effect.gen(function* () {
+        const service = yield* Chef.GlobalChefService,
+          sql = yield* SqlClient.SqlClient;
+        yield* sql`DROP TRIGGER fail_finalization`;
+        yield* service.processNext();
+        yield* service.processNext();
+        expect(yield* (yield* Tasks.WorkTaskService).list()).toHaveLength(1);
+        expect((yield* service.memory({})).memories).toHaveLength(1);
+        expect((yield* (yield* Requests.AgentRequestService).list())[0]?.actionStatus).toBe(
+          "succeeded",
+        );
+      }).pipe(Effect.provide(layer(undefined, undefined, db)));
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect(
+  "discussing a pending proposal revises the same request instead of duplicating it",
+  () => {
+    let calls = 0;
+    return Effect.gen(function* () {
+      const service = yield* Chef.GlobalChefService,
+        requests = yield* Requests.AgentRequestService;
+      yield* seed();
+      yield* enable;
+      yield* service.processNext();
+      const [first] = yield* requests.list();
+      yield* service.command({
+        type: "message",
+        id: "alpha",
+        messageId: "clarification",
+        text: "Ajoute les tests attendus.",
+      });
+      yield* service.processNext();
+      const all = yield* requests.list();
+      expect(all).toHaveLength(1);
+      expect(all[0]).toMatchObject({ id: first!.id, version: 2, status: "pending" });
+      expect(all[0]?.details).toContain("Avec tests attendus");
+    }).pipe(
+      Effect.provide(
+        layer(() =>
+          Effect.sync(() =>
+            reply({ description: calls++ ? "Avec tests attendus" : "Demande initiale" }),
+          ),
+        ),
+      ),
+    );
+  },
+);
+
+it.effect(
+  "handoff uses the selected task's chantier Chef, retries its notification and accepts only that active Chef's reply",
+  () => {
+    const notifications: Array<{ agentId: string; id: string }> = [];
+    return Effect.gen(function* () {
+      const service = yield* Chef.GlobalChefService,
+        requests = yield* Requests.AgentRequestService,
+        tasks = yield* Tasks.WorkTaskService,
+        sql = yield* SqlClient.SqlClient;
+      yield* seed();
+      yield* tasks.saveChantier({
+        id: "notifications",
+        expectedVersion: 0,
+        title: "Notifications",
+        projectId,
+        status: "active",
+        objective: "Notifications",
+        scope: "Notifications",
+        decisions: "",
+        targetPeriod: "",
+        sources: [],
+        externalDependencies: [],
+        generation: "legacy",
+      });
+      yield* tasks.save({
+        id: "existing",
+        expectedVersion: 0,
+        title: "Tâche notifications",
+        notes: "Demande intacte",
+        projectId,
+        chantierId: "notifications",
+        agentThreadId: null,
+        status: "ready",
+        dueDate: null,
+      });
+      for (const id of ["project-chef", "chantier-chef"]) {
+        const a = {
+          id,
+          kind: id === "chantier-chef" ? "chantier-chef" : "chef",
+          name: id,
+          mission: "Mission de test",
+          projectId,
+          ...(id === "chantier-chef" ? { chantierId: "notifications" } : {}),
+          modelSelection,
+          intervalSeconds: 60,
+          trigger: "interval",
+          x: 0,
+          y: 0,
+          paused: false,
+          currentThreadId: `${id}-run`,
+          status: "working",
+          error: null,
+          nextRunAt: 0,
+        };
+        yield* sql`INSERT INTO autonomous_agents(id,payload_json) VALUES(${id},${encode(a)})`;
+        yield* sql`INSERT INTO autonomous_agent_runs(thread_id,agent_id,title,prompt,started_at) VALUES(${`${id}-run`},${id},'Test','Test','')`;
+      }
+      yield* enable;
+      yield* service.processNext();
+      const [r] = yield* requests.list();
+      yield* requests.respond({
+        id: r!.id,
+        expectedVersion: r!.version,
+        decision: "accept",
+        text: "",
+      });
+      yield* service.processNext();
+      expect((yield* service.status()).notificationsPending).toBe(1);
+      yield* service.processNext();
+      expect((yield* service.status()).notificationsPending).toBe(0);
+      expect(notifications.map((n) => n.agentId)).toEqual(["chantier-chef", "chantier-chef"]);
+      expect(notifications[1]?.id).toBe(notifications[0]?.id);
+      const input = {
+        id: "alpha",
+        messageId: "chef-answer",
+        text: "Je prends le cadrage en charge.",
+      };
+      expect(
+        (yield* service.reply(ThreadId.make("project-chef-run"), input).pipe(Effect.flip)).reason,
+      ).toBe("conflict");
+      yield* service.reply(ThreadId.make("chantier-chef-run"), input);
+      yield* service.reply(ThreadId.make("chantier-chef-run"), input);
+      expect(
+        (yield* service.read({ id: "alpha" })).messages.filter((m) => m.role === "chef"),
+      ).toHaveLength(1);
+      expect((yield* tasks.read("existing")).notes).toBe("Demande intacte");
+      expect((yield* service.memory({})).memories).toHaveLength(0);
+    }).pipe(
+      Effect.provide(
+        layer(
+          () =>
+            Effect.succeed(
+              reply({
+                kind: "handoff",
+                taskId: "existing",
+                memory: { ...memory, action: "handoff" },
+              }),
+            ),
+          (agentId, id) =>
+            Effect.gen(function* () {
+              notifications.push({ agentId, id });
+              if (notifications.length === 1) return yield* new ChefError({ reason: "storage" });
+            }),
+        ),
+      ),
+    );
+  },
+);
+
+it.effect("a rule edit while the model is responding discards its obsolete proposal", () =>
+  Effect.gen(function* () {
+    const entered = yield* Deferred.make<void>(),
+      release = yield* Deferred.make<void>();
+    let calls = 0;
+    yield* Effect.gen(function* () {
+      const service = yield* Chef.GlobalChefService,
+        requests = yield* Requests.AgentRequestService;
+      yield* seed();
+      yield* enable;
+      yield* service.processNext();
+      const [r] = yield* requests.list();
+      yield* requests.respond({
+        id: r!.id,
+        expectedVersion: r!.version,
+        decision: "accept",
+        remember: true,
+        text: "",
+      });
+      yield* service.processNext();
+      const [m] = (yield* service.memory({})).memories;
+      yield* seed("beta");
+      const processing = yield* service.processNext().pipe(Effect.forkChild);
+      yield* Deferred.await(entered);
+      yield* service.command({
+        type: "memory",
+        ...m!,
+        expectedVersion: m!.version,
+        enabled: false,
+      });
+      yield* Deferred.succeed(release, undefined);
+      yield* Fiber.join(processing);
+      expect(yield* requests.list()).toHaveLength(1);
+      expect(yield* (yield* Tasks.WorkTaskService).list()).toHaveLength(1);
+      expect((yield* service.read({ id: "beta" })).dossier.state).toBe("error");
+    }).pipe(
+      Effect.provide(
+        layer(() =>
+          Effect.gen(function* () {
+            if (++calls === 2) {
+              yield* Deferred.succeed(entered, undefined);
+              yield* Deferred.await(release);
+            }
+            return reply();
+          }),
+        ),
+      ),
+    );
+  }),
+);
+
+it.effect("an existing task supplies the reviewed scope even when Luna had no project", () =>
+  Effect.gen(function* () {
+    const service = yield* Chef.GlobalChefService,
+      requests = yield* Requests.AgentRequestService;
+    yield* seed();
+    yield* (yield* SqlClient.SqlClient)`UPDATE inbox_subjects SET context_json=NULL WHERE id='alpha'`;
+    yield* (yield* Tasks.WorkTaskService).save({
+      id: "existing",
+      expectedVersion: 0,
+      title: "Demande déjà engagée",
+      notes: "À conserver",
+      status: "doing",
+      projectId,
+      agentThreadId: null,
+      dueDate: null,
+    });
+    yield* enable;
+    yield* service.processNext();
+    const [r] = yield* requests.list();
+    expect(r?.details).toContain("Projet : Projet test");
+    expect(r?.details).toContain("Tâche existante : Demande déjà engagée");
+    expect(r?.chef?.memory?.scope).toEqual(memory.scope);
+  }).pipe(
+    Effect.provide(
+      layer(() =>
+        Effect.succeed(
+          reply({
+            kind: "complete",
+            taskId: "existing",
+            memory: { ...memory, action: "complete" },
+          }),
+        ),
+      ),
+    ),
+  ),
+);
+
+it.effect("a revised group labels each distinct action and cannot memorize a mixed rule", () => {
+  let calls = 0;
+  return Effect.gen(function* () {
+    const service = yield* Chef.GlobalChefService,
+      requests = yield* Requests.AgentRequestService;
+    yield* seed();
+    yield* seed("beta");
+    yield* enable;
+    yield* service.processNext();
+    yield* service.processNext();
+    const [r] = yield* requests.list();
+    yield* requests.respond({
+      id: r!.id,
+      expectedVersion: r!.version,
+      decision: "revise",
+      text: "Ignorer le premier seulement.",
+    });
+    yield* service.processNext();
+    yield* service.processNext();
+    const [revised] = yield* requests.list();
+    expect(revised?.id).toBe(r!.id);
+    expect(revised?.question).toContain("Appliquer les actions proposées");
+    expect(revised?.details).toContain("**Ignorer**");
+    expect(revised?.details).toContain("**Créer une tâche**");
+    expect(revised?.chef?.memory).toBeNull();
+  }).pipe(
+    Effect.provide(
+      layer(() =>
+        Effect.sync(() =>
+          ++calls === 3
+            ? reply({ kind: "ignore", memory: { ...memory, action: "ignore" } })
+            : reply(),
+        ),
+      ),
+    ),
+  );
+});
+
+it.effect("large candidate histories stay bounded and visibly require review", () => {
+  let prompt = "";
+  return Effect.gen(function* () {
+    const service = yield* Chef.GlobalChefService,
+      tasks = yield* Tasks.WorkTaskService;
+    yield* seed();
+    for (let i = 0; i < 70; i++)
+      yield* tasks.save({
+        id: `candidate-${i}`,
+        expectedVersion: 0,
+        title: `Correction ${i}`,
+        notes: "Historique important. ".repeat(800),
+        status: "ready",
+        projectId,
+        agentThreadId: null,
+        dueDate: null,
+      });
+    yield* enable;
+    yield* service.processNext();
+    expect(Buffer.byteLength(prompt, "utf8")).toBeLessThan(60_000);
+    expect(prompt).toContain('"searchIncomplete":true');
+    expect(prompt).not.toContain('"attachments"');
+    expect((yield* service.read({ id: "alpha" })).dossier.state).toBe("waiting");
+    expect(yield* (yield* Requests.AgentRequestService).list()).toHaveLength(1);
+    expect(yield* tasks.list()).toHaveLength(70);
+  }).pipe(
+    Effect.provide(
+      layer((_, text) =>
+        Effect.sync(() => {
+          prompt = text;
+          return reply();
+        }),
+      ),
+    ),
+  );
+});
+
+it.effect(
+  "Luna's unfinished context defers only that subject and a closed subject withdraws its pending request",
+  () =>
+    Effect.gen(function* () {
+      const service = yield* Chef.GlobalChefService,
+        sql = yield* SqlClient.SqlClient,
+        requests = yield* Requests.AgentRequestService;
+      yield* seed();
+      yield* seed("beta");
+      yield* sql`UPDATE inbox_subjects SET context_sequence=0 WHERE id='alpha'`;
+      yield* enable;
+      yield* service.processNext();
+      expect((yield* service.list({})).dossiers.map((d) => d.id)).toEqual(["beta"]);
+      yield* sql`UPDATE inbox_subjects SET context_sequence=(SELECT sequence FROM message_inbox WHERE id='gmail:me@example.com:alpha') WHERE id='alpha'`;
+      yield* service.processNext();
+      expect((yield* service.list({})).dossiers).toHaveLength(2);
+      yield* sql`UPDATE inbox_subjects SET closed_at='2026-11-12'`;
+      yield* service.processNext();
+      expect((yield* service.list({})).dossiers).toHaveLength(0);
+      expect(
+        (yield* service.list({ archived: true })).dossiers.every(
+          (d) => d.state === "closed" && d.requestId === null,
+        ),
+      ).toBe(true);
+      expect((yield* requests.list()).every((r) => r.status === "withdrawn")).toBe(true);
+      expect(yield* (yield* Tasks.WorkTaskService).list()).toHaveLength(0);
+    }).pipe(Effect.provide(layer())),
+);
+
+it.effect(
+  "approved facts are loaded by project even when the new subject uses different words",
+  () => {
+    const prompts: string[] = [];
+    return Effect.gen(function* () {
+      const service = yield* Chef.GlobalChefService,
+        requests = yield* Requests.AgentRequestService;
+      yield* seed();
+      yield* enable;
+      yield* service.processNext();
+      const [r] = yield* requests.list();
+      yield* requests.respond({
+        id: r!.id,
+        expectedVersion: r!.version,
+        decision: "accept",
+        remember: true,
+        text: "",
+      });
+      yield* service.processNext();
+      yield* seed("beta");
+      yield* service.processNext();
+      expect(prompts[1]).toContain("Charlotte est l’interlocutrice du projet.");
+      expect((yield* service.memory({})).memories).toHaveLength(1);
+    }).pipe(
+      Effect.provide(
+        layer((_, prompt) =>
+          Effect.sync(() => {
+            prompts.push(prompt);
+            return reply({
+              kind: "remember",
+              memory: {
+                ...memory,
+                kind: "fact",
+                action: null,
+                text: "Charlotte est l’interlocutrice du projet.",
+              },
+            });
+          }),
+        ),
+      ),
+    );
+  },
+);
+
+it.effect(
+  "a new message updates the subject's own task without changing its origin or initial title",
+  () => {
+    let existing: string | null = null;
+    return Effect.gen(function* () {
+      const service = yield* Chef.GlobalChefService,
+        requests = yield* Requests.AgentRequestService,
+        sql = yield* SqlClient.SqlClient,
+        tasks = yield* Tasks.WorkTaskService;
+      yield* seed();
+      yield* enable;
+      yield* service.processNext();
+      const accept = Effect.gen(function* () {
+        const r = (yield* requests.list()).find((r) => r.status === "pending");
+        yield* requests.respond({
+          id: r!.id,
+          expectedVersion: r!.version,
+          decision: "accept",
+          text: "",
+        });
+        yield* service.processNext();
+      });
+      yield* accept;
+      const [first] = yield* tasks.list();
+      existing = first!.id;
+      yield* (yield* Inbox.MessageInbox).ingestGmail({
+        accountEmail: "me@example.com",
+        id: "followup",
+        threadId: "alpha",
+        receivedAt: "1793278001.000001",
+        sender: "Client",
+        subject: "Précision",
+        text: "Nouveau détail",
+      });
+      yield* sql`INSERT INTO inbox_subject_entries(entry_id,subject_id,linked_at,decision_json) VALUES('gmail:me@example.com:followup','alpha','','{}')`;
+      yield* sql`UPDATE inbox_subjects SET action_version=action_version+1,context_sequence=(SELECT MAX(sequence) FROM message_inbox) WHERE id='alpha'`;
+      yield* service.processNext();
+      yield* accept;
+      const saved = yield* tasks.read(existing!);
+      expect(saved.title).toBe(first!.title);
+      expect(saved.notes).toContain("Précision ajoutée");
+      expect(yield* tasks.list()).toHaveLength(1);
+      expect(yield* sql`SELECT task_link_kind FROM inbox_subjects WHERE id='alpha'`).toEqual([
+        { task_link_kind: "created" },
+      ]);
+    }).pipe(
+      Effect.provide(
+        layer(() =>
+          Effect.sync(() =>
+            existing
+              ? reply({
+                  kind: "complete",
+                  taskId: existing,
+                  title: "Titre à ne pas substituer",
+                  description: "Précision ajoutée",
+                  memory: null,
+                })
+              : reply(),
+          ),
+        ),
+      ),
+    );
+  },
+);

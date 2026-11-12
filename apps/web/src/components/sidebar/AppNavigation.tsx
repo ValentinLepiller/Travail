@@ -2,6 +2,7 @@ import { Link, useLocation } from "@tanstack/react-router";
 import {
   BotIcon,
   ChefHatIcon,
+  CrownIcon,
   HomeIcon,
   HardHatIcon,
   InboxIcon,
@@ -30,6 +31,7 @@ const destinations = [
   { to: "/tasks", tab: "chantiers", label: "Chantiers V2", Icon: HardHatIcon },
   { to: "/agents", label: "Auto", Icon: BotIcon },
   { to: "/chefs", label: "Chefs", Icon: ChefHatIcon },
+  { to: "/chef", label: "Le Chef", Icon: CrownIcon },
   { to: "/pull-requests", label: "PR", Icon: PullRequestGlyph.pullRequest },
   { to: "/usage", label: "Usage", Icon: ChartNoAxesColumnIcon },
   { to: "/settings", label: "Réglages", Icon: SettingsIcon },
@@ -42,7 +44,8 @@ function navigationSearch(destination: (typeof destinations)[number]) {
 
 function RequestCount({ environmentId }: { environmentId: EnvironmentId }) {
   const query = useEnvironmentQuery(agentRequests({ environmentId, input: {} }));
-  const count = query.data?.filter((request) => request.status === "pending").length ?? 0;
+  const count =
+    query.data?.filter((request) => !request.chef && request.status === "pending").length ?? 0;
   return (
     <NavigationCount count={count} label={`${count} requête${count > 1 ? "s" : ""} en attente`} />
   );
@@ -77,6 +80,15 @@ function ChefBadge() {
   const { environmentId } = useEnvironmentSelection();
   return environmentId ? <ChefCount environmentId={environmentId} /> : null;
 }
+function GlobalChefBadge() {
+  const { environmentId } = useEnvironmentSelection();
+  return environmentId ? <GlobalChefCount environmentId={environmentId} /> : null;
+}
+function GlobalChefCount({ environmentId }: { environmentId: EnvironmentId }) {
+  const query = useEnvironmentQuery(agentRequests({ environmentId, input: {} }));
+  const count = query.data?.filter((r) => r.chef && r.status === "pending").length ?? 0;
+  return <NavigationCount count={count} label={`${count} décision(s) du Chef en attente`} />;
+}
 
 function RequestBadge() {
   const { environmentId } = useEnvironmentSelection();
@@ -89,6 +101,7 @@ function NavigationIcon({ to, Icon }: Pick<(typeof destinations)[number], "to" |
       <Icon className="size-5" />
       {to === "/requests" && <RequestBadge />}
       {to === "/chefs" && <ChefBadge />}
+      {to === "/chef" && <GlobalChefBadge />}
     </span>
   );
 }
@@ -113,6 +126,7 @@ export function AppNavigation() {
               ? ![
                   "/agents",
                   "/chefs",
+                  "/chef",
                   "/inbox",
                   "/requests",
                   "/tasks",
