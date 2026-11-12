@@ -27,7 +27,20 @@ export const ChefMemory = Schema.Struct({
 });
 export type ChefMemory = typeof ChefMemory.Type;
 
+export const ChefAction = Schema.Literals(["create", "complete", "ignore", "handoff", "remember"]);
+export const chefActionLabels = {
+  create: "Créer la tâche",
+  complete: "Compléter la tâche",
+  ignore: "Ignorer le sujet",
+  handoff: "Consulter le Chef responsable",
+  remember: "Mémoriser",
+};
 export const ChefRequest = Schema.Struct({
+  action: Schema.optionalKey(ChefAction),
+  subjectTitle: Schema.optionalKey(Text),
+  summary: Schema.optionalKey(Text),
+  reviewPending: Schema.optionalKey(Schema.Boolean),
+  projectId: Schema.optionalKey(Schema.NullOr(ProjectId)),
   decisionId: Text,
   dossierIds: Schema.Array(Text).check(Schema.isMinLength(1), Schema.isMaxLength(20)),
   memory: Schema.NullOr(ChefMemoryDraft),

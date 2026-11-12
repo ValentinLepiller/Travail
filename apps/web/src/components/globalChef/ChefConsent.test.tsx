@@ -21,7 +21,7 @@ import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { AtomRegistry } from "effect/reactivity";
-import { act, type ReactNode } from "react";
+import { act, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, vi } from "vite-plus/test";
 import { it } from "@effect/vitest";
@@ -81,6 +81,7 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 vi.mock("../ChatMarkdown", () => ({ default: ({ text }: { text: string }) => <p>{text}</p> }));
 import { RequestCard } from "../agentRequests/AgentRequestsPage";
+import { ChefDecisionsView } from "./GlobalChefPage";
 import { requestPageState } from "../../state/workPageState";
 
 const environmentId = EnvironmentId.make("chef-consent-test");
@@ -103,6 +104,8 @@ const original: AgentRequest = {
   createdAt: "",
   updatedAt: "",
   chef: {
+    action: "ignore",
+    subjectTitle: "Invitation aux soirées de Weyou",
     decisionId: "chef:request",
     dossierIds: ["alpha"],
     memory: {
@@ -116,6 +119,7 @@ const original: AgentRequest = {
 };
 let registry: AtomRegistry.AtomRegistry, root: Root, host: HTMLDivElement;
 let calls: AgentRequestRespond[], conflict: boolean;
+let listedRequests: AgentRequest[], dossierReads: string[];
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   registry = AtomRegistry.make();
@@ -124,6 +128,9 @@ beforeEach(() => {
   root = createRoot(host);
   calls = [];
   conflict = false;
+  listedRequests = [original];
+  dossierReads = [];
+  Element.prototype.scrollIntoView = vi.fn();
   requestPageState(environmentId).setState({ drafts: {}, temporaryDrafts: {} });
 });
 afterEach(async () => {
@@ -146,6 +153,33 @@ const setup = Effect.gen(function* () {
       environment: { capabilities: { performanceStatistics: false } },
     }),
     client: {
+      [WS_METHODS.agentRequestsSubscribe]: () => Stream.sync(() => listedRequests),
+      [WS_METHODS.globalChefRead]: (input: { id: string }) =>
+        Effect.sync(() => {
+          dossierReads.push(input.id);
+          return {
+            dossier: {
+              id: input.id,
+              threadId: ThreadId.make(`chef-dossier:${input.id}`),
+              subjectId: input.id,
+              title: `Discussion ${input.id}`,
+              state: "waiting",
+              requestId: null,
+              error: null,
+              updatedAt: "",
+            },
+            messages: [
+              {
+                id: "reply",
+                sequence: 1,
+                role: "assistant",
+                text: `Proposition pour ${input.id}`,
+                createdAt: "",
+              },
+            ],
+            nextCursor: null,
+          };
+        }),
       [WS_METHODS.agentRequestsRespond]: (input: AgentRequestRespond) =>
         Effect.suspend(() => {
           calls.push(input);
@@ -209,7 +243,7 @@ it.effect(
       yield* render();
       expect(host.querySelector("blockquote")?.textContent).toBe(phrase);
       expect(calls).toHaveLength(0);
-      yield* click("Action");
+      yield* click("Ignorer le sujet");
       expect(calls).toEqual([
         { id: original.id, expectedVersion: 2, decision: "accept", text: "", remember: false },
       ]);
@@ -219,7 +253,7 @@ it.effect("only the explicit Action + mémoriser la règle button requests memor
   Effect.gen(function* () {
     yield* setup;
     yield* render();
-    yield* click("Action + mémoriser la règle");
+    yield* click("Ignorer et mémoriser");
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({ id: original.id, expectedVersion: 2, remember: true });
   }),
@@ -231,7 +265,7 @@ it.effect(
       yield* setup;
       yield* render();
       conflict = true;
-      yield* click("Action + mémoriser la règle");
+      yield* click("Ignorer et mémoriser");
       expect(calls).toHaveLength(1);
       expect(host.querySelector('[role="alert"]')).not.toBeNull();
       const updated = {
@@ -249,4 +283,100 @@ it.effect(
       expect(host.querySelector("blockquote")?.textContent).toBe(updated.chef.memory.text);
       expect(calls).toHaveLength(1);
     }),
+);
+
+function Decisions() {
+  const [id, setId] = useState<string | null>(null);
+  return (
+    <ChefDecisionsView
+      environmentId={environmentId}
+      selectedId={id}
+      onSelect={setId}
+      execute={async () => true}
+      disabled={false}
+    />
+  );
+}
+it.effect("decision cards are primary and discussing a card loads only its linked dossier", () =>
+  Effect.gen(function* () {
+    yield* setup;
+    listedRequests = [
+      original,
+      {
+        ...original,
+        id: "second",
+        question: "Créer la tâche ?",
+        chef: {
+          ...original.chef!,
+          dossierIds: ["beta"],
+          subjectTitle: "Corriger le paiement",
+          action: "create",
+        },
+      },
+    ];
+    yield* Effect.promise(async () => {
+      await act(() =>
+        root.render(
+          <RegistryContext.Provider value={registry}>
+            <Decisions />
+          </RegistryContext.Provider>,
+        ),
+      );
+    });
+    expect(host.querySelector("select")).toBeNull();
+    expect(host.querySelector('[aria-label="Discussion avec le Chef"]')).toBeNull();
+    expect(host.textContent).toContain("Invitation aux soirées de Weyou");
+    expect(host.textContent).toContain("Corriger le paiement");
+    expect(dossierReads).toHaveLength(0);
+    yield* Effect.promise(async () => {
+      await act(async () => {
+        const buttons = [...host.querySelectorAll("button")].filter(
+          (b) => b.textContent === "En discuter",
+        );
+        buttons[1]!.click();
+      });
+    });
+    expect(dossierReads).toEqual(["beta"]);
+    expect(host.querySelector('[aria-label="Discussion avec le Chef"]')?.textContent).toContain(
+      "Proposition pour beta",
+    );
+    yield* click("Fermer la discussion");
+    expect(host.querySelector('[aria-label="Discussion avec le Chef"]')).toBeNull();
+  }),
+);
+it.effect(
+  "written clarification shows a reply field without any approval or memorization action",
+  () =>
+    Effect.gen(function* () {
+      yield* setup;
+      yield* render({
+        ...original,
+        kind: "text",
+        chef: { ...original.chef!, action: "handoff", memory: null },
+        question: "Quel fonctionnement souhaites-tu sans Chef pour Cotily ?",
+      });
+      expect(host.textContent).toContain(
+        "Quel fonctionnement souhaites-tu sans Chef pour Cotily ?",
+      );
+      expect(host.querySelector("textarea")).not.toBeNull();
+      expect(
+        [...host.querySelectorAll("button")].some((b) => b.textContent?.includes("mémoriser")),
+      ).toBe(false);
+      expect(
+        [...host.querySelectorAll("button")].find((b) => b.textContent === "Envoyer la réponse")
+          ?.disabled,
+      ).toBe(true);
+    }),
+);
+
+it.effect("an obsolete handoff queued for review cannot still be approved", () =>
+  Effect.gen(function* () {
+    yield* setup;
+    yield* render({ ...original, chef: { ...original.chef!, reviewPending: true } });
+    expect(host.textContent).toContain("Réexamen prévu");
+    expect(
+      [...host.querySelectorAll("button")].some((b) => b.textContent === "Ignorer le sujet"),
+    ).toBe(false);
+    expect(calls).toHaveLength(0);
+  }),
 );

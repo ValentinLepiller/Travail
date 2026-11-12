@@ -87,6 +87,7 @@ const Item = Schema.Struct({
   taskTitle: Schema.NullOr(Schema.String),
   threadTitle: Schema.NullOr(Schema.String),
   responsibleId: Schema.NullOr(Schema.String),
+  responsibleName: Schema.optionalKey(Schema.NullOr(Schema.String)),
   subjectTitle: Schema.String,
   source: Schema.NullOr(AgentRequestSource),
 });
@@ -96,6 +97,8 @@ const Decision = Schema.Struct({
   memory: Schema.NullOr(ChefMemoryDraft),
   items: Schema.Array(Item),
   rule: Schema.NullOr(Schema.Struct({ id: Schema.String, version: Schema.Int })),
+  policyVersion: Schema.optionalKey(Schema.Int),
+  presentationVersion: Schema.optionalKey(Schema.Int),
   memoryRevision: Schema.Int,
   revisions: Schema.optionalKey(Schema.Array(Schema.String)),
 });
@@ -295,6 +298,39 @@ const make = Effect.gen(function* () {
           }
           const d = yield* dossier(input.id);
           if (d.state === "closed") return yield* new ChefError({ reason: "conflict" });
+          if (input.type === "retry" && d.requestId) {
+            const r = yield* request(d.requestId);
+            const [row] = yield* sql<{
+              payload_json: string;
+            }>`SELECT payload_json FROM chef_decisions
+              WHERE id=${d.requestId} AND state='pending'`;
+            if (row && r.status === "pending") {
+              const old = yield* decodeDecision(row.payload_json);
+              if (
+                (old.presentationVersion ?? 0) < 2 &&
+                (old.policyVersion ?? 0) < 2 &&
+                old.items.every((i) => i.plan.kind === "handoff")
+              ) {
+                const items = yield* Effect.forEach(old.items, (i) =>
+                  Effect.gen(function* () {
+                    const responsible = yield* loadResponsible(i.projectId, i.chantierId);
+                    return {
+                      ...i,
+                      responsibleId: responsible?.id ?? null,
+                      responsibleName: responsible?.name ?? null,
+                    };
+                  }),
+                );
+                const updated = { ...old, items, presentationVersion: 2 };
+                yield* requests.updateChef(
+                  r.threadId,
+                  { ...requestContent(updated), expectedVersion: r.version, withdraw: false },
+                  metadata(updated),
+                );
+                yield* sql`UPDATE chef_decisions SET payload_json=${yield* encodeJson(updated)} WHERE id=${old.id}`;
+              }
+            }
+          }
           if (input.type === "message") {
             const [existing] = yield* sql<{
               dossier_id: string;
@@ -346,6 +382,25 @@ const make = Effect.gen(function* () {
   const synchronize = () =>
     Effect.gen(function* () {
       const at = yield* now;
+      const legacy = yield* sql<{
+        payload_json: string;
+      }>`SELECT d.payload_json FROM chef_decisions d
+        JOIN agent_requests r ON r.id=d.request_id WHERE d.state='pending'
+        AND json_extract(r.payload_json,'$.status')='pending'
+        AND COALESCE(json_extract(d.payload_json,'$.policyVersion'),0)<2
+        AND NOT EXISTS(SELECT 1 FROM json_each(d.payload_json,'$.items') i
+          WHERE json_extract(i.value,'$.plan.kind')!='handoff') LIMIT 20`;
+      for (const row of legacy) {
+        const decision = yield* decodeDecision(row.payload_json);
+        yield* sql.withTransaction(
+          Effect.gen(function* () {
+            for (const item of decision.items)
+              yield* sql`UPDATE chef_dossiers SET state='pending',next_at='',error=NULL
+              WHERE id=${item.dossierId} AND request_id=${decision.id} AND state='waiting'`;
+            yield* sql`UPDATE chef_decisions SET payload_json=${yield* encodeJson({ ...decision, policyVersion: 2 })} WHERE id=${decision.id}`;
+          }),
+        );
+      }
       yield* sql`INSERT INTO chef_dossiers(id,subject_id,thread_id,title,updated_at)
       SELECT s.id,s.id,${chefDossierThreadPrefix}||s.id,s.title,${at} FROM inbox_subjects s
       WHERE s.closed_at IS NULL AND ${lunaReady} AND (
@@ -387,14 +442,25 @@ const make = Effect.gen(function* () {
       remember: "Examiner la mémoire proposée",
     };
     const homogeneous = decision.items.every((i) => i.plan.kind === first.plan.kind);
-    const label = homogeneous ? labels[first.plan.kind] : "Appliquer les actions proposées";
+    const label = !homogeneous
+      ? "Appliquer les actions proposées"
+      : first.plan.kind === "handoff" && first.responsibleName
+        ? `Consulter ${first.responsibleName}`
+        : labels[first.plan.kind];
+    const missingChef = decision.items.every((i) => i.plan.kind === "handoff" && !i.responsibleId);
     const memoryOnly = decision.items.every((i) => i.plan.kind === "remember");
     return {
       id: decision.id,
-      kind: "approval" as const,
+      kind: missingChef ? ("text" as const) : ("approval" as const),
       action: null,
-      context: `Dans Travail, le sujet « ${first.subjectTitle} »${decision.items.length > 1 ? ` et ${decision.items.length - 1} autres sujets` : ""} attend une décision. ${memoryOnly ? "Le Chef propose de conserver un fait ; seule une mémorisation explicite l’ajoutera à sa mémoire." : "Le Chef demande ton accord pour les actions détaillées ci-dessous."}`,
-      question: `${label} pour ${decision.items.length} sujet(s) ?`,
+      context: missingChef
+        ? `Dans Travail, le sujet « ${first.subjectTitle} »${first.projectTitle ? ` concerne le projet « ${first.projectTitle} »` : " attend un cadrage"}. Aucun Chef responsable n’est identifié pour ce contexte.`
+        : `Dans Travail, le sujet « ${first.subjectTitle} »${decision.items.length > 1 ? ` et ${decision.items.length - 1} autres sujets` : ""} attend une décision. ${memoryOnly ? "Le Chef propose de conserver un fait ; seule une mémorisation explicite l’ajoutera à sa mémoire." : "Le Chef demande ton accord pour les actions détaillées ci-dessous."}`,
+      question: missingChef
+        ? `Quel fonctionnement souhaites-tu adopter${first.projectTitle ? ` pour « ${first.projectTitle} »` : " pour ce sujet"}, qui n’a pas de Chef responsable identifié ?`
+        : decision.items.length === 1
+          ? `${label} : ${first.subjectTitle} ?`
+          : `${label} pour ${decision.items.length} sujets ?`,
       source:
         decision.items.length === 1
           ? first.source
@@ -407,7 +473,7 @@ const make = Effect.gen(function* () {
       details: decision.items
         .map(
           (i) =>
-            `### ${i.subjectTitle}\n**${labels[i.plan.kind]}** · Projet : ${i.projectTitle ?? "Sans projet"}${i.chantierTitle ? ` · Chantier : ${i.chantierTitle}` : ""}\n${i.plan.reason}\n\n${i.plan.kind === "create" ? `Titre proposé : ${i.plan.title}\n\n` : ""}${i.plan.description}${i.plan.taskId ? `\n\nTâche existante : ${i.taskTitle ?? i.plan.taskId}` : ""}${i.plan.threadId ? `\nDiscussion existante : ${i.threadTitle ?? i.plan.threadId}` : ""}`,
+            `### ${i.subjectTitle}\n**${i.plan.kind === "handoff" && !i.responsibleId ? "Choisir le fonctionnement sans Chef" : labels[i.plan.kind]}** · Projet : ${i.projectTitle ?? "Sans projet"}${i.chantierTitle ? ` · Chantier : ${i.chantierTitle}` : ""}\n${i.plan.reason}\n\n${i.plan.kind === "create" ? `Titre proposé : ${i.plan.title}\n\n` : ""}${i.plan.description}${i.plan.taskId ? `\n\nTâche existante : ${i.taskTitle ?? i.plan.taskId}` : ""}${i.plan.threadId ? `\nDiscussion existante : ${i.threadTitle ?? i.plan.threadId}` : ""}`,
         )
         .join("\n\n"),
     };
@@ -415,7 +481,25 @@ const make = Effect.gen(function* () {
   const metadata = (decision: Decision) => ({
     decisionId: decision.id,
     dossierIds: decision.items.map((i) => i.dossierId),
-    memory: decision.memory,
+    ...(decision.items.every((i) => i.plan.kind === decision.items[0]!.plan.kind)
+      ? { action: decision.items[0]!.plan.kind }
+      : {}),
+    subjectTitle:
+      decision.items.length === 1
+        ? decision.items[0]!.subjectTitle
+        : `${decision.items.length} sujets : ${decision.items[0]!.subjectTitle}`.slice(0, 500),
+    reviewPending:
+      (decision.policyVersion ?? 0) < 2 && decision.items.some((i) => i.responsibleId !== null),
+    summary:
+      (decision.policyVersion ?? 0) < 2 && decision.items.some((i) => i.responsibleId !== null)
+        ? "Le Chef responsable est identifié. Cette ancienne proposition sera réexaminée à la reprise."
+        : decision.items[0]!.plan.reason,
+    projectId: decision.items.every((i) => i.projectId === decision.items[0]!.projectId)
+      ? decision.items[0]!.projectId
+      : null,
+    memory: decision.items.every((i) => i.plan.kind === "handoff" && !i.responsibleId)
+      ? null
+      : decision.memory,
     memoryOnly: decision.items.every((i) => i.plan.kind === "remember"),
   });
 
@@ -468,6 +552,7 @@ const make = Effect.gen(function* () {
             ...old,
             items,
             revisions,
+            policyVersion: 2,
             memory:
               firstKey && items.every((i) => familyKey(i.plan) === firstKey)
                 ? items[0]!.plan.memory
@@ -488,7 +573,9 @@ const make = Effect.gen(function* () {
       yield* detachPending(d);
       const plan = item.plan;
       const rule =
-        context.searchIncomplete || context.sourcesIncomplete
+        context.searchIncomplete ||
+        context.sourcesIncomplete ||
+        (item.plan.kind === "handoff" && !item.responsibleId)
           ? null
           : authorizedRule(plan, context.memories, target);
       const key = familyKey(plan);
@@ -517,6 +604,7 @@ const make = Effect.gen(function* () {
         : {
             id: `chef:${yield* crypto.randomUUIDv4}`,
             items: [item],
+            policyVersion: 2,
             memory: plan.memory,
             memoryRevision: context.memoryRevision,
             rule: rule ? { id: rule.id, version: rule.version } : null,
@@ -657,20 +745,20 @@ const make = Effect.gen(function* () {
         payload_json: string;
       }>`SELECT d.payload_json FROM chef_decisions d
       JOIN agent_requests r ON r.id=d.request_id WHERE d.state='pending'
-      AND json_extract(r.payload_json,'$.status') IN ('revision','rejected','ignored','withdrawn') ORDER BY d.created_at LIMIT 20`;
+      AND json_extract(r.payload_json,'$.status') IN ('revision','answered','rejected','ignored','withdrawn') ORDER BY d.created_at LIMIT 20`;
       for (const row of responses) {
         const decision = yield* decodeDecision(row.payload_json);
         const r = yield* request(decision.id);
         yield* sql.withTransaction(
           Effect.gen(function* () {
-            const revise = r.status === "revision";
+            const revise = r.status === "revision" || r.status === "answered";
             for (const item of decision.items) {
               yield* message(
                 item.dossierId,
                 `decision:${r.id}:${r.version}:${item.dossierId}`,
                 revise ? "user" : "event",
                 revise
-                  ? `Modification demandée par Valentin : ${r.response}`
+                  ? `${r.status === "answered" ? "Réponse de Valentin" : "Modification demandée par Valentin"} : ${r.response}`
                   : `Proposition ${r.status === "rejected" ? "refusée" : "archivée"}.${r.response ? ` ${r.response}` : ""}`,
               );
               yield* sql`UPDATE chef_dossiers SET state=${revise ? "pending" : "waiting"},next_at='',error=NULL,updated_at=${yield* now}
@@ -680,7 +768,7 @@ const make = Effect.gen(function* () {
               ...decision,
               ...(revise ? { revisions: decision.items.map((i) => i.dossierId) } : {}),
             };
-            yield* sql`UPDATE chef_decisions SET state=${revise ? "revising" : "done"},payload_json=${yield* encodeJson(next)} WHERE id=${decision.id}`;
+            yield* sql`UPDATE chef_decisions SET state=${r.status === "revision" ? "revising" : "done"},payload_json=${yield* encodeJson(next)} WHERE id=${decision.id}`;
           }),
         );
       }
@@ -875,6 +963,7 @@ const make = Effect.gen(function* () {
                   taskTitle: task?.title ?? null,
                   threadTitle: thread?.title ?? null,
                   responsibleId: responsible?.id ?? null,
+                  responsibleName: responsible?.name ?? null,
                   subjectTitle: current.title,
                   source: context.sources[0]
                     ? {

@@ -20,6 +20,7 @@ import {
   SendIcon,
   SettingsIcon,
   FolderIcon,
+  XIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useEnvironmentSelection } from "../../hooks/useEnvironmentSelection";
@@ -139,7 +140,10 @@ export default function GlobalChefPage({
           environmentId={environmentId}
           selectedId={dossierId ?? null}
           onSelect={(id) =>
-            void navigate({ to: "/chef", search: { environment: environmentId, dossier: id } })
+            void navigate({
+              to: "/chef",
+              search: { environment: environmentId, ...(id ? { dossier: id } : {}) },
+            })
           }
         />
       ) : (
@@ -156,12 +160,12 @@ function ChefWorkspace({
 }: {
   environmentId: EnvironmentId;
   selectedId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string | null) => void;
 }) {
   const status = useEnvironmentQuery(globalChefStatus({ environmentId, input: {} }));
   const command = useAtomCommand(commandGlobalChef);
   const allowed = useAtomValue(commandGlobalChef.permissionAtom(environmentId));
-  const [view, setView] = useState<"dossiers" | "memory">("dossiers");
+  const [view, setView] = useState<"decisions" | "dossiers" | "memory">("decisions");
   const [showSettings, setShowSettings] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -187,10 +191,16 @@ function ChefWorkspace({
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-2 border-b p-3">
         <Button
+          variant={view === "decisions" ? "secondary" : "ghost"}
+          onClick={() => setView("decisions")}
+        >
+          Décisions
+        </Button>
+        <Button
           variant={view === "dossiers" ? "secondary" : "ghost"}
           onClick={() => setView("dossiers")}
         >
-          Dossiers
+          Suivi
         </Button>
         <Button
           variant={view === "memory" ? "secondary" : "ghost"}
@@ -248,6 +258,14 @@ function ChefWorkspace({
       )}
       {view === "memory" ? (
         <MemoryView environmentId={environmentId} execute={execute} disabled={!allowed || busy} />
+      ) : view === "decisions" ? (
+        <ChefDecisionsView
+          environmentId={environmentId}
+          selectedId={selectedId}
+          onSelect={onSelect}
+          execute={execute}
+          disabled={!allowed || busy}
+        />
       ) : (
         <DossiersView
           environmentId={environmentId}
@@ -362,6 +380,117 @@ function Pagination({
   );
 }
 
+export function ChefDecisionsView({
+  environmentId,
+  selectedId,
+  onSelect,
+  execute,
+  disabled,
+}: {
+  environmentId: EnvironmentId;
+  selectedId: string | null;
+  onSelect: (id: string | null) => void;
+  execute: Execute;
+  disabled: boolean;
+}) {
+  const query = useEnvironmentQuery(agentRequests({ environmentId, input: {} }));
+  const [archive, setArchive] = useState(false);
+  const [limit, setLimit] = useState(20);
+  const requests = (query.data ?? [])
+    .filter(
+      (r) =>
+        r.chef &&
+        (archive
+          ? !["pending", "revision"].includes(r.status)
+          : ["pending", "revision"].includes(r.status)),
+    )
+    .toSorted((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
+      <section
+        aria-label="Décisions du Chef"
+        className={cn(
+          "scrollbar-gutter-both min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-6",
+          selectedId && "hidden lg:block",
+        )}
+      >
+        <div className="mx-auto flex max-w-4xl flex-col gap-4">
+          <div className="flex items-center gap-2">
+            <h2 className="min-w-0 flex-1 font-medium">
+              {archive ? "Décisions traitées" : "À décider"}
+            </h2>
+            <Button
+              size="sm"
+              variant={archive ? "secondary" : "ghost"}
+              onClick={() => {
+                setArchive((v) => !v);
+                setLimit(20);
+              }}
+            >
+              Traitées
+            </Button>
+          </div>
+          {query.error && (
+            <p role="alert" className="text-sm text-destructive">
+              {query.error}
+            </p>
+          )}
+          {query.isPending && !query.data && (
+            <p role="status" className="text-sm text-muted-foreground">
+              Chargement des décisions…
+            </p>
+          )}
+          {requests.slice(0, limit).map((request) => (
+            <div key={request.id} className="rounded-2xl border bg-card p-4 sm:p-5">
+              <div className="mb-3 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                <DossierProject environmentId={environmentId} projectId={request.chef?.projectId} />
+              </div>
+              <RequestCard
+                request={request}
+                environmentId={environmentId}
+                inline
+                onOpenDossier={onSelect}
+              />
+            </div>
+          ))}
+          {!query.isPending && !query.error && requests.length === 0 && (
+            <p className="py-10 text-center text-sm text-muted-foreground">
+              {archive
+                ? "Aucune décision traitée."
+                : "Aucune décision à prendre. Les prochains sujets examinés apparaîtront ici."}
+            </p>
+          )}
+          {requests.length > limit && (
+            <Button variant="outline" onClick={() => setLimit((v) => v + 20)}>
+              Afficher la suite
+            </Button>
+          )}
+        </div>
+      </section>
+      {selectedId && (
+        <aside
+          aria-label="Discussion avec le Chef"
+          className="flex min-h-96 min-w-0 flex-col border-t lg:min-h-0 lg:w-1/2 lg:max-w-2xl lg:border-t-0 lg:border-l"
+        >
+          <div className="flex justify-end border-b px-3 py-1">
+            <Button variant="ghost" size="sm" onClick={() => onSelect(null)}>
+              <XIcon className="size-4" />
+              Fermer la discussion
+            </Button>
+          </div>
+          <DossierConversation
+            key={selectedId}
+            id={selectedId}
+            environmentId={environmentId}
+            execute={execute}
+            disabled={disabled}
+          />
+        </aside>
+      )}
+    </div>
+  );
+}
+
 function DossiersView({
   environmentId,
   selectedId,
@@ -371,7 +500,7 @@ function DossiersView({
 }: {
   environmentId: EnvironmentId;
   selectedId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string | null) => void;
   execute: Execute;
   disabled: boolean;
 }) {
@@ -384,23 +513,12 @@ function DossiersView({
       input: { ...(after === undefined ? {} : { after }), limit: 20, archived: archive },
     }),
   );
-  const requestQuery = useEnvironmentQuery(agentRequests({ environmentId, input: {} }));
-  const [selectedRequest, setSelectedRequest] = useState<string | null>(null);
-  const [requestArchive, setRequestArchive] = useState(false);
-  const requests = (requestQuery.data ?? []).filter(
-    (r) =>
-      r.chef &&
-      (requestArchive
-        ? !["pending", "revision"].includes(r.status)
-        : ["pending", "revision"].includes(r.status)),
-  );
-  const current = requests.find((r) => r.id === selectedRequest) ?? requests[0];
   const id = selectedId ?? query.data?.dossiers[0]?.id;
   return (
-    <div className="grid min-h-0 flex-1 grid-cols-1 overflow-auto xl:grid-cols-[minmax(0,1.6fr)_minmax(22rem,1fr)] xl:overflow-hidden">
+    <div className="flex min-h-0 flex-1 overflow-hidden">
       <section
         aria-label="Dossiers du Chef"
-        className="flex min-h-128 min-w-0 flex-col border-b sm:flex-row xl:min-h-0 xl:border-r xl:border-b-0"
+        className="flex min-h-0 min-w-0 flex-1 flex-col sm:flex-row"
       >
         <aside className="flex max-h-48 w-full shrink-0 flex-col gap-2 overflow-y-auto border-b p-3 sm:max-h-none sm:w-52 sm:border-r sm:border-b-0">
           <Button
@@ -456,48 +574,6 @@ function DossiersView({
         ) : (
           <p className="p-6 text-sm text-muted-foreground">
             Les sujets prêts de Luna apparaîtront ici quand le Chef sera activé.
-          </p>
-        )}
-      </section>
-      <section
-        aria-label="Requêtes du Chef"
-        className="min-h-96 min-w-0 overflow-y-auto p-4 xl:min-h-0"
-      >
-        <div className="mb-4 flex items-center gap-2">
-          <h2 className="flex-1 font-medium">Requêtes</h2>
-          <Button
-            variant={requestArchive ? "secondary" : "ghost"}
-            size="sm"
-            onClick={() => setRequestArchive((v) => !v)}
-          >
-            Traitées
-          </Button>
-        </div>
-        {requests.length > 0 && (
-          <select
-            aria-label="Requête du Chef"
-            value={current?.id ?? ""}
-            className="mb-5 w-full"
-            onChange={(e) => setSelectedRequest(e.target.value)}
-          >
-            {requests.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.question}
-              </option>
-            ))}
-          </select>
-        )}
-        {current ? (
-          <RequestCard
-            key={`${current.id}:${current.version}`}
-            request={current}
-            environmentId={environmentId}
-            inline
-            onOpenDossier={onSelect}
-          />
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            {requestQuery.error ?? "Aucune décision en attente dans cette liste."}
           </p>
         )}
       </section>
@@ -578,6 +654,13 @@ function DossierConversation({
           <Button variant="ghost" size="sm" onClick={() => setBefore(query.data!.nextCursor!)}>
             Messages précédents
           </Button>
+        )}
+        {query.data?.messages.length === 0 && (
+          <p className="py-8 text-sm text-muted-foreground">
+            {d?.state === "pending"
+              ? "Ce sujet attend son examen par le Chef. Tu peux déjà lui apporter une précision ici."
+              : "Aucun échange pour ce sujet. Écris au Chef si tu souhaites en discuter."}
+          </p>
         )}
         {query.data?.messages.map((m) => (
           <article

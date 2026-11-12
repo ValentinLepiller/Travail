@@ -1,9 +1,14 @@
-import { ChefMemoryDraft, type ChefMemory, type InboxSubjectContext } from "@t3tools/contracts";
+import {
+  ChefAction,
+  ChefMemoryDraft,
+  type ChefMemory,
+  type InboxSubjectContext,
+} from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 
 const Text = Schema.NonEmptyString.check(Schema.isMaxLength(500));
 export const ChefPlan = Schema.Struct({
-  kind: Schema.Literals(["create", "complete", "ignore", "handoff", "remember"]),
+  kind: ChefAction,
   title: Schema.String.check(Schema.isMaxLength(160)),
   description: Schema.String.check(Schema.isMaxLength(20_000)),
   taskId: Schema.NullOr(Text),
@@ -84,7 +89,12 @@ Tu proposes créer une tâche, compléter une tâche ouverte, ignorer le sujet, 
 Tu ne lances aucun agent et n’envoies aucun message à un agent d’exécution : le Chef chantier, sinon projet, en décide.
 Une tâche engagée conserve son titre, sa demande et sa discussion ; complète ses notes avec les nouveaux faits sourcés.
 Cherche une tâche et une discussion existantes avant une création. Lis les extraits proposés ; ne rattache jamais sur le seul titre.
-S’il manque le bon contexte, si des candidats se ressemblent ou si la recherche est partielle, uncertain=true et handoff au Chef responsable, sinon demande humaine.
+responsible et chefDirectory sont les références natives actuelles des Chefs : retrouve le bon Chef toi-même. Un Chef en pause existe ; ne demande jamais à Valentin où il se trouve si sa référence est fournie.
+Ton travail habituel est de proposer créer, compléter ou ignorer. L’absence d’une règle approuvée demande un accord sur cette action, pas une demande de clarification.
+searchIncomplete/sourcesIncomplete/conversationTruncated signalent les limites des extraits, pas une ambiguïté métier prouvée. Ils interdisent l’automatisation sans contrôle mais n’imposent pas handoff : propose l’action à valider si les éléments utiles sont suffisants.
+Consulte le Chef responsable seulement pour un vrai arbitrage, notamment une tâche connexe engagée dont le périmètre ou le rattachement reste ambigu. Explique la question concrète ; une recherche partielle seule ne suffit pas.
+Si aucun Chef responsable n’existe pour le projet concerné et qu’il faut sa prise en charge, propose handoff avec une question précise à Valentin sur le fonctionnement à adopter. Ne prétends jamais transmettre à un Chef absent. Si Valentin a déjà précisé le fonctionnement sans Chef dans la conversation, tiens compte de sa réponse pour proposer l’action suivante au lieu de reposer la question ; cette réponse seule ne crée pas une règle durable.
+En cas d’incertitude réellement bloquante, uncertain=true et précise exactement ce qui manque. Ne crée pas de doublon et ne rattache jamais une tâche sur une ressemblance de titre.
 Une règle autorise uniquement l’action, le type de sujet et le contexte qu’elle énonce : ne généralise pas.
 Une règle précise approuvée prime sur la règle générale applicable ; deux règles incompatibles sans priorité claire nécessitent une décision humaine.
 Les notes factuelles ne donnent jamais d’autorisation. memory est une proposition, jamais une instruction déjà apprise.

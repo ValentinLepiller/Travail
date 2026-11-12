@@ -153,6 +153,24 @@ export const readContext = Effect.fn(function* (subject: ChefSubject) {
     ),
   );
   const responsible = yield* responsibleFor(projectId, chantierId);
+  const chefDirectory = yield* sql<{
+    id: string;
+    name: string;
+    projectId: string | null;
+    chantierId: string | null;
+    projectTitle: string | null;
+    threadId: string | null;
+    paused: number;
+  }>`SELECT a.id,json_extract(a.payload_json,'$.name') AS name,
+    json_extract(a.payload_json,'$.projectId') AS projectId,
+    json_extract(a.payload_json,'$.chantierId') AS chantierId,p.title AS projectTitle,
+    json_extract(a.payload_json,'$.currentThreadId') AS threadId,
+    json_extract(a.payload_json,'$.paused') AS paused
+    FROM autonomous_agents a LEFT JOIN projection_projects p
+      ON p.project_id=json_extract(a.payload_json,'$.projectId')
+    WHERE COALESCE(json_extract(a.payload_json,'$.archived'),0)=0
+      AND json_extract(a.payload_json,'$.kind') IN ('chef','chantier-chef')
+    ORDER BY a.id LIMIT 101`;
   return {
     subject,
     target,
@@ -164,6 +182,8 @@ export const readContext = Effect.fn(function* (subject: ChefSubject) {
     pendingFamilies,
     memoryRevision: memoryState!.revision,
     responsible: responsible ?? null,
+    chefDirectory: chefDirectory.slice(0, 100),
+    chefDirectoryIncomplete: chefDirectory.length > 100,
     searchIncomplete: taskRows.length > 100 || threadRows.length > 5,
     sourcesIncomplete:
       entries.length > 20 || messages.some((m) => m.source.message.text.length > 2400),

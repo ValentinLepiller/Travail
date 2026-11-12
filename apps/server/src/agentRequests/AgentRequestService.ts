@@ -177,7 +177,7 @@ const make = Effect.gen(function* () {
         }
         if (input.kind === "text" && input.action !== null)
           return yield* new AgentRequestError({ reason: "invalid" });
-        if (chef && (input.kind !== "approval" || input.action !== null))
+        if (chef && (input.action !== null || (input.kind === "text" && chef.memory !== null)))
           return yield* new AgentRequestError({ reason: "invalid" });
         const at = yield* now;
         return yield* putWithSource({
@@ -200,7 +200,10 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const previous = yield* get(input.id);
         yield* check(previous, input.expectedVersion);
-        if (Boolean(previous.chef) !== Boolean(chef) || (chef && input.action !== null))
+        if (
+          Boolean(previous.chef) !== Boolean(chef) ||
+          (chef && (input.action !== null || (input.kind === "text" && chef.memory !== null)))
+        )
           return yield* new AgentRequestError({ reason: "invalid" });
         if (
           previous.threadId !== threadId ||

@@ -20,6 +20,7 @@ vi.mock("../../state/query", () => ({ useEnvironmentQuery: vi.fn() }));
 vi.mock("@t3tools/client-runtime/state/runtime", () => ({
   squashAtomCommandFailure: () => "Send failed",
 }));
+vi.mock("../globalChef/MemoryScope", () => ({ MemoryScope: () => null, memoryActionLabels: {} }));
 vi.mock("../ChatMarkdown", () => ({ default: () => null }));
 vi.mock("../ProjectFavicon", () => ({ ProjectFavicon: () => null }));
 vi.mock("../ui/button", () => ({ Button: "button" }));

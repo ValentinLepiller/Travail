@@ -8,7 +8,12 @@ import { ProjectFavicon, type ProjectFaviconProject } from "../ProjectFavicon";
 import { lazy, Suspense, useEffect, useState, type CSSProperties } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import { Link } from "@tanstack/react-router";
-import type { AgentRequest, AgentRequestRespond, EnvironmentId } from "@t3tools/contracts";
+import {
+  chefActionLabels,
+  type AgentRequest,
+  type AgentRequestRespond,
+  type EnvironmentId,
+} from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { BotIcon, InboxIcon, XIcon } from "lucide-react";
 import { useWorkPageEnvironmentSelection } from "../../hooks/useWorkPageEnvironmentSelection";
@@ -20,6 +25,7 @@ import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { SidebarInset } from "../ui/sidebar";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
+import { Menu, MenuTrigger, MenuPopup, MenuItem } from "../ui/menu";
 import { requestQueue } from "./requestQueue";
 import ChatMarkdown from "../ChatMarkdown";
 import { useResizableWidth } from "../../hooks/useResizableWidth";
@@ -28,6 +34,13 @@ import { RequestTemporaryChat } from "./RequestTemporaryChat";
 import { RequestSourcePreview } from "./RequestSourcePreview";
 import { MemoryScope, memoryActionLabels } from "../globalChef/MemoryScope";
 
+const chefRememberLabels = {
+  create: "Créer et mémoriser",
+  complete: "Compléter et mémoriser",
+  ignore: "Ignorer et mémoriser",
+  handoff: "Consulter et mémoriser",
+  remember: "Mémoriser",
+};
 const ChatView = lazy(() => import("../ChatView"));
 
 export const statusLabels: Record<AgentRequest["status"], string> = {
@@ -381,6 +394,15 @@ export function RequestCard({
   const { text, setText, clearSubmitted } = useRequestDraft(environmentId, request);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [commenting, setCommenting] = useState(false);
+  const chefAction = request.chef?.action;
+  const reviewPending = request.status === "pending" && request.chef?.reviewPending === true;
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  let acceptLabel = "Accepter la requête";
+  if (request.action?.kind === "command") acceptLabel = `Accepter et ${request.action.label}`;
+  else if (request.chef?.memoryOnly) acceptLabel = "Continuer sans mémoriser";
+  else if (request.chef)
+    acceptLabel = chefAction ? chefActionLabels[chefAction] : "Valider la proposition";
   const canRespond = useAtomValue(respondToRequest.permissionAtom(environmentId));
   const canRetry = useAtomValue(retryRequestDelivery.permissionAtom(environmentId));
   const respond = useAtomCommand(respondToRequest);
@@ -451,7 +473,11 @@ export function RequestCard({
     </>
   );
   return (
-    <article className="mx-auto flex max-w-3xl flex-col gap-6">
+    <article
+      className={
+        request.chef ? "flex min-w-0 flex-col gap-4" : "mx-auto flex max-w-3xl flex-col gap-6"
+      }
+    >
       {!inline &&
         (request.chef ? (
           <p className="text-sm font-medium text-primary">Le Chef · Dossier</p>
@@ -461,7 +487,7 @@ export function RequestCard({
           <RequestProject project={project ?? null} />
         ))}
       <div className="flex items-center justify-between gap-4 text-sm text-muted-foreground">
-        <span>{statusLabels[request.status]}</span>
+        <span>{reviewPending ? "Réexamen prévu" : statusLabels[request.status]}</span>
         <div className="flex flex-wrap items-center justify-end gap-1">
           {!inline && !request.chef && onOpenTemporaryDiscussion && (
             <Button variant="outline" onClick={onOpenTemporaryDiscussion}>
@@ -500,10 +526,42 @@ export function RequestCard({
       </div>
       <div>
         {source && <p className="mb-3 text-sm text-muted-foreground">{source}</p>}
-        <p className="mb-3 text-muted-foreground">{request.context}</p>
-        <h2 className="text-2xl font-semibold">{requestTitle(request)}</h2>
+        {request.chef ? (
+          <>
+            <h2 className="text-base font-semibold">
+              {request.chef.subjectTitle ?? requestTitle(request)}
+            </h2>
+            {request.kind === "text" && request.chef.subjectTitle && (
+              <p className="mt-2 text-sm">{request.question}</p>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="mb-3 text-muted-foreground">{request.context}</p>
+            <h2 className="text-2xl font-semibold">{requestTitle(request)}</h2>
+          </>
+        )}
       </div>
-      <RequestSourcePreview source={request.source} />
+      {request.chef ? (
+        <>
+          {request.chef.summary && (
+            <p className="text-sm text-muted-foreground">{request.chef.summary}</p>
+          )}
+          <details onToggle={(event) => setDetailsOpen(event.currentTarget.open)}>
+            <summary className="cursor-pointer text-sm text-muted-foreground">
+              Détails de la proposition et source
+            </summary>
+            {detailsOpen && (
+              <div className="mt-3 flex flex-col gap-4">
+                {technicalDetails}
+                <RequestSourcePreview source={request.source} />
+              </div>
+            )}
+          </details>
+        </>
+      ) : (
+        <RequestSourcePreview source={request.source} />
+      )}
       {request.chef?.memory && (
         <section className="rounded-2xl border bg-muted/30 p-4">
           <h3 className="mb-2 text-sm font-medium">Phrase proposée pour la mémoire</h3>
@@ -527,7 +585,7 @@ export function RequestCard({
           {actionLabels[request.actionStatus]}
         </p>
       )}
-      {compact && (request.details || request.action) ? (
+      {request.chef ? null : compact && (request.details || request.action) ? (
         <details>
           <summary className="cursor-pointer text-sm text-muted-foreground">
             Voir les détails
@@ -544,30 +602,26 @@ export function RequestCard({
             : actionLabels[request.actionStatus]}
         </p>
       )}
-      {request.status === "pending" && (
+      {request.status === "pending" && !reviewPending && (
         <div className="flex flex-col gap-3">
-          <Textarea
-            aria-label={
-              request.kind === "text" ? "Ta réponse" : "Commentaire ou modification demandée"
-            }
-            placeholder={
-              request.kind === "text"
-                ? "Ta réponse…"
-                : "Un commentaire, une alternative ou une modification…"
-            }
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-          />
+          {(!request.chef || request.kind === "text" || commenting) && (
+            <Textarea
+              aria-label={
+                request.kind === "text" ? "Ta réponse" : "Commentaire ou modification demandée"
+              }
+              placeholder={
+                request.kind === "text"
+                  ? "Ta réponse…"
+                  : "Un commentaire, une alternative ou une modification…"
+              }
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+            />
+          )}
           <div className="flex flex-wrap gap-2">
             {request.kind === "approval" ? (
               <Button disabled={busy || !canRespond} onClick={() => void submit("accept")}>
-                {request.action?.kind === "command"
-                  ? `Accepter et ${request.action.label}`
-                  : request.chef
-                    ? request.chef.memoryOnly
-                      ? "Continuer sans mémoriser"
-                      : "Action"
-                    : "Accepter la requête"}
+                {acceptLabel}
               </Button>
             ) : (
               <Button
@@ -585,33 +639,67 @@ export function RequestCard({
               >
                 {request.chef.memoryOnly
                   ? "Mémoriser"
-                  : request.chef.memory.kind === "rule"
-                    ? "Action + mémoriser la règle"
-                    : "Action + mémoriser"}
+                  : chefAction
+                    ? chefRememberLabels[chefAction]
+                    : "Valider et mémoriser"}
               </Button>
             )}
-            <Button
-              variant="outline"
-              disabled={busy || !canRespond}
-              onClick={() => void submit("reject")}
-            >
-              Refuser
-            </Button>
-            <Button
-              variant="ghost"
-              disabled={busy || !canRespond || !text.trim()}
-              onClick={() => void submit("revise")}
-            >
-              Demander une modification
-            </Button>
-            <Button
-              variant="ghost"
-              disabled={busy || !canRespond}
-              onClick={() => void submit("ignore")}
-              title="Archiver sans envoyer de réponse à l’agent"
-            >
-              Ignorer
-            </Button>
+            {request.chef ? (
+              <>
+                {commenting && (
+                  <Button
+                    variant="outline"
+                    disabled={busy || !canRespond || !text.trim()}
+                    onClick={() => void submit("revise")}
+                  >
+                    Demander une modification
+                  </Button>
+                )}
+                <Menu>
+                  <MenuTrigger render={<Button variant="ghost" />} disabled={busy || !canRespond}>
+                    Autres actions
+                  </MenuTrigger>
+                  <MenuPopup align="end">
+                    {request.kind === "approval" && (
+                      <MenuItem onClick={() => setCommenting(true)}>
+                        Modifier la proposition
+                      </MenuItem>
+                    )}
+                    <MenuItem onClick={() => void submit("reject")}>Refuser</MenuItem>
+                    <MenuItem onClick={() => void submit("ignore")}>Archiver la demande</MenuItem>
+                  </MenuPopup>
+                </Menu>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="outline"
+                  disabled={busy || !canRespond}
+                  onClick={() => void submit("reject")}
+                >
+                  Refuser
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={busy || !canRespond || ((!request.chef || commenting) && !text.trim())}
+                  onClick={() =>
+                    request.chef && !commenting ? setCommenting(true) : void submit("revise")
+                  }
+                >
+                  {request.chef && !commenting
+                    ? "Modifier la proposition"
+                    : "Demander une modification"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={busy || !canRespond}
+                  onClick={() => void submit("ignore")}
+                  title="Archiver sans envoyer de réponse à l’agent"
+                >
+                  {request.chef ? "Archiver la demande" : "Ignorer"}
+                </Button>
+              </>
+            )}
           </div>
         </div>
       )}

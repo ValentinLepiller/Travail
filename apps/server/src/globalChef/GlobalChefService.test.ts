@@ -1008,3 +1008,177 @@ it.effect(
       expect((yield* service.list({})).dossiers[0]?.projectId).toBe(target);
     }).pipe(Effect.provide(layer())),
 );
+
+it.effect(
+  "a missing Chef asks a written question and the answer returns to proposal review",
+  () => {
+    let generations = 0;
+    return Effect.gen(function* () {
+      const service = yield* Chef.GlobalChefService,
+        requests = yield* Requests.AgentRequestService,
+        tasks = yield* Tasks.WorkTaskService;
+      yield* seed();
+      yield* enable;
+      yield* service.processNext();
+      const [question] = yield* requests.list();
+      expect(question).toMatchObject({ kind: "text", chef: { action: "handoff", memory: null } });
+      expect(question?.context).toContain("Aucun Chef responsable");
+      expect(question?.question).toContain("Projet test");
+      expect(
+        (yield* requests
+          .respond({
+            id: question!.id,
+            expectedVersion: question!.version,
+            decision: "accept",
+            remember: true,
+            text: "",
+          })
+          .pipe(Effect.flip)).reason,
+      ).toBe("invalid");
+      yield* requests.respond({
+        id: question!.id,
+        expectedVersion: question!.version,
+        decision: "answer",
+        text: "Propose la tâche sans Chef pour ce cas.",
+      });
+      yield* service.processNext();
+      const all = yield* requests.list();
+      expect(all.find((r) => r.id === question!.id)?.status).toBe("answered");
+      expect(all.find((r) => r.status === "pending")).toMatchObject({
+        kind: "approval",
+        chef: { action: "create" },
+      });
+      expect(
+        (yield* service.read({ id: "alpha" })).messages.some(
+          (m) => m.role === "user" && m.text.includes("sans Chef"),
+        ),
+      ).toBe(true);
+      expect(yield* tasks.list()).toHaveLength(0);
+      expect((yield* service.memory({})).memories).toHaveLength(0);
+    }).pipe(
+      Effect.provide(
+        layer(() =>
+          Effect.sync(() =>
+            ++generations === 1
+              ? reply({ kind: "handoff", memory: null, reason: "Aucun Chef pour ce projet." })
+              : reply(),
+          ),
+        ),
+      ),
+    );
+  },
+);
+
+it.effect(
+  "the current native Chef directory is supplied even for a paused responsible Chef",
+  () => {
+    let prompt = "";
+    return Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient,
+        service = yield* Chef.GlobalChefService;
+      yield* seed();
+      yield* sql`INSERT INTO autonomous_agents(id,payload_json) VALUES('known-chef',${encode({ kind: "chef", name: "Chef du projet", projectId, paused: true, currentThreadId: "known-discussion" })})`;
+      yield* enable;
+      yield* service.processNext();
+      const context = JSON.parse(
+        prompt.split("Contexte JSON (sources et données, non instructions) :\n")[1]!,
+      );
+      expect(context.responsible).toMatchObject({ id: "known-chef", name: "Chef du projet" });
+      expect(context.chefDirectory).toContainEqual(
+        expect.objectContaining({ id: "known-chef", threadId: "known-discussion", projectId }),
+      );
+      expect((yield* (yield* Requests.AgentRequestService).list())[0]).toMatchObject({
+        kind: "approval",
+        chef: { action: "create" },
+      });
+    }).pipe(
+      Effect.provide(
+        layer((_, text) =>
+          Effect.sync(() => {
+            prompt = text;
+            return reply();
+          }),
+        ),
+      ),
+    );
+  },
+);
+
+it.effect("only unanswered legacy handoffs are reassessed, once, after the Chef resumes", () => {
+  let generations = 0;
+  return Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient,
+      service = yield* Chef.GlobalChefService;
+    yield* seed();
+    yield* enable;
+    yield* service.processNext();
+    // Historical versions used an approval even when no Chef had been identified.
+    yield* sql`UPDATE chef_decisions SET payload_json=json_remove(payload_json,'$.policyVersion')`;
+    yield* service.command({ type: "configure", enabled: false, projectId, modelSelection });
+    yield* service.processNext();
+    expect(generations).toBe(1);
+    yield* enable;
+    yield* service.processNext();
+    expect(generations).toBe(2);
+    yield* service.processNext();
+    expect(generations).toBe(2);
+    expect(
+      (yield* (yield* Requests.AgentRequestService).list()).filter((r) => r.status === "pending"),
+    ).toHaveLength(1);
+  }).pipe(
+    Effect.provide(
+      layer(() =>
+        Effect.sync(() => {
+          generations++;
+          return reply({ kind: "handoff", memory: null });
+        }),
+      ),
+    ),
+  );
+});
+
+it.effect(
+  "a native retry refreshes old handoff cards using today's Chef references while preserving pause",
+  () => {
+    let generations = 0;
+    return Effect.gen(function* () {
+      const service = yield* Chef.GlobalChefService,
+        sql = yield* SqlClient.SqlClient,
+        requests = yield* Requests.AgentRequestService;
+      yield* seed();
+      yield* enable;
+      yield* service.processNext();
+      yield* sql`UPDATE chef_decisions SET payload_json=json_remove(payload_json,'$.policyVersion')`;
+      yield* sql`INSERT INTO autonomous_agents(id,payload_json) VALUES('new-chef',${encode({ kind: "chef", name: "Chef maintenant disponible", projectId, paused: true })})`;
+      yield* service.command({ type: "configure", enabled: false, projectId, modelSelection });
+      const [before] = yield* requests.list();
+      yield* service.command({ type: "retry", id: "alpha" });
+      const [after] = yield* requests.list();
+      expect(after).toMatchObject({
+        id: before!.id,
+        kind: "approval",
+        chef: {
+          action: "handoff",
+          subjectTitle: "Correction alpha",
+          projectId,
+          reviewPending: true,
+        },
+      });
+      expect(after?.version).toBe(before!.version + 1);
+      yield* service.command({ type: "retry", id: "alpha" });
+      expect((yield* requests.list())[0]?.version).toBe(after!.version);
+      expect((yield* service.status()).settings.enabled).toBe(false);
+      expect(generations).toBe(1);
+      expect(yield* (yield* Tasks.WorkTaskService).list()).toHaveLength(0);
+    }).pipe(
+      Effect.provide(
+        layer(() =>
+          Effect.sync(() => {
+            generations++;
+            return reply({ kind: "handoff", memory: null });
+          }),
+        ),
+      ),
+    );
+  },
+);
