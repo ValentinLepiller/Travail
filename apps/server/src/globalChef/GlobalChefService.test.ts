@@ -1010,7 +1010,7 @@ it.effect(
 );
 
 it.effect(
-  "a missing Chef asks a written question and the answer returns to proposal review",
+  "only essential missing business information asks a written question and its answer returns to review",
   () => {
     let generations = 0;
     return Effect.gen(function* () {
@@ -1022,8 +1022,10 @@ it.effect(
       yield* service.processNext();
       const [question] = yield* requests.list();
       expect(question).toMatchObject({ kind: "text", chef: { action: "handoff", memory: null } });
-      expect(question?.context).toContain("Aucun Chef responsable");
-      expect(question?.question).toContain("Projet test");
+      expect(question?.question).toBe(
+        "Dans quel espace Notion faut-il enregistrer cette information ?",
+      );
+      expect(question?.chef?.projectId).toBe(projectId);
       expect(
         (yield* requests
           .respond({
@@ -1060,7 +1062,12 @@ it.effect(
         layer(() =>
           Effect.sync(() =>
             ++generations === 1
-              ? reply({ kind: "handoff", memory: null, reason: "Aucun Chef pour ce projet." })
+              ? reply({
+                  kind: "handoff",
+                  memory: null,
+                  reason: "Le lieu où enregistrer cette information manque.",
+                  question: "Dans quel espace Notion faut-il enregistrer cette information ?",
+                })
               : reply(),
           ),
         ),
@@ -1104,6 +1111,79 @@ it.effect(
   },
 );
 
+it.effect(
+  "an informational proposal can be accepted or refused even without any responsible Chef",
+  () =>
+    Effect.gen(function* () {
+      const service = yield* Chef.GlobalChefService,
+        requests = yield* Requests.AgentRequestService,
+        tasks = yield* Tasks.WorkTaskService;
+      yield* seed();
+      yield* seed("beta");
+      yield* enable;
+      yield* service.processNext();
+      yield* service.processNext();
+      const all = yield* requests.list();
+      expect(all).toHaveLength(2);
+      for (const r of all) {
+        expect(r).toMatchObject({
+          kind: "approval",
+          chef: { action: "ignore", reviewPending: false },
+        });
+        expect(r.question).toContain("Ignorer");
+        expect(r.question).not.toContain("fonctionnement");
+      }
+      yield* requests.respond({
+        id: all[0]!.id,
+        expectedVersion: all[0]!.version,
+        decision: "accept",
+        text: "",
+      });
+      yield* requests.respond({
+        id: all[1]!.id,
+        expectedVersion: all[1]!.version,
+        decision: "reject",
+        text: "",
+      });
+      yield* service.processNext();
+      expect((yield* service.status()).done).toBe(1);
+      expect((yield* service.status()).waiting).toBe(1);
+      expect(yield* tasks.list()).toHaveLength(0);
+      expect((yield* service.memory({})).memories).toHaveLength(0);
+    }).pipe(
+      Effect.provide(
+        layer(() =>
+          Effect.succeed(
+            reply({
+              kind: "ignore",
+              memory: null,
+              reason:
+                "Ce message ne demande pas d’action ; je propose de l’ignorer dans les tâches.",
+            }),
+          ),
+        ),
+      ),
+    ),
+);
+
+it.effect("a missing Chef alone cannot produce another generic question for Valentin", () =>
+  Effect.gen(function* () {
+    const service = yield* Chef.GlobalChefService;
+    yield* seed();
+    yield* enable;
+    yield* service.processNext();
+    expect(yield* (yield* Requests.AgentRequestService).list()).toHaveLength(0);
+    expect((yield* service.status()).errors).toBe(1);
+    expect(yield* (yield* Tasks.WorkTaskService).list()).toHaveLength(0);
+  }).pipe(
+    Effect.provide(
+      layer(() =>
+        Effect.succeed(reply({ kind: "handoff", memory: null, reason: "Aucun Chef identifié." })),
+      ),
+    ),
+  ),
+);
+
 it.effect("only unanswered legacy handoffs are reassessed, once, after the Chef resumes", () => {
   let generations = 0;
   return Effect.gen(function* () {
@@ -1130,7 +1210,11 @@ it.effect("only unanswered legacy handoffs are reassessed, once, after the Chef 
       layer(() =>
         Effect.sync(() => {
           generations++;
-          return reply({ kind: "handoff", memory: null });
+          return reply({
+            kind: "handoff",
+            memory: null,
+            question: "Dans quel espace Notion faut-il enregistrer cette information ?",
+          });
         }),
       ),
     ),
@@ -1175,7 +1259,11 @@ it.effect(
         layer(() =>
           Effect.sync(() => {
             generations++;
-            return reply({ kind: "handoff", memory: null });
+            return reply({
+              kind: "handoff",
+              memory: null,
+              question: "Dans quel espace Notion faut-il enregistrer cette information ?",
+            });
           }),
         ),
       ),

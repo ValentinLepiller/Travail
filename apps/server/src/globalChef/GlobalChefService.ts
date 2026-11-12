@@ -111,6 +111,7 @@ const decodeRequest = Schema.decodeUnknownEffect(Schema.fromJsonString(AgentRequ
 const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 const decodeDossier = Schema.decodeEffect(ChefDossier);
 const decodeCommand = Schema.decodeEffect(ChefCommand);
+const proposalPolicyVersion = 3;
 const normalize = (cause: unknown) =>
   isChefError(cause) ? cause : new ChefError({ reason: "storage", cause });
 const now = DateTime.now.pipe(Effect.map(DateTime.formatIso));
@@ -307,8 +308,8 @@ const make = Effect.gen(function* () {
             if (row && r.status === "pending") {
               const old = yield* decodeDecision(row.payload_json);
               if (
-                (old.presentationVersion ?? 0) < 2 &&
-                (old.policyVersion ?? 0) < 2 &&
+                (old.presentationVersion ?? 0) < proposalPolicyVersion &&
+                (old.policyVersion ?? 0) < proposalPolicyVersion &&
                 old.items.every((i) => i.plan.kind === "handoff")
               ) {
                 const items = yield* Effect.forEach(old.items, (i) =>
@@ -321,7 +322,7 @@ const make = Effect.gen(function* () {
                     };
                   }),
                 );
-                const updated = { ...old, items, presentationVersion: 2 };
+                const updated = { ...old, items, presentationVersion: proposalPolicyVersion };
                 yield* requests.updateChef(
                   r.threadId,
                   { ...requestContent(updated), expectedVersion: r.version, withdraw: false },
@@ -387,7 +388,7 @@ const make = Effect.gen(function* () {
       }>`SELECT d.payload_json FROM chef_decisions d
         JOIN agent_requests r ON r.id=d.request_id WHERE d.state='pending'
         AND json_extract(r.payload_json,'$.status')='pending'
-        AND COALESCE(json_extract(d.payload_json,'$.policyVersion'),0)<2
+        AND COALESCE(json_extract(d.payload_json,'$.policyVersion'),0)<${proposalPolicyVersion}
         AND NOT EXISTS(SELECT 1 FROM json_each(d.payload_json,'$.items') i
           WHERE json_extract(i.value,'$.plan.kind')!='handoff') LIMIT 20`;
       for (const row of legacy) {
@@ -397,7 +398,7 @@ const make = Effect.gen(function* () {
             for (const item of decision.items)
               yield* sql`UPDATE chef_dossiers SET state='pending',next_at='',error=NULL
               WHERE id=${item.dossierId} AND request_id=${decision.id} AND state='waiting'`;
-            yield* sql`UPDATE chef_decisions SET payload_json=${yield* encodeJson({ ...decision, policyVersion: 2 })} WHERE id=${decision.id}`;
+            yield* sql`UPDATE chef_decisions SET payload_json=${yield* encodeJson({ ...decision, policyVersion: proposalPolicyVersion })} WHERE id=${decision.id}`;
           }),
         );
       }
@@ -447,17 +448,19 @@ const make = Effect.gen(function* () {
       : first.plan.kind === "handoff" && first.responsibleName
         ? `Consulter ${first.responsibleName}`
         : labels[first.plan.kind];
-    const missingChef = decision.items.every((i) => i.plan.kind === "handoff" && !i.responsibleId);
+    const needsClarification = decision.items.every(
+      (i) => i.plan.kind === "handoff" && !i.responsibleId,
+    );
     const memoryOnly = decision.items.every((i) => i.plan.kind === "remember");
     return {
       id: decision.id,
-      kind: missingChef ? ("text" as const) : ("approval" as const),
+      kind: needsClarification ? ("text" as const) : ("approval" as const),
       action: null,
-      context: missingChef
-        ? `Dans Travail, le sujet « ${first.subjectTitle} »${first.projectTitle ? ` concerne le projet « ${first.projectTitle} »` : " attend un cadrage"}. Aucun Chef responsable n’est identifié pour ce contexte.`
+      context: needsClarification
+        ? `Dans Travail, le sujet « ${first.subjectTitle} » attend une précision. Le Chef ne peut pas proposer l’action sans l’information demandée.`
         : `Dans Travail, le sujet « ${first.subjectTitle} »${decision.items.length > 1 ? ` et ${decision.items.length - 1} autres sujets` : ""} attend une décision. ${memoryOnly ? "Le Chef propose de conserver un fait ; seule une mémorisation explicite l’ajoutera à sa mémoire." : "Le Chef demande ton accord pour les actions détaillées ci-dessous."}`,
-      question: missingChef
-        ? `Quel fonctionnement souhaites-tu adopter${first.projectTitle ? ` pour « ${first.projectTitle} »` : " pour ce sujet"}, qui n’a pas de Chef responsable identifié ?`
+      question: needsClarification
+        ? (first.plan.question ?? "Le Chef doit d’abord proposer une action pour ce sujet.")
         : decision.items.length === 1
           ? `${label} : ${first.subjectTitle} ?`
           : `${label} pour ${decision.items.length} sujets ?`,
@@ -473,35 +476,38 @@ const make = Effect.gen(function* () {
       details: decision.items
         .map(
           (i) =>
-            `### ${i.subjectTitle}\n**${i.plan.kind === "handoff" && !i.responsibleId ? "Choisir le fonctionnement sans Chef" : labels[i.plan.kind]}** · Projet : ${i.projectTitle ?? "Sans projet"}${i.chantierTitle ? ` · Chantier : ${i.chantierTitle}` : ""}\n${i.plan.reason}\n\n${i.plan.kind === "create" ? `Titre proposé : ${i.plan.title}\n\n` : ""}${i.plan.description}${i.plan.taskId ? `\n\nTâche existante : ${i.taskTitle ?? i.plan.taskId}` : ""}${i.plan.threadId ? `\nDiscussion existante : ${i.threadTitle ?? i.plan.threadId}` : ""}`,
+            `### ${i.subjectTitle}\n**${i.plan.kind === "handoff" && !i.responsibleId ? "Préciser l’information manquante" : labels[i.plan.kind]}** · Projet : ${i.projectTitle ?? "Sans projet"}${i.chantierTitle ? ` · Chantier : ${i.chantierTitle}` : ""}\n${i.plan.reason}\n\n${i.plan.kind === "create" ? `Titre proposé : ${i.plan.title}\n\n` : ""}${i.plan.description}${i.plan.taskId ? `\n\nTâche existante : ${i.taskTitle ?? i.plan.taskId}` : ""}${i.plan.threadId ? `\nDiscussion existante : ${i.threadTitle ?? i.plan.threadId}` : ""}`,
         )
         .join("\n\n"),
     };
   };
-  const metadata = (decision: Decision) => ({
-    decisionId: decision.id,
-    dossierIds: decision.items.map((i) => i.dossierId),
-    ...(decision.items.every((i) => i.plan.kind === decision.items[0]!.plan.kind)
-      ? { action: decision.items[0]!.plan.kind }
-      : {}),
-    subjectTitle:
-      decision.items.length === 1
-        ? decision.items[0]!.subjectTitle
-        : `${decision.items.length} sujets : ${decision.items[0]!.subjectTitle}`.slice(0, 500),
-    reviewPending:
-      (decision.policyVersion ?? 0) < 2 && decision.items.some((i) => i.responsibleId !== null),
-    summary:
-      (decision.policyVersion ?? 0) < 2 && decision.items.some((i) => i.responsibleId !== null)
-        ? "Le Chef responsable est identifié. Cette ancienne proposition sera réexaminée à la reprise."
+  const metadata = (decision: Decision) => {
+    const reviewPending =
+      (decision.policyVersion ?? 0) < proposalPolicyVersion &&
+      decision.items.every((i) => i.plan.kind === "handoff");
+    return {
+      decisionId: decision.id,
+      dossierIds: decision.items.map((i) => i.dossierId),
+      ...(decision.items.every((i) => i.plan.kind === decision.items[0]!.plan.kind)
+        ? { action: decision.items[0]!.plan.kind }
+        : {}),
+      subjectTitle:
+        decision.items.length === 1
+          ? decision.items[0]!.subjectTitle
+          : `${decision.items.length} sujets : ${decision.items[0]!.subjectTitle}`.slice(0, 500),
+      reviewPending,
+      summary: reviewPending
+        ? "Le Chef doit d’abord proposer l’action à valider. Réexamen prévu à sa reprise."
         : decision.items[0]!.plan.reason,
-    projectId: decision.items.every((i) => i.projectId === decision.items[0]!.projectId)
-      ? decision.items[0]!.projectId
-      : null,
-    memory: decision.items.every((i) => i.plan.kind === "handoff" && !i.responsibleId)
-      ? null
-      : decision.memory,
-    memoryOnly: decision.items.every((i) => i.plan.kind === "remember"),
-  });
+      projectId: decision.items.every((i) => i.projectId === decision.items[0]!.projectId)
+        ? decision.items[0]!.projectId
+        : null,
+      memory: decision.items.every((i) => i.plan.kind === "handoff" && !i.responsibleId)
+        ? null
+        : decision.memory,
+      memoryOnly: decision.items.every((i) => i.plan.kind === "remember"),
+    };
+  };
 
   const detachPending = (d: ChefDossier) =>
     Effect.gen(function* () {
@@ -552,7 +558,7 @@ const make = Effect.gen(function* () {
             ...old,
             items,
             revisions,
-            policyVersion: 2,
+            policyVersion: proposalPolicyVersion,
             memory:
               firstKey && items.every((i) => familyKey(i.plan) === firstKey)
                 ? items[0]!.plan.memory
@@ -604,7 +610,7 @@ const make = Effect.gen(function* () {
         : {
             id: `chef:${yield* crypto.randomUUIDv4}`,
             items: [item],
-            policyVersion: 2,
+            policyVersion: proposalPolicyVersion,
             memory: plan.memory,
             memoryRevision: context.memoryRevision,
             rule: rule ? { id: rule.id, version: rule.version } : null,
@@ -947,6 +953,8 @@ const make = Effect.gen(function* () {
                 : context.responsible;
               const projectId = task ? task.projectId : context.target.projectId;
               const chantierId = task ? (task.chantierId ?? null) : context.target.chantierId;
+              if (plan.kind === "handoff" && !responsible && !plan.question?.trim())
+                return yield* new ChefError({ reason: "format" });
               const labels = yield* loadLabels(projectId, chantierId);
               yield* propose(
                 d,

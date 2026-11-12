@@ -402,7 +402,7 @@ export function RequestCard({
   if (request.action?.kind === "command") acceptLabel = `Accepter et ${request.action.label}`;
   else if (request.chef?.memoryOnly) acceptLabel = "Continuer sans mémoriser";
   else if (request.chef)
-    acceptLabel = chefAction ? chefActionLabels[chefAction] : "Valider la proposition";
+    acceptLabel = chefAction ? chefActionLabels[chefAction] : "Oui, valider la proposition";
   const canRespond = useAtomValue(respondToRequest.permissionAtom(environmentId));
   const canRetry = useAtomValue(retryRequestDelivery.permissionAtom(environmentId));
   const respond = useAtomCommand(respondToRequest);
@@ -531,7 +531,7 @@ export function RequestCard({
             <h2 className="text-base font-semibold">
               {request.chef.subjectTitle ?? requestTitle(request)}
             </h2>
-            {request.kind === "text" && request.chef.subjectTitle && (
+            {request.kind === "text" && request.chef.subjectTitle && !reviewPending && (
               <p className="mt-2 text-sm">{request.question}</p>
             )}
           </>
@@ -646,6 +646,15 @@ export function RequestCard({
             )}
             {request.chef ? (
               <>
+                {request.kind === "approval" && (
+                  <Button
+                    variant="outline"
+                    disabled={busy || !canRespond}
+                    onClick={() => void submit("reject")}
+                  >
+                    Non
+                  </Button>
+                )}
                 {commenting && (
                   <Button
                     variant="outline"
@@ -665,7 +674,9 @@ export function RequestCard({
                         Modifier la proposition
                       </MenuItem>
                     )}
-                    <MenuItem onClick={() => void submit("reject")}>Refuser</MenuItem>
+                    {request.kind === "text" && (
+                      <MenuItem onClick={() => void submit("reject")}>Refuser</MenuItem>
+                    )}
                     <MenuItem onClick={() => void submit("ignore")}>Archiver la demande</MenuItem>
                   </MenuPopup>
                 </Menu>

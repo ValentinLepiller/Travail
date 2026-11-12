@@ -243,7 +243,7 @@ it.effect(
       yield* render();
       expect(host.querySelector("blockquote")?.textContent).toBe(phrase);
       expect(calls).toHaveLength(0);
-      yield* click("Ignorer le sujet");
+      yield* click("Oui, ignorer le sujet");
       expect(calls).toEqual([
         { id: original.id, expectedVersion: 2, decision: "accept", text: "", remember: false },
       ]);
@@ -375,8 +375,19 @@ it.effect("an obsolete handoff queued for review cannot still be approved", () =
     yield* render({ ...original, chef: { ...original.chef!, reviewPending: true } });
     expect(host.textContent).toContain("Réexamen prévu");
     expect(
-      [...host.querySelectorAll("button")].some((b) => b.textContent === "Ignorer le sujet"),
+      [...host.querySelectorAll("button")].some((b) => b.textContent === "Oui, ignorer le sujet"),
     ).toBe(false);
     expect(calls).toHaveLength(0);
+  }),
+);
+
+it.effect("a proposal can be refused directly without approving it or memorizing anything", () =>
+  Effect.gen(function* () {
+    yield* setup;
+    yield* render();
+    yield* click("Non");
+    expect(calls).toEqual([
+      { id: original.id, expectedVersion: 2, decision: "reject", text: "", remember: false },
+    ]);
   }),
 );

@@ -29,10 +29,10 @@ export type ChefMemory = typeof ChefMemory.Type;
 
 export const ChefAction = Schema.Literals(["create", "complete", "ignore", "handoff", "remember"]);
 export const chefActionLabels = {
-  create: "Créer la tâche",
-  complete: "Compléter la tâche",
-  ignore: "Ignorer le sujet",
-  handoff: "Consulter le Chef responsable",
+  create: "Oui, créer la tâche",
+  complete: "Oui, compléter la tâche",
+  ignore: "Oui, ignorer le sujet",
+  handoff: "Oui, consulter le Chef responsable",
   remember: "Mémoriser",
 };
 export const ChefRequest = Schema.Struct({
