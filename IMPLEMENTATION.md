@@ -316,6 +316,6 @@ Navigation Chantiers V2 : entrée directe dans la barre latérale et le menu mob
 
 ## Le Chef global
 
-Vue `/chef` : dossiers par sujet Luna et Requêtes côte à côte, recherche des tâches/discussions existantes et relais au Chef du chantier ou du projet. Les lancements restent à la charge des Chefs responsables. Une attente n’empêche pas les autres dossiers d’avancer.
+Vue `/chef` : dossiers réservés au Chef, masqués des discussions habituelles et de leur recherche ; Requêtes côte à côte, recherche des tâches/discussions existantes et relais au Chef du chantier ou du projet. Les lancements restent à la charge des Chefs responsables. Une attente n’empêche pas les autres dossiers d’avancer.
 
 Mémoire par contexte, phrase exacte présentée avant consentement : Action ne mémorise rien ; Action + mémoriser conserve seulement la règle approuvée. Consultation, correction et désactivation disponibles. Installé avec migration90 ; 158 tests serveur, 45 client et 12 permissions réussis, typages sans erreur TypeScript (diagnostics Effect hérités côté serveur), builds et smoke compilé isolé validés, simplify local en trois passes. Aucun contrôle visuel réel revendiqué. Preuves privées : `chef-global-20261112`.

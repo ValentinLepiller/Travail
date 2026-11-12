@@ -894,3 +894,33 @@ describe("virtualized command palette rows", () => {
     expect(findHighlightedCommandPaletteItem(groups, null)).toBeNull();
   });
 });
+
+it("omits Chef dossiers from recent, searched and linked conversations before applying a limit", () => {
+  const hidden = makeThread({
+    id: ThreadId.make("chef-dossier:subject"),
+    title: "Dossier du Chef",
+    updatedAt: "2026-11-12T10:00:00.000Z",
+  });
+  const ordinary = makeThread({
+    id: ThreadId.make("ordinary"),
+    title: "Dossier du Chef",
+    updatedAt: "2026-11-11T10:00:00.000Z",
+  });
+  const items = buildThreadActionItems({
+    threads: [hidden, ordinary],
+    projectTitleById: new Map(),
+    sortOrder: "updated_at",
+    icon: null,
+    runThread: async () => {},
+    limit: 1,
+  });
+  expect(items.map((t) => t.value)).toEqual(["thread:ordinary"]);
+  const linked = buildLinkedThreadActionItems({
+    environmentId: EnvironmentId.make("local"),
+    threads: [hidden, ordinary],
+    query: "Chef",
+    icon: null,
+    runThread: async () => {},
+  });
+  expect(linked.map((t) => t.title)).toEqual([ordinary.title]);
+});

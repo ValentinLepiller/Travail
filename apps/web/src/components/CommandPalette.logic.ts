@@ -5,6 +5,7 @@ import {
   type FilesystemBrowseEntry,
   type KeybindingCommand,
   THREAD_JUMP_KEYBINDING_COMMANDS,
+  isChefDossierThread,
 } from "@t3tools/contracts";
 import { filterFilesystemBrowseEntries } from "@t3tools/client-runtime/state/filesystem";
 import type { SidebarThreadSortOrder } from "@t3tools/contracts/settings";
@@ -28,15 +29,17 @@ export function buildLinkedThreadActionItems(
     runThread: (thread: Pick<SidebarThreadSummary, "environmentId" | "id">) => Promise<void>;
   },
 ): CommandPaletteActionItem[] {
-  return input.threads.map((thread) => ({
-    kind: "action",
-    value: `thread:${input.environmentId}:${thread.id}`,
-    title: thread.title || "Untitled thread",
-    description: thread.archivedAt === null ? "Linked thread" : "Archived thread",
-    searchTerms: [input.query, thread.title],
-    icon: input.icon,
-    run: () => input.runThread({ environmentId: input.environmentId, id: thread.id }),
-  }));
+  return input.threads
+    .filter((thread) => !isChefDossierThread(thread.id))
+    .map((thread) => ({
+      kind: "action",
+      value: `thread:${input.environmentId}:${thread.id}`,
+      title: thread.title || "Untitled thread",
+      description: thread.archivedAt === null ? "Linked thread" : "Archived thread",
+      searchTerms: [input.query, thread.title],
+      icon: input.icon,
+      run: () => input.runThread({ environmentId: input.environmentId, id: thread.id }),
+    }));
 }
 
 export function browseInputEndPaddingClass(input: {
@@ -329,7 +332,7 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
   limit?: number;
 }): CommandPaletteActionItem[] {
   const sortedThreads = sortThreads(
-    input.threads.filter((thread) => thread.archivedAt === null),
+    input.threads.filter((thread) => thread.archivedAt === null && !isChefDossierThread(thread.id)),
     input.sortOrder,
   );
   const visibleThreads =

@@ -2422,3 +2422,14 @@ describe("Working shelf (beta)", () => {
     });
   });
 });
+
+it("keeps Chef dossiers out of the sidebar and its search without hiding ordinary conversations by title", () => {
+  const hidden = makeThreadFixture({
+    id: ThreadId.make("chef-dossier:subject"),
+    title: "Dossier du Chef",
+  });
+  const ordinary = makeThreadFixture({ id: ThreadId.make("ordinary"), title: "Dossier du Chef" });
+  const visible = filterSidebarV2VisibleThreads([hidden, ordinary], null);
+  expect(visible.map((t) => t.id)).toEqual([ordinary.id]);
+  expect(searchSidebarThreads(visible, "Chef").map((t) => t.id)).toEqual([ordinary.id]);
+});

@@ -58,7 +58,6 @@ import {
 } from "@t3tools/client-runtime/environment";
 import {
   AuthOrchestrationOperateScope,
-  isChefDossierThread,
   type EnvironmentMachineKind,
   type ScopedThreadRef,
   type ThreadId,
@@ -265,7 +264,6 @@ import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
 import { MobileAppNavigation } from "./sidebar/AppNavigation";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
-import { Badge } from "./ui/badge";
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { MiddleTruncate } from "./ui/middle-truncate";
@@ -1634,11 +1632,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           isRegeneratingTitle && "opacity-55",
         )}
       >
-        {isChefDossierThread(thread.id) && (
-          <Badge variant="info" size="sm" aria-label="Dossier du Chef">
-            Chef
-          </Badge>
-        )}{" "}
         {thread.title}
       </span>
     );
@@ -2236,11 +2229,6 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
                   thread.titleRegeneration != null && "opacity-55",
                 )}
               >
-                {isChefDossierThread(thread.id) && (
-                  <Badge variant="info" size="sm" aria-label="Dossier du Chef">
-                    Chef
-                  </Badge>
-                )}{" "}
                 {thread.title}
               </span>
               <span id={`${props.resultId}-pr`} className="contents">
