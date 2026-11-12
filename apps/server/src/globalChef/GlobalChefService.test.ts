@@ -957,3 +957,54 @@ it.effect(
     );
   },
 );
+
+it.effect(
+  "dossier cards and details expose their subject project instead of the Chef's hosting project",
+  () =>
+    Effect.gen(function* () {
+      const service = yield* Chef.GlobalChefService,
+        sql = yield* SqlClient.SqlClient;
+      yield* seed();
+      const target = ProjectId.make("subject-project");
+      yield* sql`INSERT INTO projection_projects(project_id,title,workspace_root,scripts_json,created_at,updated_at) VALUES(${target},'Projet du sujet','/tmp/subject-project','[]','','')`;
+      yield* sql`UPDATE inbox_subjects SET context_json=${encode({ kind: "project", id: target, projectId: target })} WHERE id='alpha'`;
+      yield* sql`INSERT INTO chef_dossiers(id,subject_id,thread_id,title,updated_at) VALUES('alpha','alpha','chef-dossier:alpha','Sujet','')`;
+      expect((yield* service.list({})).dossiers[0]?.projectId).toBe(target);
+      expect((yield* service.read({ id: "alpha" })).dossier.projectId).toBe(target);
+      yield* sql`UPDATE inbox_subjects SET context_json=NULL WHERE id='alpha'`;
+      expect((yield* service.read({ id: "alpha" })).dossier.projectId).toBeNull();
+    }).pipe(Effect.provide(layer())),
+);
+
+it.effect(
+  "project identity follows an existing task or chantier and honors a task without a project",
+  () =>
+    Effect.gen(function* () {
+      const service = yield* Chef.GlobalChefService,
+        sql = yield* SqlClient.SqlClient,
+        tasks = yield* Tasks.WorkTaskService;
+      yield* seed();
+      const target = ProjectId.make("target-project");
+      yield* sql`INSERT INTO projection_projects(project_id,title,workspace_root,scripts_json,created_at,updated_at) VALUES(${target},'Projet réel','/tmp/real-project','[]','','')`;
+      const task = yield* tasks.save({
+        id: "target",
+        expectedVersion: 0,
+        title: "Tâche existante",
+        notes: "",
+        status: "ready",
+        projectId: target,
+        agentThreadId: null,
+        dueDate: null,
+      });
+      yield* sql`INSERT INTO chef_dossiers(id,subject_id,thread_id,title,updated_at) VALUES('alpha','alpha','chef-dossier:alpha','Sujet','')`;
+      yield* sql`UPDATE inbox_subjects SET context_json=${encode({ kind: "task", id: task.id, projectId })} WHERE id='alpha'`;
+      expect((yield* service.list({})).dossiers[0]?.projectId).toBe(target);
+      yield* sql`UPDATE inbox_subjects SET task_id=${task.id},context_json=${encode({ kind: "project", id: projectId, projectId })} WHERE id='alpha'`;
+      expect((yield* service.read({ id: "alpha" })).dossier.projectId).toBe(target);
+      yield* tasks.save({ ...task, projectId: null, expectedVersion: task.version });
+      expect((yield* service.read({ id: "alpha" })).dossier.projectId).toBeNull();
+      yield* sql`INSERT INTO work_chantiers(id,version,payload_json) VALUES('chantier',1,${encode({ projectId: target, title: "Chantier" })})`;
+      yield* sql`UPDATE inbox_subjects SET task_id=NULL,context_json=${encode({ kind: "chantier", id: "chantier", projectId })} WHERE id='alpha'`;
+      expect((yield* service.list({})).dossiers[0]?.projectId).toBe(target);
+    }).pipe(Effect.provide(layer())),
+);

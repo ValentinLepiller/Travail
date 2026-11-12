@@ -137,10 +137,20 @@ const make = Effect.gen(function* () {
     sql<{ settings_json: string }>`SELECT settings_json FROM chef_global WHERE id=1`.pipe(
       Effect.flatMap(([r]) => decodeSettings(r!.settings_json)),
     );
+  const dossierColumns = sql`d.id,d.thread_id AS threadId,d.subject_id AS subjectId,d.title,
+    d.state,d.request_id AS requestId,d.error,d.updated_at AS updatedAt,
+    CASE WHEN t.id IS NOT NULL THEN json_extract(t.payload_json,'$.projectId')
+      WHEN c.id IS NOT NULL THEN json_extract(c.payload_json,'$.projectId')
+      WHEN json_extract(s.context_json,'$.kind')='project' THEN json_extract(s.context_json,'$.id')
+      ELSE json_extract(s.context_json,'$.projectId') END AS projectId`;
+  const dossierTables = sql`chef_dossiers d LEFT JOIN inbox_subjects s ON s.id=d.subject_id
+    LEFT JOIN work_tasks t ON t.id=COALESCE(s.task_id,
+      CASE WHEN json_extract(s.context_json,'$.kind')='task' THEN json_extract(s.context_json,'$.id') END)
+    LEFT JOIN work_chantiers c ON json_extract(s.context_json,'$.kind')='chantier'
+      AND c.id=json_extract(s.context_json,'$.id')`;
   const dossier = Effect.fn(function* (id: string) {
     const [row] =
-      yield* sql<ChefDossier>`SELECT id,thread_id AS threadId,subject_id AS subjectId,title,
-      state,request_id AS requestId,error,updated_at AS updatedAt FROM chef_dossiers WHERE id=${id}`;
+      yield* sql<ChefDossier>`SELECT ${dossierColumns} FROM ${dossierTables} WHERE d.id=${id}`;
     if (!row) return yield* new ChefError({ reason: "missing" });
     return yield* decodeDossier(row);
   });
@@ -190,11 +200,10 @@ const make = Effect.gen(function* () {
       const limit = input.limit ?? 20;
       const rows = yield* sql<
         ChefDossier & { sequence: number }
-      >`SELECT sequence,id,thread_id AS threadId,subject_id AS subjectId,title,
-      state,request_id AS requestId,error,updated_at AS updatedAt FROM chef_dossiers
-      WHERE (${input.after ?? null} IS NULL OR sequence<${input.after ?? null})
-      AND ${input.archived ? sql`state IN ('done','closed')` : sql`state NOT IN ('done','closed')`}
-      ORDER BY sequence DESC LIMIT ${limit + 1}`;
+      >`SELECT d.sequence,${dossierColumns} FROM ${dossierTables}
+      WHERE (${input.after ?? null} IS NULL OR d.sequence<${input.after ?? null})
+      AND ${input.archived ? sql`d.state IN ('done','closed')` : sql`d.state NOT IN ('done','closed')`}
+      ORDER BY d.sequence DESC LIMIT ${limit + 1}`;
       return {
         dossiers: yield* Effect.forEach(rows.slice(0, limit), (r) => decodeDossier(r)),
         nextCursor: rows.length > limit ? rows[limit - 1]!.sequence : null,

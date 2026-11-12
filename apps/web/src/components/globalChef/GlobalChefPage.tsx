@@ -7,7 +7,9 @@ import type {
   ChefSettings,
   EnvironmentId,
   ModelSelection,
+  ProjectId,
 } from "@t3tools/contracts";
+import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { createModelSelection } from "@t3tools/shared/model";
 import {
@@ -17,6 +19,7 @@ import {
   PlayIcon,
   SendIcon,
   SettingsIcon,
+  FolderIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useEnvironmentSelection } from "../../hooks/useEnvironmentSelection";
@@ -33,7 +36,7 @@ import {
   sortProviderInstanceEntries,
 } from "../../providerInstances";
 import { agentRequests } from "../../state/agentRequests";
-import { useProjects } from "../../state/entities";
+import { useProject, useProjects } from "../../state/entities";
 import {
   commandGlobalChef,
   globalChefDossier,
@@ -46,6 +49,7 @@ import { serverEnvironment, EMPTY_SERVER_PROVIDERS } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { workChantiers } from "../../state/workTasks";
 import ChatMarkdown from "../ChatMarkdown";
+import { ProjectFavicon } from "../ProjectFavicon";
 import { RequestCard } from "../agentRequests/AgentRequestsPage";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
@@ -69,6 +73,27 @@ const dossierStates: Record<ChefDossier["state"], string> = {
   error: "À reprendre",
   closed: "Terminé",
 };
+
+function DossierProject({
+  environmentId,
+  projectId,
+}: {
+  environmentId: EnvironmentId;
+  projectId: ProjectId | null | undefined;
+}) {
+  const project = useProject(projectId ? scopeProjectRef(environmentId, projectId) : null);
+  const title = project?.title ?? (projectId ? "Projet indisponible" : "Sans projet identifié");
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1.5">
+      {project ? (
+        <ProjectFavicon project={project} className="size-4 shrink-0" />
+      ) : (
+        <FolderIcon className="size-4 shrink-0" aria-hidden="true" />
+      )}
+      <span className="truncate">{title}</span>
+    </span>
+  );
+}
 
 export default function GlobalChefPage({
   environmentId: forcedEnvironmentId,
@@ -399,8 +424,9 @@ function DossiersView({
                 id === d.id && "bg-muted",
               )}
             >
-              <span className="mb-1 block text-xs text-muted-foreground">
-                Dossier du Chef · {dossierStates[d.state]}
+              <span className="mb-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
+                <DossierProject environmentId={environmentId} projectId={d.projectId} />
+                <span>· {dossierStates[d.state]}</span>
               </span>
               <span className="line-clamp-3 font-medium">{d.title}</span>
             </button>
@@ -515,7 +541,9 @@ function DossierConversation({
     <div className="flex min-w-0 flex-1 flex-col">
       <div className="flex items-center gap-2 border-b p-3">
         <div className="min-w-0 flex-1">
-          <p className="text-xs text-muted-foreground">Dossier du Chef</p>
+          <p className="text-xs text-muted-foreground">
+            <DossierProject environmentId={environmentId} projectId={d?.projectId} />
+          </p>
           <h2 className="truncate font-medium">{d?.title ?? "Chargement…"}</h2>
         </div>
         {d && <Badge variant="secondary">{dossierStates[d.state]}</Badge>}

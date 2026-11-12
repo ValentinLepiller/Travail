@@ -45,6 +45,7 @@ export const ChefDossier = Schema.Struct({
   id: Text,
   threadId: ThreadId,
   subjectId: Text,
+  projectId: Schema.optionalKey(Schema.NullOr(ProjectId)),
   title: Schema.String,
   state: Schema.Literals(["pending", "processing", "waiting", "done", "error", "closed"]),
   requestId: Schema.NullOr(Text),
