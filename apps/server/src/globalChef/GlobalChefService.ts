@@ -124,6 +124,7 @@ const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 const decodeDossier = Schema.decodeEffect(ChefDossier);
 const decodeCommand = Schema.decodeEffect(ChefCommand);
 const proposalPolicyVersion = 4;
+const proposalPresentationVersion = 5;
 const normalize = (cause: unknown) =>
   isChefError(cause) ? cause : new ChefError({ reason: "storage", cause });
 const now = DateTime.now.pipe(Effect.map(DateTime.formatIso));
@@ -319,11 +320,7 @@ const make = Effect.gen(function* () {
               WHERE id=${d.requestId} AND state='pending'`;
             if (row && r.status === "pending") {
               const old = yield* decodeDecision(row.payload_json);
-              if (
-                (old.presentationVersion ?? 0) < proposalPolicyVersion &&
-                (old.policyVersion ?? 0) < proposalPolicyVersion &&
-                old.items.some((i) => i.plan.kind !== "remember")
-              ) {
+              if ((old.presentationVersion ?? 0) < proposalPresentationVersion) {
                 const items = yield* Effect.forEach(old.items, (i) =>
                   Effect.gen(function* () {
                     const responsible = yield* loadResponsible(i.projectId, i.chantierId);
@@ -334,7 +331,7 @@ const make = Effect.gen(function* () {
                     };
                   }),
                 );
-                const updated = { ...old, items, presentationVersion: proposalPolicyVersion };
+                const updated = { ...old, items, presentationVersion: proposalPresentationVersion };
                 yield* requests.updateChef(
                   r.threadId,
                   { ...requestContent(updated), expectedVersion: r.version, withdraw: false },
@@ -411,7 +408,7 @@ const make = Effect.gen(function* () {
             for (const item of decision.items)
               yield* sql`UPDATE chef_dossiers SET state='pending',next_at='',error=NULL
               WHERE id=${item.dossierId} AND request_id=${decision.id} AND state='waiting'`;
-            const presented = { ...decision, presentationVersion: proposalPolicyVersion };
+            const presented = { ...decision, presentationVersion: proposalPresentationVersion };
             const current = yield* request(decision.id);
             yield* requests.updateChef(
               current.threadId,
@@ -502,11 +499,6 @@ const make = Effect.gen(function* () {
     };
   };
   const metadata = (decision: Decision) => {
-    const reviewPending = decision.items.some(
-      (i) =>
-        i.plan.kind !== "remember" &&
-        ((decision.policyVersion ?? 0) < proposalPolicyVersion || !i.checkedSources),
-    );
     return {
       decisionId: decision.id,
       dossierIds: decision.items.map((i) => i.dossierId),
@@ -517,10 +509,8 @@ const make = Effect.gen(function* () {
         decision.items.length === 1
           ? decision.items[0]!.subjectTitle
           : `${decision.items.length} sujets : ${decision.items[0]!.subjectTitle}`.slice(0, 500),
-      reviewPending,
-      summary: reviewPending
-        ? "Le Chef doit d’abord proposer l’action à valider. Réexamen prévu à sa reprise."
-        : decision.items[0]!.plan.reason,
+      reviewPending: false,
+      summary: decision.items[0]!.plan.reason,
       projectId: decision.items.every((i) => i.projectId === decision.items[0]!.projectId)
         ? decision.items[0]!.projectId
         : null,

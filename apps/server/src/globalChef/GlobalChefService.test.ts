@@ -1350,7 +1350,7 @@ it.effect(
           action: "handoff",
           subjectTitle: "Correction alpha",
           projectId,
-          reviewPending: true,
+          reviewPending: false,
         },
       });
       expect(after?.version).toBe(before!.version + 1);
@@ -1651,7 +1651,7 @@ it.effect(
     );
   },
 );
-it.effect("a grouped legacy proposal stays under review until every case has fresh evidence", () =>
+it.effect("grouped choices remain available while the Chef refreshes each case", () =>
   Effect.gen(function* () {
     yield* seed();
     yield* seed("beta");
@@ -1664,7 +1664,10 @@ it.effect("a grouped legacy proposal stays under review until every case has fre
     expect(yield* requests.list()).toHaveLength(1);
     yield* sql`UPDATE chef_decisions SET payload_json=json_remove(json_set(payload_json,'$.policyVersion',3,'$.presentationVersion',3),'$.items[0].checkedSources','$.items[1].checkedSources')`;
     yield* service.processNext();
-    expect((yield* requests.list())[0]?.chef?.reviewPending).toBe(true);
+    expect((yield* requests.list())[0]).toMatchObject({
+      kind: "approval",
+      chef: { reviewPending: false, action: "create", summary: "Demande explicite de correction." },
+    });
     yield* service.processNext();
     expect((yield* requests.list())[0]?.chef?.reviewPending).toBe(false);
   }).pipe(Effect.provide(layer())),
@@ -1691,8 +1694,9 @@ it.effect.each(["revise", "reject", "ignore"] as const)(
         const service = yield* Chef.GlobalChefService;
         const requests = yield* Requests.AgentRequestService;
         yield* service.processNext();
-        const first = (yield* requests.list())[0]!;
+        let first = (yield* requests.list())[0]!;
         yield* service.command({ type: "retry", id: "alpha" });
+        first = (yield* requests.list())[0]!;
         const fiber = yield* service.processNext().pipe(Effect.forkChild);
         yield* Deferred.await(entered);
         yield* requests.respond({
@@ -1713,5 +1717,61 @@ it.effect.each(["revise", "reject", "ignore"] as const)(
         expect(yield* (yield* Tasks.WorkTaskService).list()).toHaveLength(0);
       }).pipe(Effect.provide(run));
     });
+  },
+);
+it.effect.each(["accept", "reject"] as const)(
+  "a restored concrete choice can be %s without waiting for another model answer",
+  (decision) => {
+    let generations = 0;
+    return Effect.gen(function* () {
+      yield* seed();
+      yield* enable;
+      const service = yield* Chef.GlobalChefService,
+        requests = yield* Requests.AgentRequestService,
+        sql = yield* SqlClient.SqlClient;
+      yield* service.processNext();
+      const original = (yield* requests.list())[0]!;
+      yield* service.command({ type: "configure", enabled: false, projectId, modelSelection });
+      yield* sql`UPDATE chef_decisions SET payload_json=json_remove(json_set(payload_json,'$.policyVersion',3,'$.presentationVersion',4),'$.items[0].checkedSources')`;
+      yield* sql`UPDATE agent_requests SET payload_json=json_set(payload_json,'$.chef.reviewPending',json('true'),'$.chef.summary','Réexamen prévu') WHERE id=${original.id}`;
+      yield* service.command({ type: "retry", id: "alpha" });
+      const r = (yield* requests.list())[0]!;
+      expect(r).toMatchObject({
+        kind: "approval",
+        chef: {
+          action: "create",
+          summary: "Demande explicite de correction.",
+          reviewPending: false,
+        },
+      });
+      expect(r.question).toContain("Créer");
+      expect(generations).toBe(1);
+      yield* requests.respond({
+        id: r.id,
+        expectedVersion: r.version,
+        decision,
+        text: "",
+        remember: false,
+      });
+      yield* enable;
+      yield* service.processNext();
+      expect((yield* requests.list())[0]?.status).toBe(
+        decision === "accept" ? "accepted" : "rejected",
+      );
+      expect(yield* (yield* Tasks.WorkTaskService).list()).toHaveLength(
+        decision === "accept" ? 1 : 0,
+      );
+      expect((yield* service.memory({})).memories).toHaveLength(0);
+      expect(generations).toBe(1);
+    }).pipe(
+      Effect.provide(
+        layer(() =>
+          Effect.sync(() => {
+            generations++;
+            return reply({ memory: null });
+          }),
+        ),
+      ),
+    );
   },
 );
