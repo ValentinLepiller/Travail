@@ -54,6 +54,8 @@ const layer = (
   generate: Runtime.ChefRuntime["Service"]["generate"] = () => Effect.succeed(reply()),
   notify: Runtime.ChefRuntime["Service"]["notify"] = () => Effect.void,
   db: ReturnType<typeof Sqlite.layerFromPath> = Sqlite.layerMemory,
+  inspect: Runtime.ChefRuntime["Service"]["inspect"] = () =>
+    Effect.succeed({ status: "ready", checkedAt: "now", text: "[]", truncated: false }),
 ) =>
   Chef.layer.pipe(
     Layer.provideMerge(Actions.layer.pipe(Layer.provideMerge(Tasks.layer))),
@@ -71,6 +73,7 @@ const layer = (
     Layer.provide(
       Layer.succeed(Runtime.ChefRuntime, {
         generate,
+        inspect,
         notify,
         ensureDossier: () => Effect.void,
         conversation: () => Effect.succeed({ text: "Échange lu", truncated: false }),
@@ -94,6 +97,7 @@ const seed = (id = "alpha") =>
       subject: "Correction",
       text: `Corriger ${id}`,
     });
+    yield* sql`UPDATE message_inbox SET payload_json=json_set(payload_json,'$.context',json('{"version":1,"status":"ready","checkedAt":"now","messages":[],"truncated":false,"reason":null}')) WHERE id=${`gmail:me@example.com:${id}`}`;
     yield* sql`INSERT INTO inbox_subjects(id,title,summary,created_at,context_json,context_updated_at)
     VALUES(${id},${`Correction ${id}`},'Demande de correction','',${encode({ kind: "project", id: projectId, projectId })},'2026-11-12T00:00:00Z')`;
     yield* sql`INSERT INTO inbox_subject_entries(entry_id,subject_id,linked_at,decision_json)
@@ -649,7 +653,8 @@ it.effect(
           (agentId, id) =>
             Effect.gen(function* () {
               notifications.push({ agentId, id });
-              if (notifications.length === 1) return yield* new ChefError({ reason: "storage" });
+              if (notifications.length === 1)
+                return yield* new ChefError({ reason: "storage", cause: "offline" });
             }),
         ),
       ),
@@ -1403,3 +1408,264 @@ it.effect("an explicit user follow-up is reviewed before untouched subjects", ()
     ),
   );
 });
+
+it.effect(
+  "reads current sources and preserves collected context before requesting a decision",
+  () => {
+    const seen: string[] = [];
+    return Effect.gen(function* () {
+      yield* seed();
+      yield* enable;
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`UPDATE message_inbox SET payload_json=json_set(payload_json,'$.context.messages',json('[{"kind":"gmail","message":{"accountEmail":"me@example.com","id":"previous","threadId":"alpha","receivedAt":"1793277999.000000","sender":"Valentin","subject":"Correction","text":"Je regarde ça"}}]'))`;
+      yield* (yield* Chef.GlobalChefService).processNext();
+      expect(seen).toEqual(["inspect", "decide"]);
+      expect(yield* (yield* Tasks.WorkTaskService).list()).toHaveLength(0);
+    }).pipe(
+      Effect.provide(
+        layer(
+          (_, prompt) =>
+            Effect.sync(() => {
+              seen.push("decide");
+              expect(prompt).toContain("Je regarde ça");
+              expect(prompt).toContain("Corrigé et livré ensuite");
+              return reply({ kind: "ignore", memory: null });
+            }),
+          undefined,
+          undefined,
+          () =>
+            Effect.sync(() => {
+              seen.push("inspect");
+              return {
+                status: "ready",
+                checkedAt: "now",
+                text: "Corrigé et livré ensuite",
+                truncated: false,
+              };
+            }),
+        ),
+      ),
+    );
+  },
+);
+it.effect(
+  "lets the Chef search a messenger and completed tasks before proposing, never executing tools chosen by a source",
+  () => {
+    let n = 0;
+    const reads: Array<string | undefined> = [];
+    return Effect.gen(function* () {
+      yield* seed();
+      yield* enable;
+      const tasks = yield* Tasks.WorkTaskService;
+      yield* (yield* SqlClient.SqlClient)`INSERT INTO projection_projects(project_id,title,workspace_root,scripts_json,created_at,updated_at) VALUES('correct-project','Projet réel','/tmp/real','[]','','')`;
+      yield* tasks.save({
+        id: "existing",
+        expectedVersion: 0,
+        agentThreadId: null,
+        dueDate: null,
+        title: "Adaptateur secours terminé",
+        status: "done",
+        projectId: ProjectId.make("correct-project"),
+        notes: "Corrigé et livré",
+        sources: [],
+      });
+      yield* (yield* Chef.GlobalChefService).processNext();
+      expect(reads).toEqual([undefined, "adaptateur"]);
+      expect(n).toBe(2);
+      expect((yield* tasks.read("existing")).status).toBe("done");
+      expect((yield* (yield* Requests.AgentRequestService).list())[0]?.chef?.action).toBe("ignore");
+    }).pipe(
+      Effect.provide(
+        layer(
+          (_, prompt) =>
+            Effect.sync(() => {
+              n++;
+              if (n === 1)
+                return encode({
+                  reply: "Je vérifie l’adaptateur",
+                  plan: null,
+                  research: {
+                    queries: [{ sourceId: "gmail:me@example.com:alpha", query: "adaptateur" }],
+                    internalQuery: "adaptateur",
+                  },
+                });
+              expect(prompt).toContain('"id":"existing"');
+              expect(prompt).toContain('"status":"done"');
+              expect(prompt).toContain("Livraison confirmée");
+              return reply({
+                kind: "ignore",
+                reason: "Travail déjà livré dans existing.",
+                memory: null,
+              });
+            }),
+          undefined,
+          undefined,
+          (_, query) =>
+            Effect.sync(() => {
+              reads.push(query);
+              return {
+                status: "ready",
+                checkedAt: "now",
+                text: query ? "Livraison confirmée" : "Échange courant",
+                truncated: false,
+              };
+            }),
+        ),
+      ),
+    );
+  },
+);
+it.effect(
+  "an unavailable current source cannot authorize an otherwise approved automatic rule",
+  () => {
+    let ruleId: string | null = null;
+    return Effect.gen(function* () {
+      yield* seed();
+      yield* enable;
+      const service = yield* Chef.GlobalChefService;
+      yield* service.processNext();
+      const requests = yield* Requests.AgentRequestService;
+      const [r] = yield* requests.list();
+      yield* requests.respond({
+        id: r!.id,
+        expectedVersion: r!.version,
+        decision: "accept",
+        text: "",
+        remember: true,
+      });
+      yield* service.processNext();
+      ruleId = (yield* service.memory({})).memories[0]!.id;
+      yield* seed("beta");
+      yield* service.processNext();
+      yield* service.processNext();
+      expect(yield* (yield* Tasks.WorkTaskService).list()).toHaveLength(1);
+      expect(
+        (yield* requests.list()).some((r) => r.status === "pending" && r.chef?.action === "create"),
+      ).toBe(true);
+    }).pipe(
+      Effect.provide(
+        layer(
+          () => Effect.succeed(reply({ ruleId })),
+          undefined,
+          undefined,
+          () => Effect.fail(new ChefError({ reason: "storage", cause: "offline" })),
+        ),
+      ),
+    );
+  },
+);
+
+it.effect("a completed candidate can explain ignoring but cannot be completed or reopened", () =>
+  Effect.gen(function* () {
+    yield* seed();
+    yield* enable;
+    const tasks = yield* Tasks.WorkTaskService;
+    yield* tasks.save({
+      id: "existing",
+      expectedVersion: 0,
+      agentThreadId: null,
+      dueDate: null,
+      title: "Correction déjà livrée",
+      status: "done",
+      projectId,
+      notes: "Livré",
+    });
+    const service = yield* Chef.GlobalChefService;
+    yield* service.processNext();
+    expect((yield* service.read({ id: "alpha" })).dossier.error).toContain("proposition du Chef");
+    expect((yield* tasks.read("existing")).notes).toBe("Livré");
+    expect(yield* (yield* Requests.AgentRequestService).list()).toHaveLength(0);
+  }).pipe(
+    Effect.provide(layer(() => Effect.succeed(reply({ kind: "complete", taskId: "existing" })))),
+  ),
+);
+it.effect(
+  "research refuses invented source IDs and never dispatches arbitrary connector operations",
+  () => {
+    let reads = 0;
+    return Effect.gen(function* () {
+      yield* seed();
+      yield* enable;
+      const service = yield* Chef.GlobalChefService;
+      yield* service.processNext();
+      expect((yield* service.read({ id: "alpha" })).dossier.error).toContain("proposition du Chef");
+      expect(reads).toBe(1);
+      expect(yield* (yield* Requests.AgentRequestService).list()).toHaveLength(0);
+    }).pipe(
+      Effect.provide(
+        layer(
+          () =>
+            Effect.succeed(
+              encode({
+                reply: "Recherche",
+                plan: null,
+                research: {
+                  queries: [{ sourceId: "invented", query: "send" }],
+                  internalQuery: null,
+                },
+              }),
+            ),
+          undefined,
+          undefined,
+          () =>
+            Effect.sync(() => {
+              reads++;
+              return { status: "ready", checkedAt: "now", text: "[]", truncated: false };
+            }),
+        ),
+      ),
+    );
+  },
+);
+
+it.effect(
+  "reexamines unanswered old proposals of any action with fresh context, preserving human decisions",
+  () => {
+    let n = 0;
+    return Effect.gen(function* () {
+      yield* seed();
+      yield* enable;
+      const service = yield* Chef.GlobalChefService;
+      const sql = yield* SqlClient.SqlClient;
+      yield* service.processNext();
+      const first = (yield* (yield* Requests.AgentRequestService).list())[0]!;
+      yield* sql`UPDATE chef_decisions SET payload_json=json_set(payload_json,'$.policyVersion',3,'$.presentationVersion',3)`;
+      yield* service.processNext();
+      const list = yield* (yield* Requests.AgentRequestService).list();
+      expect(list.find((r) => r.id === first.id)?.status).toBe("pending");
+      expect(list.find((r) => r.id === first.id)?.version).toBeGreaterThan(first.version);
+      expect(list.find((r) => r.status === "pending")?.chef?.action).toBe("ignore");
+      expect(yield* (yield* Tasks.WorkTaskService).list()).toHaveLength(0);
+    }).pipe(
+      Effect.provide(
+        layer(() =>
+          Effect.sync(() =>
+            reply(
+              ++n === 1
+                ? { memory: null }
+                : { kind: "ignore", memory: null, reason: "Travail déjà terminé" },
+            ),
+          ),
+        ),
+      ),
+    );
+  },
+);
+it.effect("a grouped legacy proposal stays under review until every case has fresh evidence", () =>
+  Effect.gen(function* () {
+    yield* seed();
+    yield* seed("beta");
+    yield* enable;
+    const service = yield* Chef.GlobalChefService;
+    const requests = yield* Requests.AgentRequestService;
+    const sql = yield* SqlClient.SqlClient;
+    yield* service.processNext();
+    yield* service.processNext();
+    expect(yield* requests.list()).toHaveLength(1);
+    yield* sql`UPDATE chef_decisions SET payload_json=json_remove(json_set(payload_json,'$.policyVersion',3,'$.presentationVersion',3),'$.items[0].checkedSources','$.items[1].checkedSources')`;
+    yield* service.processNext();
+    expect((yield* requests.list())[0]?.chef?.reviewPending).toBe(true);
+    yield* service.processNext();
+    expect((yield* requests.list())[0]?.chef?.reviewPending).toBe(false);
+  }).pipe(Effect.provide(layer())),
+);

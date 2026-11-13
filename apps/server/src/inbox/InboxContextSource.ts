@@ -1,4 +1,4 @@
-import { InboxContextReadInput } from "./contextSourcePages.ts";
+import { InboxContextReadInput, SourceInspection } from "./contextSourcePages.ts";
 import { InboxContextResult, InboxSource } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -25,6 +25,10 @@ export class InboxContextSourceError extends Schema.TaggedError<InboxContextSour
 export class InboxContextSource extends Context.Service<
   InboxContextSource,
   {
+    readonly inspect: (
+      source: typeof InboxSource.Type,
+      query?: string,
+    ) => Effect.Effect<SourceInspection, InboxContextSourceError>;
     readonly read: (
       source: typeof InboxSource.Type,
     ) => Effect.Effect<InboxContextResult, InboxContextSourceError>;
@@ -35,6 +39,7 @@ const slackRules = Schema.decodeEffect(Schema.fromJsonString(SlackTaskRules));
 const isSourceError = Schema.is(InboxContextSourceError);
 const encodeInput = Schema.encodeEffect(Schema.fromJsonString(InboxContextReadInput));
 const decode = Schema.decodeEffect(Schema.fromJsonString(InboxContextResult));
+const decodeInspection = Schema.decodeEffect(Schema.fromJsonString(SourceInspection));
 const script = new URL(
   import.meta.url.endsWith(".ts")
     ? "./collect-inbox-context.ts"
@@ -47,7 +52,11 @@ const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
   const runner = yield* ProcessRunner.ProcessRunner;
   const scriptPath = yield* path.fromFileUrl(script);
-  const read = Effect.fn("InboxContextSource.read")(function* (source: typeof InboxSource.Type) {
+  const run = Effect.fn("InboxContextSource.run")(function* (
+    source: typeof InboxSource.Type,
+    inspect = false,
+    query?: string,
+  ) {
     const collector = yield* Effect.gen(function* () {
       if (source.kind === "gmail") {
         const rules = yield* gmailRules(
@@ -84,6 +93,7 @@ const make = Effect.gen(function* () {
         env: { ...process.env, CODEX_HOME: collector.codexHome },
         stdin: yield* encodeInput({
           source,
+          ...(inspect ? { inspect: true, ...(query ? { query } : {}) } : {}),
           ...(collector.linkId ? { linkId: collector.linkId } : {}),
         }).pipe(
           Effect.mapError((cause) => new InboxContextSourceError({ reason: "format", cause })),
@@ -103,10 +113,24 @@ const make = Effect.gen(function* () {
         reason: "source",
         cause: "Context process failed",
       });
-    return yield* decode(output.stdout).pipe(
-      Effect.mapError((cause) => new InboxContextSourceError({ reason: "format", cause })),
-    );
+    return output.stdout;
   });
-  return InboxContextSource.of({ read });
+  const read = (source: typeof InboxSource.Type) =>
+    run(source).pipe(
+      Effect.flatMap((output) =>
+        decode(output).pipe(
+          Effect.mapError((cause) => new InboxContextSourceError({ reason: "format", cause })),
+        ),
+      ),
+    );
+  const inspect = (source: typeof InboxSource.Type, query?: string) =>
+    run(source, true, query).pipe(
+      Effect.flatMap((output) =>
+        decodeInspection(output).pipe(
+          Effect.mapError((cause) => new InboxContextSourceError({ reason: "format", cause })),
+        ),
+      ),
+    );
+  return InboxContextSource.of({ read, inspect });
 });
 export const layer = Layer.effect(InboxContextSource, make);

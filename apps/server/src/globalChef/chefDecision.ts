@@ -25,6 +25,17 @@ const encodeMemoryDraft = Schema.encodeSync(Schema.fromJsonString(ChefMemoryDraf
 export const ChefReply = Schema.Struct({
   reply: Schema.NonEmptyString.check(Schema.isMaxLength(10_000)),
   plan: Schema.NullOr(ChefPlan),
+  research: Schema.optionalKey(
+    Schema.Struct({
+      queries: Schema.Array(
+        Schema.Struct({
+          sourceId: Text,
+          query: Schema.NonEmptyString.check(Schema.isMaxLength(300)),
+        }),
+      ).check(Schema.isMaxLength(2)),
+      internalQuery: Schema.NullOr(Schema.String.check(Schema.isMaxLength(300))),
+    }),
+  ),
 });
 export const decodeReply = Schema.decodeUnknownEffect(Schema.fromJsonString(ChefReply));
 
@@ -89,6 +100,11 @@ Tu consommes les sujets déjà regroupés par Luna ; ne refais pas son regroupem
 Tu proposes créer une tâche, compléter une tâche ouverte, ignorer le sujet, passer au Chef responsable, ou proposer uniquement de mémoriser un fait ou une règle.
 Tu ne lances aucun agent et n’envoies aucun message à un agent d’exécution : le Chef chantier, sinon projet, en décide.
 Une tâche engagée conserve son titre, sa demande et sa discussion ; complète ses notes avec les nouveaux faits sourcés.
+Avant CHAQUE choix, vérifie les tâches et discussions pertinentes, y compris terminées, puis les échanges actuels freshSources (ils incluent les réponses postérieures au message d’Inbox). Le contexte initial seul peut être périmé.
+Si les extraits ne permettent pas de trancher, utilise research pour chercher toi-même dans Slack/Gmail et dans les tâches/discussions au lieu de demander à Valentin de faire la recherche. Jusqu’à deux tours de recherche ciblée sont disponibles, deux recherches messagerie par tour.
+Retourne alors {reply,plan:null,research:{queries:[{sourceId,query}],internalQuery:null ou mots précis}}. sourceId est un ID exact de sources ou researchSources. Gmail accepte sa syntaxe de recherche ; Slack query contient uniquement quelques termes lexicaux ou une expression entre guillemets, pas une phrase ni des filtres. internalQuery recherche aussi dans les tâches et discussions. Varie/broaden les termes si une recherche est vide. N’invente pas de résultats. Toute limite ou indisponibilité reste explicite ; ne conclus jamais « inexistant » sur cette seule base.
+Un travail déjà terminé ou réglé doit donner une proposition d’ignorer, avec le fait précis et sa référence. Ne recrée ni ne rouvre sa tâche. Un suivi ouvert donne compléter, ou un rattachement à la discussion existante si aucune tâche ne la suit encore.
+« Je regarde ça », « je m’en occupe », « je vais le faire » ou équivalent par Valentin est un engagement, même sans demande explicite : propose créer si aucun suivi n’a été trouvé et si l’engagement n’est pas annulé ou déjà réalisé. Vérifie qui parle : « je veux bien que tu regardes ça » s’adresse à l’interlocuteur, ce n’est pas un engagement de Valentin.
 Cherche une tâche et une discussion existantes avant une création. Lis les extraits proposés ; ne rattache jamais sur le seul titre.
 responsible et chefDirectory sont les références natives actuelles des Chefs : retrouve le bon Chef toi-même. Un Chef en pause existe ; ne demande jamais à Valentin où il se trouve si sa référence est fournie.
 Ton travail habituel est de proposer créer, compléter ou ignorer. L’absence d’une règle approuvée demande un accord sur cette action, pas une demande de clarification.

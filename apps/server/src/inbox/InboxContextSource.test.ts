@@ -51,6 +51,22 @@ it.effect(
           .pipe(Effect.flip)).reason,
       ).toBe("configuration");
       expect(calls).toHaveLength(1);
+      expect(yield* source.inspect(target, "repli")).toMatchObject({
+        status: "ready",
+        text: "Vérifié",
+      });
+      expect(JSON.parse(calls[1]!.stdin!)).toEqual({
+        source: target,
+        linkId: "existing-account",
+        inspect: true,
+        query: "repli",
+      });
+      expect(
+        (yield* source
+          .inspect({ ...target, message: { ...target.message, accountEmail: "wrong@example.com" } })
+          .pipe(Effect.flip)).reason,
+      ).toBe("configuration");
+      expect(calls).toHaveLength(2);
     }).pipe(
       Effect.scoped,
       Effect.provide(
@@ -61,7 +77,9 @@ it.effect(
                 calls.push(input);
                 return Effect.succeed({
                   code: ChildProcessSpawner.ExitCode(0),
-                  stdout: '{"status":"ready","messages":[],"truncated":false,"reason":null}',
+                  stdout: JSON.parse(input.stdin!).inspect
+                    ? '{"status":"ready","checkedAt":"now","text":"Vérifié","truncated":false}'
+                    : '{"status":"ready","messages":[],"truncated":false,"reason":null}',
                   stderr: "",
                   timedOut: false,
                   stdoutTruncated: false,

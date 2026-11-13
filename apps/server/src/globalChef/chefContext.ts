@@ -45,7 +45,7 @@ export const readSubject = Effect.fn(function* (id: string) {
   };
 });
 
-export const readContext = Effect.fn(function* (subject: ChefSubject) {
+export const readContext = Effect.fn(function* (subject: ChefSubject, query = "") {
   const sql = yield* SqlClient.SqlClient;
   const runtime = yield* Runtime.ChefRuntime;
   const [memoryState] = yield* sql<{
@@ -83,17 +83,28 @@ export const readContext = Effect.fn(function* (subject: ChefSubject) {
   }
   const target = { context: subject.context, projectId, chantierId, senders };
   const labels = yield* targetLabels(projectId, chantierId);
+  const tokens = [
+    ...new Set<string>(
+      (query.trim() || subject.title).toLowerCase().match(/[\p{L}\p{N}]{4,}/gu) ?? [],
+    ),
+  ]
+    .filter((t) => !["avec", "dans", "pour", "sans", "sujet", "cette", "travail"].includes(t))
+    .slice(0, 12);
+  const taskMatches = tokens.length
+    ? sql.or(
+        tokens.map(
+          (token) =>
+            sql`lower(json_extract(payload_json,'$.title') || ' ' || json_extract(payload_json,'$.notes')) LIKE ${`%${token}%`}`,
+        ),
+      )
+    : sql`1=0`;
   const taskRows = yield* sql<{ payload_json: string }>`SELECT payload_json FROM work_tasks
-    WHERE json_extract(payload_json,'$.status') NOT IN ('done','rejected','merged')
-    AND (${projectId} IS NULL OR json_extract(payload_json,'$.projectId')=${projectId})
-    AND (${chantierId} IS NULL OR json_extract(payload_json,'$.chantierId')=${chantierId})
-    ORDER BY CASE WHEN id=${targetTaskId} THEN 0 ELSE 1 END,rowid DESC LIMIT 101`;
+    WHERE json_extract(payload_json,'$.status') NOT IN ('rejected','merged')
+    AND ( ((${projectId} IS NULL OR json_extract(payload_json,'$.projectId')=${projectId})
+      AND (${chantierId} IS NULL OR json_extract(payload_json,'$.chantierId')=${chantierId}))
+      OR (${query.trim()}!='' AND ${taskMatches}))
+    ORDER BY CASE WHEN id=${targetTaskId} THEN 0 WHEN ${taskMatches} THEN 1 ELSE 2 END,rowid DESC LIMIT 101`;
   const tasks = yield* Effect.forEach(taskRows.slice(0, 100), (r) => decodeTask(r.payload_json));
-  const tokens =
-    subject.title
-      .toLowerCase()
-      .match(/[\p{L}\p{N}]{4,}/gu)
-      ?.slice(0, 6) ?? [];
   const textMatches = tokens.length
     ? sql.or(
         tokens.map(
@@ -104,12 +115,17 @@ export const readContext = Effect.fn(function* (subject: ChefSubject) {
       )
     : sql`1=0`;
   const linkedThreads = tasks.flatMap((task) => (task.agentThreadId ? [task.agentThreadId] : []));
-  const threadRows = yield* sql<{ id: string; title: string; projectId: string }>`SELECT
-    t.thread_id AS id,t.title,t.project_id AS projectId FROM orchestration_v2_projection_threads t
+  const threadRows = yield* sql<{
+    id: string;
+    title: string;
+    projectId: string;
+    settledAt: string | null;
+  }>`SELECT
+    t.thread_id AS id,t.title,t.project_id AS projectId,json_extract(t.payload_json,'$.settledAt') AS settledAt FROM orchestration_v2_projection_threads t
     WHERE t.deleted_at IS NULL AND t.thread_id NOT LIKE 'chef-dossier:%'
-    AND (${projectId} IS NULL OR t.project_id=${projectId}) AND (
+    AND (${projectId} IS NULL OR t.project_id=${projectId} OR ${query.trim()}!='') AND (
       ${linkedThreads.length ? sql.in("thread_id", linkedThreads) : sql`1=0`} OR ${textMatches})
-    ORDER BY CASE WHEN ${linkedThreads.length ? sql.in("thread_id", linkedThreads) : sql`1=0`} THEN 0 ELSE 1 END,
+    ORDER BY CASE WHEN t.thread_id=${linkedTask?.agentThreadId ?? null} THEN 0 WHEN ${textMatches} THEN 1 ELSE 2 END,
     t.updated_at DESC LIMIT 6`;
   const threads = yield* Effect.forEach(
     threadRows.slice(0, 5),
@@ -171,7 +187,18 @@ export const readContext = Effect.fn(function* (subject: ChefSubject) {
     WHERE COALESCE(json_extract(a.payload_json,'$.archived'),0)=0
       AND json_extract(a.payload_json,'$.kind') IN ('chef','chantier-chef')
     ORDER BY a.id LIMIT 101`;
+  const researchRows = yield* sql<{
+    id: string;
+    payload_json: string;
+  }>`SELECT id,payload_json FROM message_inbox WHERE sequence IN (
+    SELECT MAX(sequence) FROM message_inbox GROUP BY json_extract(payload_json,'$.source.kind'),
+      COALESCE(json_extract(payload_json,'$.source.message.accountEmail'),json_extract(payload_json,'$.source.message.workspaceId')))
+    ORDER BY sequence DESC LIMIT 4`;
+  const researchSources = yield* Effect.forEach(researchRows, (row) =>
+    decodeMessage(row.payload_json),
+  );
   return {
+    researchSources,
     subject,
     target,
     labels,
@@ -186,14 +213,42 @@ export const readContext = Effect.fn(function* (subject: ChefSubject) {
     chefDirectoryIncomplete: chefDirectory.length > 100,
     searchIncomplete: taskRows.length > 100 || threadRows.length > 5,
     sourcesIncomplete:
-      entries.length > 20 || messages.some((m) => m.source.message.text.length > 2400),
+      entries.length > 20 ||
+      messages.some(
+        (m) =>
+          m.source.message.text.length > 2400 ||
+          m.context?.status !== "ready" ||
+          m.context.truncated ||
+          m.context.messages.some((s) => s.message.text.length > 600),
+      ),
     sources: messages.map((message) => ({
       id: message.id,
       url: message.url,
-      source: {
-        ...message.source,
-        message: { ...message.source.message, text: message.source.message.text.slice(0, 2400) },
-      },
+      source:
+        message.source.kind === "gmail"
+          ? {
+              kind: "gmail" as const,
+              message: {
+                ...message.source.message,
+                text: message.source.message.text.slice(0, 2400),
+              },
+            }
+          : {
+              kind: "slack" as const,
+              message: {
+                ...message.source.message,
+                text: message.source.message.text.slice(0, 2400),
+              },
+            },
+      context: message.context
+        ? {
+            ...message.context,
+            messages: message.context.messages.map((s) => ({
+              ...s,
+              message: { ...s.message, text: s.message.text.slice(0, 600) },
+            })),
+          }
+        : null,
       qualification: message.qualification?.category,
       truncated: message.source.message.text.length > 2400,
     })),

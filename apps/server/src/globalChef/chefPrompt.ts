@@ -22,6 +22,7 @@ export function preparePromptContext(
     threads: allThreads,
     sources: allSources,
     linkedTask,
+    researchSources,
     ...base
   } = context;
   const tasks = withinBudget(
@@ -36,7 +37,7 @@ export function preparePromptContext(
       status,
       agentThreadId,
     })),
-    12_000,
+    8000,
   );
   const threads = withinBudget(
     allThreads.map((t) => ({
@@ -44,11 +45,11 @@ export function preparePromptContext(
       text: t.text.slice(0, 3000),
       truncated: t.truncated || t.text.length > 3000,
     })),
-    10_000,
+    8000,
   );
-  const sources = withinBudget(allSources, 16_000);
+  const sources = withinBudget(allSources, 10_000);
   // Keep the latest message whole, even when it alone exceeds the history budget.
-  const recent = withinBudget(messages.toReversed(), 8000);
+  const recent = withinBudget(messages.toReversed(), 6000);
   const latestUser = messages.findLastIndex((m) => m.role === "user" || m.role === "chef");
   const start = Math.min(
     messages.length - Math.max(1, recent.length),
@@ -57,6 +58,12 @@ export function preparePromptContext(
   const conversation = messages.slice(Math.max(0, start));
   return {
     ...base,
+    researchSources: researchSources.map((m) => ({
+      id: m.id,
+      kind: m.source.kind,
+      account:
+        m.source.kind === "gmail" ? m.source.message.accountEmail : m.source.message.workspaceId,
+    })),
     linkedTaskId: linkedTask?.id ?? null,
     tasks,
     threads,

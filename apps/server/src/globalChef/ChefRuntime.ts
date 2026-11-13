@@ -5,6 +5,7 @@ import {
   isChefError,
   type ChefDossier,
   type ChefSettings,
+  type InboxSource,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -13,11 +14,17 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
 import * as Registry from "../provider/ProviderInstanceRegistry.ts";
 import * as Generation from "../textGeneration/TextGeneration.ts";
+import * as Source from "../inbox/InboxContextSource.ts";
+import type { SourceInspection } from "../inbox/contextSourcePages.ts";
 import * as Agents from "../autonomousAgents/AutonomousAgentService.ts";
 
 export class ChefRuntime extends Context.Service<
   ChefRuntime,
   {
+    readonly inspect: (
+      source: typeof InboxSource.Type,
+      query?: string,
+    ) => Effect.Effect<SourceInspection, ChefError>;
     readonly generate: (
       settings: typeof ChefSettings.Type,
       prompt: string,
@@ -46,7 +53,12 @@ export const layer = Layer.effect(
     const registry = yield* Registry.ProviderInstanceRegistry;
     const generation = yield* Generation.TextGeneration;
     const agents = yield* Agents.AutonomousAgentService;
+    const sources = yield* Source.InboxContextSource;
     return ChefRuntime.of({
+      inspect: (source, query) =>
+        sources
+          .inspect(source, query)
+          .pipe(Effect.mapError((cause) => new ChefError({ reason: "storage", cause }))),
       generate: (settings, prompt) =>
         Effect.gen(function* () {
           const { modelSelection, projectId } = settings;

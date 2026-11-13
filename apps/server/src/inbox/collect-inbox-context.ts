@@ -1,7 +1,9 @@
 // @effect-diagnostics globalConsole:off -- Standalone read-only connector JSON protocol.
+import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
 import { openNativeApps, connectorThread } from "../../../../scripts/connectors/native.ts";
 import { callConnector, connectorData } from "../../../../scripts/connectors/adapter.ts";
+import { inspectSource } from "./inspectSource.ts";
 import { readSourceContext } from "./readSourceContext.ts";
 import { InboxContextReadInput } from "./contextSourcePages.ts";
 let raw = "";
@@ -9,7 +11,9 @@ for await (const chunk of process.stdin) {
   raw += String(chunk);
   if (raw.length > 150_000) throw new Error("Context input too large");
 }
-const { source, linkId } = Schema.decodeSync(Schema.fromJsonString(InboxContextReadInput))(raw);
+const { source, linkId, inspect, query } = Schema.decodeSync(
+  Schema.fromJsonString(InboxContextReadInput),
+)(raw);
 const client = await openNativeApps();
 const stop = () => client.close();
 process.once("SIGTERM", stop);
@@ -20,6 +24,9 @@ try {
     operation:
       | "gmail.profile"
       | "gmail.thread"
+      | "gmail.search"
+      | "gmail.read"
+      | "slack.searchAll"
       | "slack.workspaces"
       | "slack.read"
       | "slack.readChannel",
@@ -52,10 +59,23 @@ try {
     )
       throw new Error("Wrong workspace");
   }
-  console.log(JSON.stringify(await readSourceContext(source, call)));
+  console.log(
+    JSON.stringify(
+      inspect ? await inspectSource(source, call, query) : await readSourceContext(source, call),
+    ),
+  );
 } catch {
   console.log(
-    JSON.stringify({ status: "unavailable", messages: [], truncated: false, reason: "source" }),
+    JSON.stringify(
+      inspect
+        ? {
+            status: "unavailable",
+            checkedAt: DateTime.formatIso(DateTime.nowUnsafe()),
+            text: "Source indisponible",
+            truncated: true,
+          }
+        : { status: "unavailable", messages: [], truncated: false, reason: "source" },
+    ),
   );
 } finally {
   process.removeListener("SIGTERM", stop);

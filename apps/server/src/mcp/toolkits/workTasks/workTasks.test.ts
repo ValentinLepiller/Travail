@@ -28,7 +28,7 @@ const collectorLayer = Collector.layer.pipe(
       Layer.provide(Inbox.layer),
       Layer.provide(Sqlite.layerMemory),
       Layer.provide(
-        Layer.succeed(ContextSource.InboxContextSource, {
+        Layer.mock(ContextSource.InboxContextSource)({
           read: () =>
             Effect.succeed({ status: "ready", messages: [], truncated: false, reason: null }),
         }),

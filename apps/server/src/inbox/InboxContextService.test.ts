@@ -22,7 +22,7 @@ const layer = (read: Source.InboxContextSource["Service"]["read"]) =>
   Contexts.layer.pipe(
     Layer.provideMerge(Inbox.layer),
     Layer.provideMerge(Sqlite.layerMemory),
-    Layer.provideMerge(Layer.succeed(Source.InboxContextSource, { read })),
+    Layer.provideMerge(Layer.mock(Source.InboxContextSource)({ read })),
     Layer.provideMerge(Config.layerTest(process.cwd(), { prefix: "inbox-context-test-" })),
     Layer.provideMerge(NodeServices.layer),
   );

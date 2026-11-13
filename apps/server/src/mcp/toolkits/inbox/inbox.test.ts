@@ -44,6 +44,8 @@ const layer = McpHttpServer.toolkitRegistration(InboxToolkit, Handlers.layer).pi
         ),
         Layer.provide(
           Layer.succeed(ChefRuntime.ChefRuntime, {
+            inspect: () =>
+              Effect.succeed({ status: "ready", checkedAt: "now", text: "[]", truncated: false }),
             generate: () => Effect.die("Read-only tools must not call a model"),
             ensureDossier: () => Effect.die("Read-only tools must not create a thread"),
             conversation: () => Effect.die("No conversation source was requested"),
@@ -70,7 +72,7 @@ const layer = McpHttpServer.toolkitRegistration(InboxToolkit, Handlers.layer).pi
     ).pipe(Layer.provide(Sqlite.layerMemory)),
   ),
   Layer.provide(
-    Layer.succeed(ContextSource.InboxContextSource, {
+    Layer.mock(ContextSource.InboxContextSource)({
       read: () => Effect.succeed({ status: "ready", messages: [], truncated: false, reason: null }),
     }),
   ),

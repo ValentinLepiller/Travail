@@ -5,6 +5,8 @@ import { parseGmailMessage } from "../workTasks/gmailSearchPage.ts";
 export const InboxContextReadInput = Schema.Struct({
   source: InboxSource,
   linkId: Schema.optionalKey(Schema.String),
+  inspect: Schema.optionalKey(Schema.Boolean),
+  query: Schema.optionalKey(Schema.NonEmptyString.check(Schema.isMaxLength(300))),
 });
 
 const decodeSnippet = Schema.decodeUnknownSync(
@@ -100,3 +102,11 @@ export function parseSlackContext(
     throw new Error("Slack thread parent missing");
   return { sources, nextCursor };
 }
+
+export const SourceInspection = Schema.Struct({
+  status: Schema.Literals(["ready", "partial", "unavailable"]),
+  checkedAt: Schema.String,
+  text: Schema.String.check(Schema.isMaxLength(12_000)),
+  truncated: Schema.Boolean,
+});
+export type SourceInspection = typeof SourceInspection.Type;

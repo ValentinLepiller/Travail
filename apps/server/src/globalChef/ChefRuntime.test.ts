@@ -9,6 +9,7 @@ import * as Agents from "../autonomousAgents/AutonomousAgentService.ts";
 import * as Generation from "../textGeneration/TextGeneration.ts";
 import * as Registry from "../provider/ProviderInstanceRegistry.ts";
 import { liveThreadShell } from "../mcp/McpToolAccess.testkit.ts";
+import * as Source from "../inbox/InboxContextSource.ts";
 import * as Runtime from "./ChefRuntime.ts";
 
 it.effect(
@@ -78,6 +79,7 @@ it.effect(
             }),
           ),
           Layer.provide(Layer.mock(Generation.TextGeneration)({})),
+          Layer.provide(Layer.mock(Source.InboxContextSource)({})),
           Layer.provide(Layer.mock(Registry.ProviderInstanceRegistry)({})),
           Layer.provideMerge(Sqlite.layerMemory),
         ),

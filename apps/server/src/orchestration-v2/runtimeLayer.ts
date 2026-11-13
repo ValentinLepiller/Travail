@@ -422,6 +422,7 @@ const layerGlobalChefProvided = GlobalChef.layer.pipe(
       WorkTasks.layer,
       ChefRuntime.layer.pipe(
         Layer.provide(Layer.mergeAll(layerThreadManagementProvided, layerAutonomousProvided)),
+        Layer.provide(InboxContextSource.layer.pipe(Layer.provide(ProcessRunner.layer))),
         Layer.provide(TextGeneration.layer),
       ),
     ),
