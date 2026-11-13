@@ -986,6 +986,8 @@ const make = Effect.gen(function* () {
             answer = yield* decodeReply(yield* runtime.generate(config, prompt)).pipe(
               Effect.mapError((cause) => new ChefError({ reason: "format", cause })),
             );
+            if (answer.projectCorrection && (answer.plan || answer.research))
+              return yield* new ChefError({ reason: "format" });
             if (!answer.research) break;
             if (
               round >= 2 ||
@@ -1023,6 +1025,33 @@ const make = Effect.gen(function* () {
                 (d.requestId !== null && (yield* request(d.requestId)).version !== requestVersion)
               )
                 return yield* new ChefError({ reason: "conflict" });
+              if (answer.projectCorrection) {
+                const correction = answer.projectCorrection;
+                const project = context.projectDirectory.find((p) => p.id === correction.projectId);
+                if (
+                  current.taskId ||
+                  correction.projectId === context.target.projectId ||
+                  !correction.reason.trim() ||
+                  !project
+                )
+                  return yield* new ChefError({ reason: "format" });
+                const [available] = yield* sql`SELECT project_id FROM projection_projects
+                  WHERE project_id=${correction.projectId} AND deleted_at IS NULL`;
+                if (!available) return yield* new ChefError({ reason: "conflict" });
+                yield* detachPending(d);
+                yield* sql`UPDATE inbox_subjects SET context_json=${yield* encodeJson({ kind: "project", id: correction.projectId, projectId: correction.projectId })},
+                  context_reason=${correction.reason},context_uncertain=0,context_model=${config.modelSelection!.model},
+                  context_updated_at=${yield* now},context_error=NULL,action_version=action_version+1 WHERE id=${d.subjectId}`;
+                yield* message(
+                  d.id,
+                  `project:${token}`,
+                  "event",
+                  `Projet corrigé : ${context.labels.projectTitle ?? "Sans projet"} → ${project.title}. ${correction.reason}`,
+                );
+                yield* sql`UPDATE chef_dossiers SET state='pending',request_id=NULL,subject_version=${current.actionVersion + 1},error=NULL,
+                  attempts=0,next_at='',updated_at=${yield* now} WHERE id=${d.id}`;
+                return;
+              }
               yield* message(d.id, `reply:${token}`, "assistant", answer.reply);
               if (!answer.plan) {
                 yield* sql`UPDATE chef_dossiers SET state='waiting',subject_version=${current.actionVersion},error=NULL,updated_at=${yield* now} WHERE id=${d.id}`;

@@ -25,6 +25,9 @@ const encodeMemoryDraft = Schema.encodeSync(Schema.fromJsonString(ChefMemoryDraf
 export const ChefReply = Schema.Struct({
   reply: Schema.NonEmptyString.check(Schema.isMaxLength(10_000)),
   plan: Schema.NullOr(ChefPlan),
+  projectCorrection: Schema.optionalKey(
+    Schema.NullOr(Schema.Struct({ projectId: Text, reason: Text })),
+  ),
   research: Schema.optionalKey(
     Schema.Struct({
       queries: Schema.Array(
@@ -97,6 +100,8 @@ export function familyKey(plan: ChefPlan): string | null {
 
 export const chefInstructions = `Tu es Le Chef global de Travail, l’assistant de Valentin.
 Tu consommes les sujets déjà regroupés par Luna ; ne refais pas son regroupement.
+N’hésite pas à remettre en question l’attribution de projet faite précédemment par Luna ou un autre passage : c’est une hypothèse, pas une décision intangible. Vérifie les sources et les projets de projectDirectory, même sans Chef référencé. Si le projet est erroné et que les éléments identifient le bon projet, corrige-le directement sans demander l’accord de Valentin ni passer au Chef responsable pour ce seul classement.
+Pour corriger, retourne {reply,plan:null,projectCorrection:{projectId,reason}}, sans research, avec un ID exact de projectDirectory et une raison factuelle courte. Le serveur enregistre le classement puis te redonne le dossier avec les tâches, discussions, règles et Chef du bon projet avant toute proposition métier. Cette correction ne déplace ni une tâche déjà créée ni sa discussion ; si subject.taskId est renseigné, conserve ce lien et propose le traitement approprié. Une ambiguïté réelle reste explicite : recherche d’abord, n’invente pas de projet. Les autres actions et leur validation gardent leurs règles habituelles.
 Tu proposes créer une tâche, compléter une tâche ouverte, ignorer le sujet, passer au Chef responsable, ou proposer uniquement de mémoriser un fait ou une règle.
 Tu ne lances aucun agent et n’envoies aucun message à un agent d’exécution : le Chef chantier, sinon projet, en décide.
 Une tâche engagée conserve son titre, sa demande et sa discussion ; complète ses notes avec les nouveaux faits sourcés.

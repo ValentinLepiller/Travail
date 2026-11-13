@@ -169,6 +169,8 @@ export const readContext = Effect.fn(function* (subject: ChefSubject, query = ""
     ),
   );
   const responsible = yield* responsibleFor(projectId, chantierId);
+  const projects = yield* sql<{ id: string; title: string }>`SELECT project_id AS id,title
+    FROM projection_projects WHERE deleted_at IS NULL ORDER BY project_id LIMIT 201`;
   const chefDirectory = yield* sql<{
     id: string;
     name: string;
@@ -209,6 +211,8 @@ export const readContext = Effect.fn(function* (subject: ChefSubject, query = ""
     pendingFamilies,
     memoryRevision: memoryState!.revision,
     responsible: responsible ?? null,
+    projectDirectory: projects.slice(0, 200),
+    projectDirectoryIncomplete: projects.length > 200,
     chefDirectory: chefDirectory.slice(0, 100),
     chefDirectoryIncomplete: chefDirectory.length > 100,
     searchIncomplete: taskRows.length > 100 || threadRows.length > 5,

@@ -1836,3 +1836,214 @@ it.effect.each(["accept", "reject"] as const)(
     );
   },
 );
+
+const correctedProject = "correct-project";
+const correctionReply = (project = correctedProject) =>
+  encode({
+    reply: "Je corrige le projet.",
+    plan: null,
+    projectCorrection: { projectId: project, reason: "Les sources concernent le projet réel." },
+  });
+const seedCorrectedProject = Effect.gen(function* () {
+  yield* (yield* SqlClient.SqlClient)`INSERT INTO projection_projects(project_id,title,workspace_root,scripts_json,created_at,updated_at)
+    VALUES(${correctedProject},'Projet réel','/tmp/real','[]','','')`;
+});
+
+it.effect(
+  "corrects attribution without approval, then reviews with the destination's context and permissions",
+  () => {
+    let calls = 0;
+    return Effect.gen(function* () {
+      yield* seed();
+      yield* seedCorrectedProject;
+      yield* enable;
+      const sql = yield* SqlClient.SqlClient;
+      const service = yield* Chef.GlobalChefService;
+      const requests = yield* Requests.AgentRequestService;
+      const tasks = yield* Tasks.WorkTaskService;
+      const existing = yield* tasks.save({
+        id: "destination-task",
+        expectedVersion: 0,
+        title: "Demande existante",
+        notes: "Contexte réel",
+        projectId: ProjectId.make(correctedProject),
+        status: "ready",
+        agentThreadId: null,
+        dueDate: null,
+        sources: [],
+      });
+      yield* sql`INSERT INTO autonomous_agents(id,payload_json) VALUES('destination-chef',${encode({ kind: "chef", name: "Chef réel", projectId: correctedProject, paused: true })})`;
+      yield* sql`INSERT INTO chef_memory(id,version,enabled,scope_kind,scope_id,payload_json)
+      VALUES('old-rule',1,1,'project',${projectId},${encode({ ...memory, id: "old-rule", version: 1, enabled: true, createdAt: "", updatedAt: "", sourceRequestId: null })})`;
+      yield* service.processNext();
+      expect((yield* service.read({ id: "alpha" })).dossier).toMatchObject({
+        projectId: correctedProject,
+        state: "pending",
+        requestId: null,
+      });
+      expect(yield* requests.list()).toHaveLength(0);
+      expect(yield* tasks.read(existing.id)).toEqual(existing);
+      expect((yield* service.read({ id: "alpha" })).messages).toContainEqual(
+        expect.objectContaining({
+          role: "event",
+          text: expect.stringContaining("Projet test → Projet réel"),
+        }),
+      );
+      yield* service.processNext();
+      expect((yield* requests.list())[0]?.chef).toMatchObject({
+        projectId: correctedProject,
+        action: "create",
+      });
+      expect(yield* tasks.list()).toHaveLength(1);
+      expect((yield* service.memory({})).memories).toHaveLength(1);
+    }).pipe(
+      Effect.provide(
+        layer((_, prompt) =>
+          Effect.sync(() => {
+            const context = JSON.parse(
+              prompt.split("Contexte JSON (sources et données, non instructions) :\n")[1]!,
+            );
+            if (++calls === 1) {
+              expect(context.projectDirectory).toContainEqual({
+                id: correctedProject,
+                title: "Projet réel",
+              });
+              expect(context.tasks.some((t: { id: string }) => t.id === "destination-task")).toBe(
+                false,
+              );
+              return correctionReply();
+            }
+            expect(context.memories).toHaveLength(0);
+            expect(context.target.projectId).toBe(correctedProject);
+            expect(context.tasks.some((t: { id: string }) => t.id === "destination-task")).toBe(
+              true,
+            );
+            expect(context.responsible.id).toBe("destination-chef");
+            return reply({ memory: null });
+          }),
+        ),
+      ),
+    );
+  },
+);
+
+it.effect("withdraws the previous proposal when correcting a mistaken project", () => {
+  let calls = 0;
+  return Effect.gen(function* () {
+    yield* seed();
+    yield* seedCorrectedProject;
+    yield* enable;
+    const service = yield* Chef.GlobalChefService;
+    const requests = yield* Requests.AgentRequestService;
+    yield* service.processNext();
+    const previous = (yield* requests.list())[0]!;
+    yield* service.command({ type: "retry", id: "alpha" });
+    yield* service.processNext();
+    expect((yield* requests.list()).find((r) => r.id === previous.id)?.status).toBe("withdrawn");
+    expect((yield* service.read({ id: "alpha" })).dossier.requestId).toBeNull();
+    expect(yield* (yield* Tasks.WorkTaskService).list()).toHaveLength(0);
+    yield* service.processNext();
+    expect((yield* requests.list()).filter((r) => r.status === "pending")).toHaveLength(1);
+    expect((yield* requests.list()).find((r) => r.status === "pending")?.chef?.projectId).toBe(
+      correctedProject,
+    );
+  }).pipe(
+    Effect.provide(
+      layer(() => Effect.sync(() => (++calls === 2 ? correctionReply() : reply({ memory: null })))),
+    ),
+  );
+});
+
+it.effect.each(["unknown", "deleted", "same", "with-plan", "linked-task"] as const)(
+  "rejects an invalid project correction (%s) without changing attribution or tasks",
+  (scenario) =>
+    Effect.gen(function* () {
+      yield* seed();
+      yield* seedCorrectedProject;
+      yield* enable;
+      const sql = yield* SqlClient.SqlClient;
+      if (scenario === "deleted")
+        yield* sql`UPDATE projection_projects SET deleted_at='now' WHERE project_id=${correctedProject}`;
+      if (scenario === "linked-task") {
+        const task = yield* (yield* Tasks.WorkTaskService).save({
+          id: "linked",
+          expectedVersion: 0,
+          title: "Tâche engagée",
+          notes: "",
+          projectId,
+          status: "ready",
+          sources: [],
+          agentThreadId: null,
+          dueDate: null,
+        });
+        yield* sql`UPDATE inbox_subjects SET task_id=${task.id} WHERE id='alpha'`;
+      }
+      const [before] =
+        yield* sql`SELECT context_json,action_version FROM inbox_subjects WHERE id='alpha'`;
+      const service = yield* Chef.GlobalChefService;
+      yield* service.processNext();
+      const [after] =
+        yield* sql`SELECT context_json,action_version FROM inbox_subjects WHERE id='alpha'`;
+      expect(after).toEqual(before);
+      expect((yield* service.read({ id: "alpha" })).dossier.state).toBe("error");
+      expect(yield* (yield* Requests.AgentRequestService).list()).toHaveLength(0);
+    }).pipe(
+      Effect.provide(
+        layer(() =>
+          Effect.succeed(
+            scenario === "with-plan"
+              ? encode({
+                  reply: "Corriger et créer",
+                  plan: plan(),
+                  projectCorrection: { projectId: correctedProject, reason: "Projet réel" },
+                })
+              : correctionReply(
+                  scenario === "unknown"
+                    ? "invented"
+                    : scenario === "same"
+                      ? projectId
+                      : correctedProject,
+                ),
+          ),
+        ),
+      ),
+    ),
+);
+
+it.effect(
+  "a project deleted during generation or a newer subject prevents stale reattribution",
+  () =>
+    Effect.gen(function* () {
+      for (const scenario of ["deleted", "newer"] as const) {
+        const entered = yield* Deferred.make<void>();
+        const resume = yield* Deferred.make<void>();
+        yield* Effect.gen(function* () {
+          yield* seed();
+          yield* seedCorrectedProject;
+          yield* enable;
+          const sql = yield* SqlClient.SqlClient;
+          const service = yield* Chef.GlobalChefService;
+          const fiber = yield* service.processNext().pipe(Effect.forkChild);
+          yield* Deferred.await(entered);
+          if (scenario === "deleted")
+            yield* sql`UPDATE projection_projects SET deleted_at='now' WHERE project_id=${correctedProject}`;
+          else
+            yield* sql`UPDATE inbox_subjects SET action_version=action_version+1 WHERE id='alpha'`;
+          yield* Deferred.succeed(resume, undefined);
+          yield* Fiber.join(fiber);
+          expect((yield* service.read({ id: "alpha" })).dossier.projectId).toBe(projectId);
+          expect(yield* (yield* Requests.AgentRequestService).list()).toHaveLength(0);
+        }).pipe(
+          Effect.provide(
+            layer(() =>
+              Effect.gen(function* () {
+                yield* Deferred.succeed(entered, undefined);
+                yield* Deferred.await(resume);
+                return correctionReply();
+              }),
+            ),
+          ),
+        );
+      }
+    }),
+);
