@@ -589,7 +589,7 @@ const make = Effect.gen(function* () {
               metadata(next),
             );
           }
-          yield* sql`UPDATE chef_decisions SET payload_json=${yield* encodeJson(next)},family_key=${next.memory ? firstKey : next.id},state=${revisions.length ? "revising" : "pending"} WHERE id=${old.id}`;
+          yield* sql`UPDATE chef_decisions SET payload_json=${yield* encodeJson(next)},family_key=${next.memory ? (firstKey ?? next.id) : next.id},state=${revisions.length ? "revising" : "pending"} WHERE id=${old.id}`;
           yield* sql`UPDATE chef_dossiers SET state='waiting',subject_version=${item.subjectVersion},error=NULL,updated_at=${yield* now} WHERE id=${d.id}`;
           return;
         }

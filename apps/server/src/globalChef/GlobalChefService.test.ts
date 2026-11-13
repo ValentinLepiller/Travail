@@ -291,6 +291,67 @@ it.effect(
     }).pipe(Effect.provide(layer())),
 );
 
+it.effect.each(["fact", "rule"] as const)(
+  "a requested change to a %s memory proposal returns to approval without saving it",
+  (kind) => {
+    let generations = 0;
+    const draft: ChefMemoryDraft = {
+      ...memory,
+      kind,
+      text:
+        kind === "rule"
+          ? "Ignorer les confirmations de réservation Studio Bleu."
+          : "Les confirmations Studio Bleu sont des courriels informatifs.",
+      topic: "Confirmations Studio Bleu",
+      action: kind === "rule" ? "ignore" : null,
+    };
+    return Effect.gen(function* () {
+      const service = yield* Chef.GlobalChefService,
+        requests = yield* Requests.AgentRequestService;
+      yield* seed();
+      yield* enable;
+      yield* service.processNext();
+      const [first] = yield* requests.list();
+      yield* requests.respond({
+        id: first!.id,
+        expectedVersion: first!.version,
+        decision: "revise",
+        text: "Propose une phrase à mémoriser pour ces confirmations.",
+      });
+      yield* service.processNext();
+      const [revised] = yield* requests.list();
+      expect(revised).toMatchObject({
+        id: first!.id,
+        status: "pending",
+        chef: { action: "remember", memoryOnly: true, memory: draft },
+      });
+      expect((yield* service.read({ id: "alpha" })).dossier.state).toBe("waiting");
+      expect((yield* service.memory({})).memories).toHaveLength(0);
+      expect(yield* (yield* Tasks.WorkTaskService).list()).toHaveLength(0);
+      yield* requests.respond({
+        id: revised!.id,
+        expectedVersion: revised!.version,
+        decision: "accept",
+        remember: true,
+        text: "",
+      });
+      yield* service.processNext();
+      expect((yield* service.memory({})).memories[0]?.text).toBe(draft.text);
+      expect(yield* (yield* Tasks.WorkTaskService).list()).toHaveLength(0);
+    }).pipe(
+      Effect.provide(
+        layer(() =>
+          Effect.sync(() =>
+            ++generations === 1
+              ? reply({ kind: "ignore", memory: null })
+              : reply({ kind: "remember", memory: draft }),
+          ),
+        ),
+      ),
+    );
+  },
+);
+
 it.effect("a stale subject approval has no task or memory side effects", () =>
   Effect.gen(function* () {
     const service = yield* Chef.GlobalChefService,
