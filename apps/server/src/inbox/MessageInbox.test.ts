@@ -24,6 +24,7 @@ const slack = {
   ts: "1793278000.000001",
   threadTs: "1793277990.000001",
   text: "Une réponse Slack",
+  files: [{ id: "F123", name: "Plan.png", mimeType: "image/png" }],
 };
 const layer = Inbox.layer.pipe(Layer.provideMerge(Sqlite.layerMemory));
 

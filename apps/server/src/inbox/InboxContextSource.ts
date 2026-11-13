@@ -93,7 +93,9 @@ const make = Effect.gen(function* () {
         env: { ...process.env, CODEX_HOME: collector.codexHome },
         stdin: yield* encodeInput({
           source,
-          ...(inspect ? { inspect: true, ...(query ? { query } : {}) } : {}),
+          ...(inspect
+            ? { inspect: true, attachmentsDir: config.attachmentsDir, ...(query ? { query } : {}) }
+            : {}),
           ...(collector.linkId ? { linkId: collector.linkId } : {}),
         }).pipe(
           Effect.mapError((cause) => new InboxContextSourceError({ reason: "format", cause })),

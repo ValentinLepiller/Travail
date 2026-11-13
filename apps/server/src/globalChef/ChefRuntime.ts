@@ -6,6 +6,7 @@ import {
   type ChefDossier,
   type ChefSettings,
   type InboxSource,
+  type ChatImageAttachment,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -28,6 +29,7 @@ export class ChefRuntime extends Context.Service<
     readonly generate: (
       settings: typeof ChefSettings.Type,
       prompt: string,
+      attachments?: ReadonlyArray<ChatImageAttachment>,
     ) => Effect.Effect<string, ChefError>;
     readonly ensureDossier: (
       settings: typeof ChefSettings.Type,
@@ -59,20 +61,22 @@ export const layer = Layer.effect(
         sources
           .inspect(source, query)
           .pipe(Effect.mapError((cause) => new ChefError({ reason: "storage", cause }))),
-      generate: (settings, prompt) =>
+      generate: (settings, prompt, attachments) =>
         Effect.gen(function* () {
           const { modelSelection, projectId } = settings;
           if (!modelSelection || !projectId)
             return yield* new ChefError({ reason: "configuration" });
           const instance = yield* registry.getInstance(modelSelection.instanceId);
           if (!instance?.enabled) return yield* new ChefError({ reason: "configuration" });
+          if (attachments?.length && instance.driverKind !== "codex")
+            return yield* new ChefError({ reason: "configuration" });
           const [project] = yield* sql<{
             cwd: string;
           }>`SELECT workspace_root AS cwd FROM projection_projects
         WHERE project_id=${projectId} AND deleted_at IS NULL`;
           if (!project) return yield* new ChefError({ reason: "configuration" });
           const reply = yield* generation
-            .generateChatReply({ cwd: project.cwd, modelSelection, prompt })
+            .generateChatReply({ cwd: project.cwd, modelSelection, prompt, attachments })
             .pipe(
               Effect.mapError((cause) => new ChefError({ reason: "model", cause })),
               Effect.timeout("120 seconds"),

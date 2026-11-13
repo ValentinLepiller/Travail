@@ -11,7 +11,7 @@ for await (const chunk of process.stdin) {
   raw += String(chunk);
   if (raw.length > 150_000) throw new Error("Context input too large");
 }
-const { source, linkId, inspect, query } = Schema.decodeSync(
+const { source, linkId, inspect, query, attachmentsDir } = Schema.decodeSync(
   Schema.fromJsonString(InboxContextReadInput),
 )(raw);
 const client = await openNativeApps();
@@ -29,7 +29,8 @@ try {
       | "slack.searchAll"
       | "slack.workspaces"
       | "slack.read"
-      | "slack.readChannel",
+      | "slack.readChannel"
+      | "slack.file",
     args: Record<string, unknown>,
   ) =>
     connectorData(
@@ -61,7 +62,9 @@ try {
   }
   console.log(
     JSON.stringify(
-      inspect ? await inspectSource(source, call, query) : await readSourceContext(source, call),
+      inspect
+        ? await inspectSource(source, call, query, attachmentsDir)
+        : await readSourceContext(source, call),
     ),
   );
 } catch {

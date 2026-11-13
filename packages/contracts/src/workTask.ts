@@ -28,6 +28,15 @@ export const SlackTaskMessage = Schema.Struct({
   authorId: Schema.String,
   authorName: Schema.optionalKey(Schema.String),
   text: Schema.String.check(Schema.isMaxLength(100_000)),
+  files: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        id: Schema.String.check(Schema.isPattern(/^F[A-Z0-9]+$/)),
+        name: Schema.NonEmptyString,
+        mimeType: Schema.NonEmptyString,
+      }),
+    ).check(Schema.isMaxLength(100)),
+  ),
 });
 export type SlackTaskMessage = typeof SlackTaskMessage.Type;
 export const WorkTaskType = Schema.Struct({

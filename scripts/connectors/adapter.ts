@@ -16,6 +16,7 @@ const operations = {
   "slack.channels": "slack.slack_list_user_channels",
   "slack.readChannel": "slack.slack_read_channel",
   "slack.read": "slack.slack_read_thread",
+  "slack.file": "slack.slack_read_file",
   "slack.createDraft": "slack.slack_send_message_draft",
   "slack.send": "slack.slack_send_message",
 } as const;

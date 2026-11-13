@@ -5,6 +5,7 @@ import { callConnector, connectorData } from "../../../scripts/connectors/adapte
 import { SlackCollectionInput, acceptsSlackMessage } from "../src/workTasks/slackTaskRules.ts";
 import { collectContext, type ContextConnectorCall } from "../src/inbox/readSourceContext.ts";
 import { parseSlackSearchPage } from "../src/workTasks/slackSearchPage.ts";
+import { readSlackMessage } from "../src/inbox/readSlackMessage.ts";
 
 let input = "";
 for await (const chunk of process.stdin) {
@@ -89,11 +90,15 @@ try {
           },
           message,
         ));
-    messages.push(
-      needed
-        ? { ...message, context: await collectContext({ kind: "slack", message }, call) }
-        : message,
-    );
+    if (!needed) {
+      messages.push(message);
+      continue;
+    }
+    const complete = await readSlackMessage(message, call);
+    messages.push({
+      ...complete,
+      context: await collectContext({ kind: "slack", message: complete }, call),
+    });
   }
   console.log(JSON.stringify({ messages, nextCursor: page.nextCursor }));
 } catch {

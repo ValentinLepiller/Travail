@@ -59,6 +59,7 @@ it.effect(
         source: target,
         linkId: "existing-account",
         inspect: true,
+        attachmentsDir: config.attachmentsDir,
         query: "repli",
       });
       expect(

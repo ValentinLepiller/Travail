@@ -2047,3 +2047,44 @@ it.effect(
       }
     }),
 );
+
+it.effect("attaches recovered Slack images with provenance to the Chef decision", () => {
+  const image = {
+    type: "image" as const,
+    id: "slack-11111111-1111-1111-1111-111111111111",
+    name: "Plan.png",
+    mimeType: "image/png",
+    sizeBytes: 68,
+  };
+  let received = false;
+  return Effect.gen(function* () {
+    yield* seed();
+    yield* enable;
+    yield* (yield* Chef.GlobalChefService).processNext();
+    expect(received).toBe(true);
+    expect(yield* (yield* Tasks.WorkTaskService).list()).toHaveLength(0);
+  }).pipe(
+    Effect.provide(
+      layer(
+        (_, prompt, attachments) =>
+          Effect.sync(() => {
+            expect(attachments).toEqual([image]);
+            expect(prompt).toContain('"messageTs":"1794335695.576729"');
+            expect(prompt).toContain('"fileId":"F123"');
+            received = true;
+            return reply({ kind: "ignore", memory: null });
+          }),
+        undefined,
+        undefined,
+        () =>
+          Effect.succeed({
+            status: "ready",
+            checkedAt: "now",
+            text: "Arnaud transfère Carlos",
+            truncated: false,
+            images: [{ messageTs: "1794335695.576729", fileId: "F123", attachment: image }],
+          }),
+      ),
+    ),
+  );
+});

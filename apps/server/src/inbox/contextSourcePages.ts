@@ -1,4 +1,4 @@
-import { GmailTaskMessage, InboxSource } from "@t3tools/contracts";
+import { ChatImageAttachment, GmailTaskMessage, InboxSource } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { parseGmailMessage } from "../workTasks/gmailSearchPage.ts";
 
@@ -7,6 +7,7 @@ export const InboxContextReadInput = Schema.Struct({
   linkId: Schema.optionalKey(Schema.String),
   inspect: Schema.optionalKey(Schema.Boolean),
   query: Schema.optionalKey(Schema.NonEmptyString.check(Schema.isMaxLength(300))),
+  attachmentsDir: Schema.optionalKey(Schema.NonEmptyString),
 });
 
 const decodeSnippet = Schema.decodeUnknownSync(
@@ -83,15 +84,22 @@ export function parseSlackContext(
         );
     if (!match) throw new Error("Unknown Slack context layout");
     let text = match[4]!.replace(/\n\nNo thread messsages\s*$/, "").replace(/\n$/, "");
+    const files = [...text.matchAll(/^Files: (.*)$/gm)].flatMap((line) =>
+      [...line[1]!.matchAll(/(?:^|, )(.+?) \(ID: (F[A-Z0-9]+), ([^,\s]+), [^)]+\)/g)].map(
+        (file) => ({ id: file[2]!, name: file[1]!, mimeType: file[3]! }),
+      ),
+    );
+    const { files: _files, ...original } = target;
     return validateSource({
       kind: "slack",
       message: {
-        ...target,
+        ...original,
         authorId: match[2],
         authorName: match[1],
         ts: match[3],
         threadTs: threaded ? target.threadTs : match[3],
         text,
+        ...(files.length ? { files } : {}),
       },
     });
   });
@@ -108,5 +116,14 @@ export const SourceInspection = Schema.Struct({
   checkedAt: Schema.String,
   text: Schema.String.check(Schema.isMaxLength(12_000)),
   truncated: Schema.Boolean,
+  images: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        messageTs: Schema.String,
+        fileId: Schema.String,
+        attachment: ChatImageAttachment,
+      }),
+    ).check(Schema.isMaxLength(4)),
+  ),
 });
 export type SourceInspection = typeof SourceInspection.Type;
