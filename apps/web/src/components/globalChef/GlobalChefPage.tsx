@@ -404,7 +404,7 @@ export function ChefDecisionsView({
           ? !["pending", "revision"].includes(r.status)
           : ["pending", "revision"].includes(r.status)),
     )
-    .toSorted((a, b) => b.createdAt.localeCompare(a.createdAt));
+    .toSorted((a, b) => a.createdAt.localeCompare(b.createdAt));
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
       <section

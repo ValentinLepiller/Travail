@@ -320,4 +320,4 @@ Vue `/chef` : cartes de décisions au premier plan, discussion liée ouverte à 
 
 Mémoire par contexte, phrase exacte présentée avant consentement : Action ne mémorise rien ; Action + mémoriser conserve seulement la règle approuvée. Consultation, correction et désactivation disponibles. Installé avec migration90 ; 158 tests serveur, 45 client et 12 permissions réussis, typages sans erreur TypeScript (diagnostics Effect hérités côté serveur), builds et smoke compilé isolé validés, simplify local en trois passes. Aucun contrôle visuel réel revendiqué. Preuves privées : `chef-global-20261112`.
 
-Chef : contexte collecté et échanges actuels relus avant proposition, recherches ciblées Slack/Gmail et tâches/discussions terminées comprises ; engagements implicites pris en compte.
+Chef : contexte collecté et échanges actuels relus avant proposition, recherches ciblées Slack/Gmail et tâches/discussions terminées comprises ; engagements implicites pris en compte. Cartes de décisions de la plus ancienne à la plus récente.
