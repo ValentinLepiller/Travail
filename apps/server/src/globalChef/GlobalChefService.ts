@@ -458,7 +458,7 @@ const make = Effect.gen(function* () {
       action: null,
       context: needsClarification
         ? `Dans Travail, le sujet « ${first.subjectTitle} » attend une précision. Le Chef ne peut pas proposer l’action sans l’information demandée.`
-        : `Dans Travail, le sujet « ${first.subjectTitle} »${decision.items.length > 1 ? ` et ${decision.items.length - 1} autres sujets` : ""} attend une décision. ${memoryOnly ? "Le Chef propose de conserver un fait ; seule une mémorisation explicite l’ajoutera à sa mémoire." : "Le Chef demande ton accord pour les actions détaillées ci-dessous."}`,
+        : `Dans Travail, le sujet « ${first.subjectTitle} »${decision.items.length > 1 ? ` et ${decision.items.length - 1} autres sujets` : ""} attend une décision. ${memoryOnly ? "Le Chef propose une phrase à mémoriser ; seule ta validation explicite l’ajoutera à sa mémoire." : "Le Chef demande ton accord pour les actions détaillées ci-dessous."}`,
       question: needsClarification
         ? (first.plan.question ?? "Le Chef doit d’abord proposer une action pour ce sujet.")
         : decision.items.length === 1
@@ -537,7 +537,11 @@ const make = Effect.gen(function* () {
       const target = { ...context.target, projectId: item.projectId, chantierId: item.chantierId };
       if (item.plan.memory) {
         yield* validateMemory(item.plan.memory, target);
-        if (item.plan.memory.kind === "rule" && item.plan.memory.action !== item.plan.kind)
+        if (
+          item.plan.memory.kind === "rule" &&
+          item.plan.kind !== "remember" &&
+          item.plan.memory.action !== item.plan.kind
+        )
           return yield* new ChefError({ reason: "format" });
       }
       if (d.requestId) {
@@ -560,9 +564,11 @@ const make = Effect.gen(function* () {
             revisions,
             policyVersion: proposalPolicyVersion,
             memory:
-              firstKey && items.every((i) => familyKey(i.plan) === firstKey)
+              items.length === 1 && items[0]!.plan.kind === "remember"
                 ? items[0]!.plan.memory
-                : null,
+                : firstKey && items.every((i) => familyKey(i.plan) === firstKey)
+                  ? items[0]!.plan.memory
+                  : null,
           };
           if (!revisions.length) {
             yield* requests.updateChef(
@@ -757,14 +763,17 @@ const make = Effect.gen(function* () {
         const r = yield* request(decision.id);
         yield* sql.withTransaction(
           Effect.gen(function* () {
-            const revise = r.status === "revision" || r.status === "answered";
+            const revise =
+              r.status === "revision" ||
+              r.status === "answered" ||
+              (r.status === "rejected" && r.response.trim().length > 0);
             for (const item of decision.items) {
               yield* message(
                 item.dossierId,
                 `decision:${r.id}:${r.version}:${item.dossierId}`,
                 revise ? "user" : "event",
                 revise
-                  ? `${r.status === "answered" ? "Réponse de Valentin" : "Modification demandée par Valentin"} : ${r.response}`
+                  ? `${r.status === "answered" ? "Réponse de Valentin" : r.status === "rejected" ? "Refus de Valentin et correction demandée" : "Modification demandée par Valentin"} : ${r.response}`
                   : `Proposition ${r.status === "rejected" ? "refusée" : "archivée"}.${r.response ? ` ${r.response}` : ""}`,
               );
               yield* sql`UPDATE chef_dossiers SET state=${revise ? "pending" : "waiting"},next_at='',error=NULL,updated_at=${yield* now}
@@ -788,6 +797,7 @@ const make = Effect.gen(function* () {
         const decision = yield* decodeDecision(row.payload_json);
         const r = decision.rule ? null : yield* request(decision.id);
         let succeeded = 0;
+        const completedItems: Item[] = [];
         for (const item of decision.items) {
           if (!(yield* settings()).enabled) return;
           const applied = yield* applyItem(decision, item).pipe(
@@ -810,7 +820,10 @@ const make = Effect.gen(function* () {
                 }),
             }),
           );
-          if (applied) succeeded++;
+          if (applied) {
+            succeeded++;
+            completedItems.push(item);
+          }
         }
         yield* sql.withTransaction(
           Effect.gen(function* () {
@@ -827,6 +840,18 @@ const make = Effect.gen(function* () {
                   createdAt: at,
                   updatedAt: at,
                 });
+            }
+            if (r?.response.trim()) {
+              for (const item of completedItems) {
+                yield* message(
+                  item.dossierId,
+                  `feedback:${decision.id}:${item.dossierId}`,
+                  "user",
+                  `Commentaire de Valentin après l’action acceptée : ${r.response}`,
+                );
+                yield* sql`UPDATE chef_dossiers SET state='pending',next_at='',error=NULL,updated_at=${yield* now}
+                  WHERE id=${item.dossierId} AND state!='closed'`;
+              }
             }
             if (r && r.actionStatus === "idle")
               yield* requests.completeChef({
@@ -876,7 +901,10 @@ const make = Effect.gen(function* () {
           id: string;
         }>`SELECT d.id FROM chef_dossiers d JOIN inbox_subjects s ON s.id=d.subject_id
         WHERE d.state IN ('pending','error','processing') AND d.next_at<=${at} AND ${lunaReady}
-        ORDER BY d.sequence LIMIT 1`;
+        ORDER BY CASE
+          WHEN EXISTS(SELECT 1 FROM chef_dossier_messages m WHERE m.dossier_id=d.id AND m.role IN ('user','chef')) THEN 0
+          WHEN EXISTS(SELECT 1 FROM agent_requests r WHERE r.id=d.request_id AND json_extract(r.payload_json,'$.chef.reviewPending')=1) THEN 1
+          ELSE 2 END,d.sequence LIMIT 1`;
         if (!row) return;
         const d = yield* dossier(row.id);
         yield* sql`UPDATE chef_dossiers SET state='processing',subject_version=(SELECT action_version FROM inbox_subjects WHERE id=${d.subjectId}),updated_at=${at} WHERE id=${d.id}`;
@@ -944,7 +972,7 @@ const make = Effect.gen(function* () {
                 (plan.threadId && !thread) ||
                 (plan.kind === "create" && (!plan.title.trim() || plan.taskId)) ||
                 (task?.agentThreadId && plan.threadId && task.agentThreadId !== plan.threadId) ||
-                (plan.kind === "remember" && (!plan.memory || plan.memory.kind !== "fact")) ||
+                (plan.kind === "remember" && !plan.memory) ||
                 (context.subject.taskId && plan.kind === "create")
               )
                 return yield* new ChefError({ reason: "format" });

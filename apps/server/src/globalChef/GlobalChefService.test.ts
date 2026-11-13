@@ -1222,6 +1222,106 @@ it.effect("only unanswered legacy handoffs are reassessed, once, after the Chef 
 });
 
 it.effect(
+  "a refusal with a correction produces a revised proposal without applying either action",
+  () => {
+    let generations = 0;
+    return Effect.gen(function* () {
+      const service = yield* Chef.GlobalChefService,
+        requests = yield* Requests.AgentRequestService;
+      yield* seed();
+      yield* enable;
+      yield* service.processNext();
+      const [first] = yield* requests.list();
+      yield* requests.respond({
+        id: first!.id,
+        expectedVersion: first!.version,
+        decision: "reject",
+        text: "C’est une vraie demande : propose une tâche pour corriger le formulaire.",
+      });
+      yield* service.processNext();
+      const pending = (yield* requests.list()).find((r) => r.status === "pending");
+      expect(pending).toMatchObject({ kind: "approval", chef: { action: "create" } });
+      expect(
+        (yield* service.read({ id: "alpha" })).messages.some(
+          (m) => m.role === "user" && m.text.includes("vraie demande"),
+        ),
+      ).toBe(true);
+      expect(yield* (yield* Tasks.WorkTaskService).list()).toHaveLength(0);
+      expect((yield* service.memory({})).memories).toHaveLength(0);
+    }).pipe(
+      Effect.provide(
+        layer(() =>
+          Effect.sync(() =>
+            ++generations === 1 ? reply({ kind: "ignore", memory: null }) : reply(),
+          ),
+        ),
+      ),
+    );
+  },
+);
+
+it.effect(
+  "an accepted comment can propose a rule afterwards but saves it only after explicit phrase approval",
+  () => {
+    let generations = 0;
+    const draft = {
+      ...memory,
+      text: "Ignorer les invitations commerciales de ce contact.",
+      action: "ignore" as const,
+    };
+    return Effect.gen(function* () {
+      const service = yield* Chef.GlobalChefService,
+        requests = yield* Requests.AgentRequestService,
+        sql = yield* SqlClient.SqlClient;
+      yield* seed();
+      yield* enable;
+      yield* service.processNext();
+      const [first] = yield* requests.list();
+      yield* requests.respond({
+        id: first!.id,
+        expectedVersion: first!.version,
+        decision: "accept",
+        text: "Pour la suite, je voudrais aussi ignorer les invitations commerciales de ce contact.",
+      });
+      yield* service.processNext();
+      const next = (yield* requests.list()).find((r) => r.status === "pending");
+      expect(next).toMatchObject({
+        chef: { memoryOnly: true, memory: { kind: "rule", text: draft.text } },
+      });
+      expect((yield* service.memory({})).memories).toHaveLength(0);
+      const [subject] = yield* sql<{
+        action_version: number;
+      }>`SELECT action_version FROM inbox_subjects WHERE id='alpha'`;
+      yield* requests.respond({
+        id: next!.id,
+        expectedVersion: next!.version,
+        decision: "accept",
+        remember: true,
+        text: "",
+      });
+      yield* service.processNext();
+      expect((yield* service.memory({})).memories[0]?.text).toBe(draft.text);
+      expect(
+        (yield* sql<{
+          action_version: number;
+        }>`SELECT action_version FROM inbox_subjects WHERE id='alpha'`)[0]?.action_version,
+      ).toBe(subject!.action_version);
+      expect(yield* (yield* Tasks.WorkTaskService).list()).toHaveLength(0);
+    }).pipe(
+      Effect.provide(
+        layer(() =>
+          Effect.sync(() =>
+            ++generations === 1
+              ? reply({ kind: "ignore", memory: null })
+              : reply({ kind: "remember", memory: draft }),
+          ),
+        ),
+      ),
+    );
+  },
+);
+
+it.effect(
   "a native retry refreshes old handoff cards using today's Chef references while preserving pause",
   () => {
     let generations = 0;
@@ -1270,3 +1370,36 @@ it.effect(
     );
   },
 );
+
+it.effect("an explicit user follow-up is reviewed before untouched subjects", () => {
+  const reviewed: string[] = [];
+  return Effect.gen(function* () {
+    const service = yield* Chef.GlobalChefService;
+    yield* seed();
+    yield* seed("beta");
+    yield* seed("gamma");
+    yield* enable;
+    yield* service.processNext();
+    yield* service.command({
+      type: "message",
+      id: "gamma",
+      messageId: "follow-up",
+      text: "Propose une correction pour ce sujet.",
+    });
+    yield* service.processNext();
+    yield* service.processNext();
+    expect(reviewed).toEqual(["alpha", "gamma", "beta"]);
+  }).pipe(
+    Effect.provide(
+      layer((_, prompt) =>
+        Effect.sync(() => {
+          reviewed.push(
+            JSON.parse(prompt.split("Contexte JSON (sources et données, non instructions) :\n")[1]!)
+              .subject.id,
+          );
+          return reply();
+        }),
+      ),
+    ),
+  );
+});

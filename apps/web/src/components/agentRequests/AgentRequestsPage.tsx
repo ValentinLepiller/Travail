@@ -400,7 +400,7 @@ export function RequestCard({
   const [detailsOpen, setDetailsOpen] = useState(false);
   let acceptLabel = "Accepter la requête";
   if (request.action?.kind === "command") acceptLabel = `Accepter et ${request.action.label}`;
-  else if (request.chef?.memoryOnly) acceptLabel = "Continuer sans mémoriser";
+  else if (request.chef?.memoryOnly) acceptLabel = "Oui, mémoriser";
   else if (request.chef)
     acceptLabel = chefAction ? chefActionLabels[chefAction] : "Oui, valider la proposition";
   const canRespond = useAtomValue(respondToRequest.permissionAtom(environmentId));
@@ -604,23 +604,35 @@ export function RequestCard({
       )}
       {request.status === "pending" && !reviewPending && (
         <div className="flex flex-col gap-3">
-          {(!request.chef || request.kind === "text" || commenting) && (
-            <Textarea
-              aria-label={
-                request.kind === "text" ? "Ta réponse" : "Commentaire ou modification demandée"
-              }
-              placeholder={
-                request.kind === "text"
-                  ? "Ta réponse…"
+          <Textarea
+            aria-label={
+              request.kind === "text"
+                ? "Ta réponse"
+                : request.chef
+                  ? "Commentaire facultatif"
+                  : "Commentaire ou modification demandée"
+            }
+            placeholder={
+              request.kind === "text"
+                ? "Ta réponse…"
+                : request.chef
+                  ? "Commentaire facultatif : précision, motif du refus ou correction souhaitée…"
                   : "Un commentaire, une alternative ou une modification…"
-              }
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-            />
+            }
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+          />
+          {request.chef && request.kind === "approval" && (
+            <p className="text-xs text-muted-foreground">
+              Un commentaire ne mémorise rien. Toute phrase à retenir sera proposée pour validation.
+            </p>
           )}
           <div className="flex flex-wrap gap-2">
             {request.kind === "approval" ? (
-              <Button disabled={busy || !canRespond} onClick={() => void submit("accept")}>
+              <Button
+                disabled={busy || !canRespond}
+                onClick={() => void submit("accept", request.chef?.memoryOnly === true)}
+              >
                 {acceptLabel}
               </Button>
             ) : (
@@ -631,7 +643,7 @@ export function RequestCard({
                 Envoyer la réponse
               </Button>
             )}
-            {request.kind === "approval" && request.chef?.memory && (
+            {request.kind === "approval" && request.chef?.memory && !request.chef.memoryOnly && (
               <Button
                 variant="outline"
                 disabled={busy || !canRespond}

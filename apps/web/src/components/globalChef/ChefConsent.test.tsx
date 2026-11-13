@@ -391,3 +391,40 @@ it.effect("a proposal can be refused directly without approving it or memorizing
     ]);
   }),
 );
+
+it.effect.each(["accept", "reject"] as const)(
+  "an optional comment accompanies %s without any implicit memory consent",
+  (decision) =>
+    Effect.gen(function* () {
+      yield* setup;
+      yield* render();
+      yield* Effect.promise(async () => {
+        await act(async () => {
+          const input = host.querySelector('textarea[aria-label="Commentaire facultatif"]')!;
+          expect(input).not.toBeNull();
+          const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+          set.call(input, "Pourquoi ce choix, et la correction souhaitée.");
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+      });
+      yield* click(decision === "accept" ? "Oui, ignorer le sujet" : "Non");
+      expect(calls[0]).toMatchObject({
+        decision,
+        text: "Pourquoi ce choix, et la correction souhaitée.",
+        remember: false,
+      });
+    }),
+);
+
+it.effect("a standalone memory proposal asks yes or no about the exact displayed phrase", () =>
+  Effect.gen(function* () {
+    yield* setup;
+    yield* render({
+      ...original,
+      chef: { ...original.chef!, action: "remember", memoryOnly: true },
+    });
+    expect(host.querySelector("blockquote")?.textContent).toBe(phrase);
+    yield* click("Oui, mémoriser");
+    expect(calls[0]).toMatchObject({ decision: "accept", remember: true });
+  }),
+);
