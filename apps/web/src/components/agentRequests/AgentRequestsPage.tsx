@@ -544,8 +544,12 @@ export function RequestCard({
       </div>
       {request.chef ? (
         <>
-          {request.chef.summary && (
-            <p className="text-sm text-muted-foreground">{request.chef.summary}</p>
+          {(reviewPending || request.chef.summary) && (
+            <p className="text-sm text-muted-foreground">
+              {reviewPending
+                ? "Le contexte doit être revérifié avant validation. Tu peux déjà envoyer une précision, refuser ou archiver."
+                : request.chef.summary}
+            </p>
           )}
           <details onToggle={(event) => setDetailsOpen(event.currentTarget.open)}>
             <summary className="cursor-pointer text-sm text-muted-foreground">
@@ -602,18 +606,18 @@ export function RequestCard({
             : actionLabels[request.actionStatus]}
         </p>
       )}
-      {request.status === "pending" && !reviewPending && (
+      {request.status === "pending" && (
         <div className="flex flex-col gap-3">
           <Textarea
             aria-label={
-              request.kind === "text"
+              request.kind === "text" && !reviewPending
                 ? "Ta réponse"
                 : request.chef
                   ? "Commentaire facultatif"
                   : "Commentaire ou modification demandée"
             }
             placeholder={
-              request.kind === "text"
+              request.kind === "text" && !reviewPending
                 ? "Ta réponse…"
                 : request.chef
                   ? "Commentaire facultatif : précision, motif du refus ou correction souhaitée…"
@@ -622,79 +626,21 @@ export function RequestCard({
             value={text}
             onChange={(e) => setText(e.target.value)}
           />
-          {request.chef && request.kind === "approval" && (
+          {request.chef && (request.kind === "approval" || reviewPending) && (
             <p className="text-xs text-muted-foreground">
               Un commentaire ne mémorise rien. Toute phrase à retenir sera proposée pour validation.
             </p>
           )}
           <div className="flex flex-wrap gap-2">
-            {request.kind === "approval" ? (
-              <Button
-                disabled={busy || !canRespond}
-                onClick={() => void submit("accept", request.chef?.memoryOnly === true)}
-              >
-                {acceptLabel}
-              </Button>
-            ) : (
-              <Button
-                disabled={busy || !canRespond || !text.trim()}
-                onClick={() => void submit("answer")}
-              >
-                Envoyer la réponse
-              </Button>
-            )}
-            {request.kind === "approval" && request.chef?.memory && !request.chef.memoryOnly && (
-              <Button
-                variant="outline"
-                disabled={busy || !canRespond}
-                onClick={() => void submit("accept", true)}
-              >
-                {request.chef.memoryOnly
-                  ? "Mémoriser"
-                  : chefAction
-                    ? chefRememberLabels[chefAction]
-                    : "Valider et mémoriser"}
-              </Button>
-            )}
-            {request.chef ? (
+            {reviewPending ? (
               <>
-                {request.kind === "approval" && (
-                  <Button
-                    variant="outline"
-                    disabled={busy || !canRespond}
-                    onClick={() => void submit("reject")}
-                  >
-                    Non
-                  </Button>
-                )}
-                {commenting && (
-                  <Button
-                    variant="outline"
-                    disabled={busy || !canRespond || !text.trim()}
-                    onClick={() => void submit("revise")}
-                  >
-                    Demander une modification
-                  </Button>
-                )}
-                <Menu>
-                  <MenuTrigger render={<Button variant="ghost" />} disabled={busy || !canRespond}>
-                    Autres actions
-                  </MenuTrigger>
-                  <MenuPopup align="end">
-                    {request.kind === "approval" && (
-                      <MenuItem onClick={() => setCommenting(true)}>
-                        Modifier la proposition
-                      </MenuItem>
-                    )}
-                    {request.kind === "text" && (
-                      <MenuItem onClick={() => void submit("reject")}>Refuser</MenuItem>
-                    )}
-                    <MenuItem onClick={() => void submit("ignore")}>Archiver la demande</MenuItem>
-                  </MenuPopup>
-                </Menu>
-              </>
-            ) : (
-              <>
+                <Button
+                  variant="outline"
+                  disabled={busy || !canRespond || !text.trim()}
+                  onClick={() => void submit("revise")}
+                >
+                  Envoyer une précision
+                </Button>
                 <Button
                   variant="outline"
                   disabled={busy || !canRespond}
@@ -704,23 +650,114 @@ export function RequestCard({
                 </Button>
                 <Button
                   variant="ghost"
-                  disabled={busy || !canRespond || ((!request.chef || commenting) && !text.trim())}
-                  onClick={() =>
-                    request.chef && !commenting ? setCommenting(true) : void submit("revise")
-                  }
-                >
-                  {request.chef && !commenting
-                    ? "Modifier la proposition"
-                    : "Demander une modification"}
-                </Button>
-                <Button
-                  variant="ghost"
                   disabled={busy || !canRespond}
                   onClick={() => void submit("ignore")}
-                  title="Archiver sans envoyer de réponse à l’agent"
                 >
-                  {request.chef ? "Archiver la demande" : "Ignorer"}
+                  Archiver
                 </Button>
+              </>
+            ) : (
+              <>
+                {request.kind === "approval" ? (
+                  <Button
+                    disabled={busy || !canRespond}
+                    onClick={() => void submit("accept", request.chef?.memoryOnly === true)}
+                  >
+                    {acceptLabel}
+                  </Button>
+                ) : (
+                  <Button
+                    disabled={busy || !canRespond || !text.trim()}
+                    onClick={() => void submit("answer")}
+                  >
+                    Envoyer la réponse
+                  </Button>
+                )}
+                {request.kind === "approval" &&
+                  request.chef?.memory &&
+                  !request.chef.memoryOnly && (
+                    <Button
+                      variant="outline"
+                      disabled={busy || !canRespond}
+                      onClick={() => void submit("accept", true)}
+                    >
+                      {chefAction ? chefRememberLabels[chefAction] : "Valider et mémoriser"}
+                    </Button>
+                  )}
+                {request.chef ? (
+                  <>
+                    {request.kind === "approval" && (
+                      <Button
+                        variant="outline"
+                        disabled={busy || !canRespond}
+                        onClick={() => void submit("reject")}
+                      >
+                        Non
+                      </Button>
+                    )}
+                    {commenting && (
+                      <Button
+                        variant="outline"
+                        disabled={busy || !canRespond || !text.trim()}
+                        onClick={() => void submit("revise")}
+                      >
+                        Demander une modification
+                      </Button>
+                    )}
+                    <Menu>
+                      <MenuTrigger
+                        render={<Button variant="ghost" />}
+                        disabled={busy || !canRespond}
+                      >
+                        Autres actions
+                      </MenuTrigger>
+                      <MenuPopup align="end">
+                        {request.kind === "approval" && (
+                          <MenuItem onClick={() => setCommenting(true)}>
+                            Modifier la proposition
+                          </MenuItem>
+                        )}
+                        {request.kind === "text" && (
+                          <MenuItem onClick={() => void submit("reject")}>Refuser</MenuItem>
+                        )}
+                        <MenuItem onClick={() => void submit("ignore")}>
+                          Archiver la demande
+                        </MenuItem>
+                      </MenuPopup>
+                    </Menu>
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      variant="outline"
+                      disabled={busy || !canRespond}
+                      onClick={() => void submit("reject")}
+                    >
+                      Refuser
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      disabled={
+                        busy || !canRespond || ((!request.chef || commenting) && !text.trim())
+                      }
+                      onClick={() =>
+                        request.chef && !commenting ? setCommenting(true) : void submit("revise")
+                      }
+                    >
+                      {request.chef && !commenting
+                        ? "Modifier la proposition"
+                        : "Demander une modification"}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      disabled={busy || !canRespond}
+                      onClick={() => void submit("ignore")}
+                      title="Archiver sans envoyer de réponse à l’agent"
+                    >
+                      {request.chef ? "Archiver la demande" : "Ignorer"}
+                    </Button>
+                  </>
+                )}
               </>
             )}
           </div>

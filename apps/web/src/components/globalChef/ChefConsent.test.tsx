@@ -235,6 +235,19 @@ const click = (label: string) =>
     });
   });
 
+const comment = (text: string) =>
+  Effect.promise(async () => {
+    await act(async () => {
+      const input = host.querySelector('textarea[aria-label="Commentaire facultatif"]')!;
+      expect(input).not.toBeNull();
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(
+        input,
+        text,
+      );
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  });
+
 it.effect(
   "shows the exact phrase before a one-off Action and never requests memorization implicitly",
   () =>
@@ -369,7 +382,7 @@ it.effect(
     }),
 );
 
-it.effect("an obsolete handoff queued for review cannot still be approved", () =>
+it.effect("a proposal queued for review cannot still be approved", () =>
   Effect.gen(function* () {
     yield* setup;
     yield* render({ ...original, chef: { ...original.chef!, reviewPending: true } });
@@ -398,15 +411,7 @@ it.effect.each(["accept", "reject"] as const)(
     Effect.gen(function* () {
       yield* setup;
       yield* render();
-      yield* Effect.promise(async () => {
-        await act(async () => {
-          const input = host.querySelector('textarea[aria-label="Commentaire facultatif"]')!;
-          expect(input).not.toBeNull();
-          const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
-          set.call(input, "Pourquoi ce choix, et la correction souhaitée.");
-          input.dispatchEvent(new Event("input", { bubbles: true }));
-        });
-      });
+      yield* comment("Pourquoi ce choix, et la correction souhaitée.");
       yield* click(decision === "accept" ? "Oui, ignorer le sujet" : "Non");
       expect(calls[0]).toMatchObject({
         decision,
@@ -427,4 +432,47 @@ it.effect("a standalone memory proposal asks yes or no about the exact displayed
     yield* click("Oui, mémoriser");
     expect(calls[0]).toMatchObject({ decision: "accept", remember: true });
   }),
+);
+
+it.effect.each(
+  (
+    [
+      ["approval", "revise"],
+      ["approval", "reject"],
+      ["approval", "ignore"],
+      ["text", "revise"],
+      ["text", "reject"],
+      ["text", "ignore"],
+    ] as const
+  ).map(([kind, decision]) => ({ kind, decision })),
+)(
+  "a $kind card under review still allows $decision without approval or memory consent",
+  ({ kind, decision }) =>
+    Effect.gen(function* () {
+      yield* setup;
+      yield* render({ ...original, kind, chef: { ...original.chef!, reviewPending: true } });
+      expect(host.textContent).toContain("revérifié avant validation");
+      yield* comment("Ce sujet est déjà terminé ; vérifie la discussion existante.");
+      yield* click(
+        decision === "revise"
+          ? "Envoyer une précision"
+          : decision === "reject"
+            ? "Refuser"
+            : "Archiver",
+      );
+      expect(calls).toEqual([
+        {
+          id: original.id,
+          expectedVersion: original.version,
+          decision,
+          text: "Ce sujet est déjà terminé ; vérifie la discussion existante.",
+          remember: false,
+        },
+      ]);
+      expect(
+        [...host.querySelectorAll("button")].some((b) =>
+          /mémoriser|Oui,/.test(b.textContent ?? ""),
+        ),
+      ).toBe(false);
+    }),
 );

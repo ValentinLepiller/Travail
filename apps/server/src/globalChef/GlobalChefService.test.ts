@@ -1669,3 +1669,49 @@ it.effect("a grouped legacy proposal stays under review until every case has fre
     expect((yield* requests.list())[0]?.chef?.reviewPending).toBe(false);
   }).pipe(Effect.provide(layer())),
 );
+it.effect.each(["revise", "reject", "ignore"] as const)(
+  "a human %s during reexamination supersedes the in-flight model answer",
+  (decision) => {
+    let calls = 0;
+    return Effect.gen(function* () {
+      const entered = yield* Deferred.make<void>();
+      const resume = yield* Deferred.make<void>();
+      const run = layer(() =>
+        Effect.gen(function* () {
+          if (++calls === 2) {
+            yield* Deferred.succeed(entered, undefined);
+            yield* Deferred.await(resume);
+          }
+          return reply({ memory: null });
+        }),
+      );
+      yield* Effect.gen(function* () {
+        yield* seed();
+        yield* enable;
+        const service = yield* Chef.GlobalChefService;
+        const requests = yield* Requests.AgentRequestService;
+        yield* service.processNext();
+        const first = (yield* requests.list())[0]!;
+        yield* service.command({ type: "retry", id: "alpha" });
+        const fiber = yield* service.processNext().pipe(Effect.forkChild);
+        yield* Deferred.await(entered);
+        yield* requests.respond({
+          id: first.id,
+          expectedVersion: first.version,
+          decision,
+          text: decision === "revise" ? "Ne crée rien, ce sujet est déjà traité." : "",
+          remember: false,
+        });
+        yield* Deferred.succeed(resume, undefined);
+        yield* Fiber.join(fiber);
+        const [current] = yield* requests.list();
+        expect(current?.status).toBe(
+          decision === "revise" ? "revision" : decision === "reject" ? "rejected" : "ignored",
+        );
+        expect(current?.version).toBe(first.version + 1);
+        expect(yield* requests.list()).toHaveLength(1);
+        expect(yield* (yield* Tasks.WorkTaskService).list()).toHaveLength(0);
+      }).pipe(Effect.provide(run));
+    });
+  },
+);

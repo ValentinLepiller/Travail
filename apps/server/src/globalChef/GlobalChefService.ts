@@ -934,6 +934,7 @@ const make = Effect.gen(function* () {
           let context = yield* loadContext(yield* loadSubject(d.subjectId));
           yield* runtime.ensureDossier(config, d);
           const userSequence = yield* lastUserMessage(d.id);
+          const requestVersion = d.requestId ? (yield* request(d.requestId)).version : null;
           const history = yield* read({ id: d.id });
           const checks: Array<{
             sourceId: string;
@@ -1028,7 +1029,8 @@ const make = Effect.gen(function* () {
                 !owner ||
                 current.actionVersion !== context.subject.actionVersion ||
                 current.closedAt ||
-                (yield* lastUserMessage(d.id)) !== userSequence
+                (yield* lastUserMessage(d.id)) !== userSequence ||
+                (d.requestId !== null && (yield* request(d.requestId)).version !== requestVersion)
               )
                 return yield* new ChefError({ reason: "conflict" });
               yield* message(d.id, `reply:${token}`, "assistant", answer.reply);
