@@ -42,6 +42,7 @@ import { Route as ChatTasksRouteImport } from './routes/_chat.tasks'
 import { Route as ChatRequestsRouteImport } from './routes/_chat.requests'
 import { Route as ChatPullRequestsRouteImport } from './routes/_chat.pull-requests'
 import { Route as ChatNewRouteImport } from './routes/_chat.new'
+import { Route as ChatModelsRouteImport } from './routes/_chat.models'
 import { Route as ChatInboxRouteImport } from './routes/_chat.inbox'
 import { Route as ChatChefsRouteImport } from './routes/_chat.chefs'
 import { Route as ChatChefRouteImport } from './routes/_chat.chef'
@@ -215,6 +216,11 @@ const ChatNewRoute = ChatNewRouteImport.update({
   path: '/new',
   getParentRoute: () => ChatRoute,
 } as any)
+const ChatModelsRoute = ChatModelsRouteImport.update({
+  id: '/models',
+  path: '/models',
+  getParentRoute: () => ChatRoute,
+} as any)
 const ChatInboxRoute = ChatInboxRouteImport.update({
   id: '/inbox',
   path: '/inbox',
@@ -265,6 +271,7 @@ export interface FileRoutesByFullPath {
   '/chef': typeof ChatChefRoute
   '/chefs': typeof ChatChefsRoute
   '/inbox': typeof ChatInboxRoute
+  '/models': typeof ChatModelsRoute
   '/new': typeof ChatNewRoute
   '/pull-requests': typeof ChatPullRequestsRoute
   '/requests': typeof ChatRequestsRoute
@@ -305,6 +312,7 @@ export interface FileRoutesByTo {
   '/chef': typeof ChatChefRoute
   '/chefs': typeof ChatChefsRoute
   '/inbox': typeof ChatInboxRoute
+  '/models': typeof ChatModelsRoute
   '/new': typeof ChatNewRoute
   '/pull-requests': typeof ChatPullRequestsRoute
   '/requests': typeof ChatRequestsRoute
@@ -348,6 +356,7 @@ export interface FileRoutesById {
   '/_chat/chef': typeof ChatChefRoute
   '/_chat/chefs': typeof ChatChefsRoute
   '/_chat/inbox': typeof ChatInboxRoute
+  '/_chat/models': typeof ChatModelsRoute
   '/_chat/new': typeof ChatNewRoute
   '/_chat/pull-requests': typeof ChatPullRequestsRoute
   '/_chat/requests': typeof ChatRequestsRoute
@@ -392,6 +401,7 @@ export interface FileRouteTypes {
     | '/chef'
     | '/chefs'
     | '/inbox'
+    | '/models'
     | '/new'
     | '/pull-requests'
     | '/requests'
@@ -432,6 +442,7 @@ export interface FileRouteTypes {
     | '/chef'
     | '/chefs'
     | '/inbox'
+    | '/models'
     | '/new'
     | '/pull-requests'
     | '/requests'
@@ -474,6 +485,7 @@ export interface FileRouteTypes {
     | '/_chat/chef'
     | '/_chat/chefs'
     | '/_chat/inbox'
+    | '/_chat/models'
     | '/_chat/new'
     | '/_chat/pull-requests'
     | '/_chat/requests'
@@ -749,6 +761,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatNewRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/_chat/models': {
+      id: '/_chat/models'
+      path: '/models'
+      fullPath: '/models'
+      preLoaderRoute: typeof ChatModelsRouteImport
+      parentRoute: typeof ChatRoute
+    }
     '/_chat/inbox': {
       id: '/_chat/inbox'
       path: '/inbox'
@@ -806,6 +825,7 @@ interface ChatRouteChildren {
   ChatChefRoute: typeof ChatChefRoute
   ChatChefsRoute: typeof ChatChefsRoute
   ChatInboxRoute: typeof ChatInboxRoute
+  ChatModelsRoute: typeof ChatModelsRoute
   ChatNewRoute: typeof ChatNewRoute
   ChatPullRequestsRoute: typeof ChatPullRequestsRoute
   ChatRequestsRoute: typeof ChatRequestsRoute
@@ -820,6 +840,7 @@ const ChatRouteChildren: ChatRouteChildren = {
   ChatChefRoute: ChatChefRoute,
   ChatChefsRoute: ChatChefsRoute,
   ChatInboxRoute: ChatInboxRoute,
+  ChatModelsRoute: ChatModelsRoute,
   ChatNewRoute: ChatNewRoute,
   ChatPullRequestsRoute: ChatPullRequestsRoute,
   ChatRequestsRoute: ChatRequestsRoute,

@@ -198,7 +198,11 @@ it.effect("changes the model for future launches while preserving an unfinished 
           options: [{ id: "reasoningEffort", value: "high" }],
         },
       });
-      yield* agents.command({ type: "save", config: updated });
+      yield* agents.command({
+        type: "model",
+        id: config.id,
+        modelSelection: updated.modelSelection,
+      });
       expect((yield* agents.list())[0]?.modelSelection).toEqual(updated.modelSelection);
       expect((yield* agents.list())[0]?.currentThreadId).toBe(threadId);
       expect(f.launchInputs[0]?.modelSelection).toEqual(config.modelSelection);

@@ -74,6 +74,12 @@ describe("RPC authorization scopes", () => {
     );
   });
 
+  it("requires operate access to edit a scheduled task model", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.scheduledTasksSetModel)).toBe(
+      AuthOrchestrationOperateScope,
+    );
+  });
+
   it("keeps webhook delivery logs, which hold request bodies, behind operate scope", () => {
     for (const method of [
       WS_METHODS.scheduledTasksListWebhookDeliveries,

@@ -9,6 +9,7 @@ import {
   MailIcon,
   ListTodoIcon,
   SettingsIcon,
+  SlidersHorizontalIcon,
   ChartNoAxesColumnIcon,
 } from "lucide-react";
 import type { EnvironmentId } from "@t3tools/contracts";
@@ -34,6 +35,7 @@ const destinations = [
   { to: "/chef", label: "Le Chef", Icon: CrownIcon },
   { to: "/pull-requests", label: "PR", Icon: PullRequestGlyph.pullRequest },
   { to: "/usage", label: "Usage", Icon: ChartNoAxesColumnIcon },
+  { to: "/models", label: "Modèles", Icon: SlidersHorizontalIcon },
   { to: "/settings", label: "Réglages", Icon: SettingsIcon },
 ] as const;
 
@@ -131,6 +133,7 @@ export function AppNavigation() {
                   "/requests",
                   "/tasks",
                   "/usage",
+                  "/models",
                   "/settings",
                   "/pull-requests",
                   "/status",

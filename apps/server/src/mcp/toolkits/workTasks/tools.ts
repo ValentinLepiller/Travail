@@ -24,6 +24,7 @@ import * as Tasks from "../../../workTasks/WorkTaskService.ts";
 import * as Collector from "../../../workTasks/SlackTaskCollector.ts";
 import { SlackCollectionError } from "../../../workTasks/SlackTaskSource.ts";
 import * as Threads from "../../../orchestration-v2/ThreadManagementService.ts";
+import * as Settings from "../../../serverSettings.ts";
 import * as Invocation from "../../McpInvocationContext.ts";
 
 const dependencies = [
@@ -111,12 +112,12 @@ export const WorkTasksToolkit = Toolkit.make(
   }),
   Tool.make("work_task_launch", {
     description:
-      "Launch the separate execution discussion for an authorized task in ready (À démarrer). Requires all prerequisites done and an active chantier. Reuses the associated discussion, never launches blocked work. Select a model from orchestrator_capabilities. Read after uncertain results before retrying.",
+      "Launch the separate execution discussion for an authorized task in ready (À démarrer). Requires all prerequisites done and an active chantier. Reuses the associated discussion, never launches blocked work. The environment’s Travail model takes precedence when configured. Otherwise select a model from orchestrator_capabilities. Read after uncertain results before retrying.",
     parameters: WorkTaskLaunchInput,
     success: WorkTask,
     failure: Schema.Union([WorkTaskError, OrchestratorMcpFailure]),
     failureMode: "return",
-    dependencies: [...dependencies, Agents.WorkTaskAgentService],
+    dependencies: [...dependencies, Agents.WorkTaskAgentService, Settings.ServerSettingsService],
   }),
   Tool.make("work_tasks_list", {
     description:

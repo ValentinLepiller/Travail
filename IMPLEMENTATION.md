@@ -24,6 +24,8 @@ Ouverture dans un éditeur : VS Code prioritaire sans préférence disponible ; 
 
 Codex : la fin du processus invalide maintenant la session morte pour permettre une reprise au prochain message. 248 tests ciblés réussis, dont sorties 0/9 ; régression reproduite sans le correctif. Installé le 28 octobre 2026 après sauvegarde et redémarrage autorisé malgré un plan orphelin ; santé serveur et connexion Codex authentifiée vérifiées.
 
+- **Modèles** : réglage des modèles des projets, des agents et des tâches planifiées depuis la navigation. Installé sur Travail le 20 novembre. L’entrée est placée juste avant Réglages.
+
 ## Maintenance et lancement
 
 Gate commun pour nouvelles mutations RPC/HTTP/MCP, dispatch, scheduler, voix et bureaux ; lectures et annulations disponibles. Refus si travail, appel, bureau, PTY ouvert, continuation pending ou activité native en arrière-plan. Le transfert source→file ne perd pas une offre pendant fermeture. Le service hôte est activé et sain, avec home Codex privé. Sur le bundle final, sept contrôles du gate passent : refus anonymes et droits insuffisants, quiescence idle, nouveaux lancements bloqués, lecture maintenue, idempotence et libération. Tunnel HTTPS partagé actif et health vérifié.

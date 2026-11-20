@@ -233,6 +233,12 @@ export const ScheduledTaskSetEnabledInput = Schema.Struct({
 });
 export type ScheduledTaskSetEnabledInput = typeof ScheduledTaskSetEnabledInput.Type;
 
+export const ScheduledTaskSetModelInput = Schema.Struct({
+  id: ScheduledTaskId,
+  modelSelection: ModelSelection,
+});
+export type ScheduledTaskSetModelInput = typeof ScheduledTaskSetModelInput.Type;
+
 export const ScheduledTaskDeleteInput = Schema.Struct({
   id: ScheduledTaskId,
 });

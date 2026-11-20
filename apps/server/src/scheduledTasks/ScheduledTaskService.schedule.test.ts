@@ -53,7 +53,7 @@ it.effect("rejects a stale form save after deletion while preserving explicit-id
   }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
 );
 
-it.effect("preserves a due run when a save only pads the scheduled hour", () =>
+it.effect("preserves a due run when changing the model or padding the scheduled hour", () =>
   Effect.gen(function* () {
     const dueAt = DateTime.makeZonedUnsafe(
       { year: 2026, month: 7, day: 1, hour: 9, minute: 0, second: 0, millisecond: 0 },
@@ -89,6 +89,14 @@ it.effect("preserves a due run when a save only pads the scheduled hour", () =>
 
       // Cross the due time before the scheduler's first five-second tick.
       yield* TestClock.setTime(DateTime.toEpochMillis(dueAt) + 1_000);
+      const modelSelection = { ...input.modelSelection, model: "gpt-6.2-sol" };
+      const changed = yield* service.setModel({ id: created.task.id, modelSelection });
+      expect(changed.task).toEqual({
+        ...created.task,
+        modelSelection,
+        updatedAt: changed.task.updatedAt,
+      });
+      expect((yield* service.list()).tasks[0]?.modelSelection).toEqual(modelSelection);
       const update = yield* decodeUpsertInput({
         ...input,
         id: created.task.id,

@@ -6,12 +6,22 @@ import { taskImageTestLayer } from "../../../workTasks/WorkTaskService.testkit.t
 import * as TaskAgents from "../../../workTasks/WorkTaskAgentService.ts";
 import { expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import {
+  DEFAULT_SERVER_SETTINGS,
+  EnvironmentId,
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+  WorkTaskError,
+  type WorkTaskLaunchInput,
+} from "@t3tools/contracts";
 import { McpSchema, McpServer } from "effect/ai";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Ref from "effect/Ref";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as ServerConfig from "../../../config.ts";
+import * as Settings from "../../../serverSettings.ts";
 import * as Sqlite from "../../../persistence/Sqlite.ts";
 import * as Tasks from "../../../workTasks/WorkTaskService.ts";
 import * as Collector from "../../../workTasks/SlackTaskCollector.ts";
@@ -48,12 +58,19 @@ const collectorLayer = Collector.layer.pipe(
   Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "slack-task-mcp-" })),
   Layer.provide(NodeServices.layer),
 );
-const layer = McpHttpServer.toolkitRegistration(WorkTasksToolkit, Handlers.layer).pipe(
+const registration = McpHttpServer.toolkitRegistration(WorkTasksToolkit, Handlers.layer).pipe(
   Layer.provideMerge(McpServer.McpServer.layer),
   Layer.provideMerge(collectorLayer),
-  Layer.provide(Layer.mock(TaskAgents.WorkTaskAgentService)({})),
   Layer.provide(Layer.mock(ChantierCoordinator.WorkChantierCoordinator)({})),
   Layer.provide(AccessTestkit.liveThreadsLayer),
+);
+const layer = registration.pipe(
+  Layer.provide(Layer.mock(TaskAgents.WorkTaskAgentService)({})),
+  Layer.provide(
+    Layer.mock(Settings.ServerSettingsService)({
+      getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
+    }),
+  ),
 );
 const client = McpSchema.McpServerClient.of({
   clientId: 1,
@@ -111,6 +128,59 @@ it.effect("allows status inspection but denies a read-only caller collection acc
     expect(result.isError).toBe(false);
     expect(result.structuredContent).toMatchObject({ enabled: false, created: 0 });
   }).pipe(Effect.scoped, Effect.provide(layer)),
+);
+
+it.effect.each([null, "gpt-6.2-sol"])(
+  "forwards the configured Travail model for an MCP launch (%s)",
+  (model) =>
+    Effect.gen(function* () {
+      const launches = yield* Ref.make<Array<WorkTaskLaunchInput>>([]);
+      const instanceId = ProviderInstanceId.make("codex");
+      const testLayer = registration.pipe(
+        Layer.provide(
+          Layer.mock(TaskAgents.WorkTaskAgentService)({
+            launch: (input) =>
+              Ref.update(launches, (all) => [...all, input]).pipe(
+                Effect.andThen(new WorkTaskError({ reason: "preparation" })),
+              ),
+          }),
+        ),
+        Layer.provide(
+          Layer.mock(Settings.ServerSettingsService)({
+            getSettings: Effect.succeed({
+              ...DEFAULT_SERVER_SETTINGS,
+              workAgentModelSelection: model ? { instanceId, model } : null,
+            }),
+          }),
+        ),
+      );
+      yield* Effect.gen(function* () {
+        const server = yield* McpServer.McpServer;
+        yield* server
+          .callTool({
+            name: "work_task_launch",
+            arguments: {
+              id: "task",
+              expectedVersion: 1,
+              modelSelection: { instanceId, model: "gpt-6.1-sol" },
+            },
+          })
+          .pipe(
+            Effect.provideService(Invocation.McpInvocationContext, {
+              ...scope,
+              client: { ...scope.client!, access: "full-access" },
+            }),
+            Effect.provideService(McpSchema.McpServerClient, client),
+          );
+        expect(yield* Ref.get(launches)).toEqual([
+          {
+            id: "task",
+            expectedVersion: 1,
+            modelSelection: { instanceId, model: model ?? "gpt-6.1-sol" },
+          },
+        ]);
+      }).pipe(Effect.provide(testLayer));
+    }).pipe(Effect.scoped),
 );
 
 it.effect.each(["unqualified", "todo"] as const)(

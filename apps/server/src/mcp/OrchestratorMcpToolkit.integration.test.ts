@@ -505,6 +505,7 @@ const layerUnusedScheduledTaskStub = Layer.succeed(
     list: () => Effect.succeed({ tasks: [] }),
     subscribeList: () => Stream.succeed({ tasks: [] }),
     upsert: () => Effect.die("ScheduledTaskService.upsert is unused in this test"),
+    setModel: () => Effect.die("ScheduledTaskService.setModel is unused in this test"),
     setEnabled: () => Effect.die("ScheduledTaskService.setEnabled is unused in this test"),
     delete: () => Effect.die("ScheduledTaskService.delete is unused in this test"),
     runNow: () => Effect.die("ScheduledTaskService.runNow is unused in this test"),
@@ -668,6 +669,7 @@ describe("orchestrator MCP toolkit", () => {
                   ]);
                   return { task };
                 }),
+              setModel: () => Effect.die("ScheduledTaskService.setModel is unused in this test"),
               setEnabled: () =>
                 Effect.die("ScheduledTaskService.setEnabled is unused in this test"),
               delete: (input) =>

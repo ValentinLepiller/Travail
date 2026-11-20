@@ -2217,6 +2217,7 @@ const layerWsRpc = (
         Effect.annotateCurrentSpan({ "scheduled_task.id": input.id }).pipe(
           Effect.andThen(scheduledTasks.setEnabled(input)),
         ),
+      [WS_METHODS.scheduledTasksSetModel]: (input) => scheduledTasks.setModel(input),
       [WS_METHODS.scheduledTasksDelete]: (input) =>
         Effect.annotateCurrentSpan({ "scheduled_task.id": input.id }).pipe(
           Effect.andThen(scheduledTasks.delete(input)),

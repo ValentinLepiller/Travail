@@ -92,6 +92,7 @@ export const AutonomousAgentCommand = Schema.Union([
     text: ChefMessage.fields.text,
   }),
   Schema.Struct({ type: Schema.Literal("save"), config: AutonomousAgentConfig }),
+  Schema.Struct({ type: Schema.Literal("model"), id: AgentId, modelSelection: ModelSelection }),
   Schema.Struct({ type: Schema.Literal("export"), id: AgentId, threadId: ThreadId }),
   Schema.Struct({ type: Schema.Literal("archive"), id: AgentId }),
   Schema.Struct({ type: Schema.Literal("unarchive"), id: AgentId }),

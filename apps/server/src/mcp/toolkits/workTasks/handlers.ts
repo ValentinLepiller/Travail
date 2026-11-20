@@ -1,6 +1,7 @@
 import * as ChantierCoordinator from "../../../workTasks/WorkChantierCoordinator.ts";
 import * as Agents from "../../../workTasks/WorkTaskAgentService.ts";
 import { WorkTaskError } from "@t3tools/contracts";
+import * as Settings from "../../../serverSettings.ts";
 import * as Tasks from "../../../workTasks/WorkTaskService.ts";
 import { readCaller } from "../../threadAccess.ts";
 import * as Effect from "effect/Effect";
@@ -68,7 +69,14 @@ export const layer = Access.toLayer(WorkTasksToolkit, {
   work_task_launch: Access.writes((input) =>
     Effect.gen(function* () {
       const { caller } = yield* readCaller();
-      return yield* (yield* Agents.WorkTaskAgentService).launch(input, caller?.id);
+      const { workAgentModelSelection } =
+        yield* (yield* Settings.ServerSettingsService).getSettings.pipe(
+          Effect.mapError(() => new WorkTaskError({ reason: "agent" })),
+        );
+      return yield* (yield* Agents.WorkTaskAgentService).launch(
+        workAgentModelSelection ? { ...input, modelSelection: workAgentModelSelection } : input,
+        caller?.id,
+      );
     }),
   ),
   work_tasks_list: Access.reads(() =>

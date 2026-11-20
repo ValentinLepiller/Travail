@@ -400,6 +400,17 @@ const make = Effect.gen(function* () {
         return;
       }
       const agent = yield* get(input.id);
+      if (input.type === "model") {
+        if (
+          agent.modelSelection.instanceId !== input.modelSelection.instanceId &&
+          (yield* sql`SELECT thread_id FROM autonomous_agent_runs
+            WHERE agent_id = ${agent.id} AND finished_at IS NULL LIMIT 1`).length
+        ) {
+          return yield* fail("Mets fin à la tâche courante avant de changer de fournisseur.");
+        }
+        yield* put({ ...agent, modelSelection: input.modelSelection });
+        return;
+      }
       if (input.type === "read" || input.type === "unread") {
         if (!isChef(agent)) return yield* fail("Un Chef est requis.");
         const message = (yield* sql<{ sequence: number }>`SELECT sequence FROM chef_messages

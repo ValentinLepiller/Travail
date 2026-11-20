@@ -20,6 +20,7 @@ import {
   type ScheduledTaskRunNowInput,
   type ScheduledTaskRunNowResult,
   type ScheduledTaskSetEnabledInput,
+  type ScheduledTaskSetModelInput,
   type ScheduledTaskUpsertInput,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -164,6 +165,9 @@ const decodeScheduleJson = Schema.decodeUnknownEffect(
 const decodeWorkspaceStrategyJson = Schema.decodeUnknownEffect(
   Schema.fromJsonString(ScheduledTask.fields.workspaceStrategy),
 );
+const encodeModelSelectionJson = Schema.encodeEffect(
+  Schema.fromJsonString(ScheduledTask.fields.modelSelection),
+);
 const decodeModelSelectionJson = Schema.decodeUnknownEffect(
   Schema.fromJsonString(ScheduledTask.fields.modelSelection),
 );
@@ -228,6 +232,9 @@ export class ScheduledTaskService extends Context.Service<
     /** Partial update flipping only the enabled flag; never touches other fields. */
     readonly setEnabled: (
       input: ScheduledTaskSetEnabledInput,
+    ) => Effect.Effect<ScheduledTaskMutationResult, ScheduledTaskError>;
+    readonly setModel: (
+      input: ScheduledTaskSetModelInput,
     ) => Effect.Effect<ScheduledTaskMutationResult, ScheduledTaskError>;
     readonly delete: (
       input: ScheduledTaskDeleteInput,
@@ -1136,6 +1143,31 @@ export const layer = Layer.effect(
         };
       });
 
+    const setModel: ScheduledTaskService["Service"]["setModel"] = (input) =>
+      Effect.gen(function* () {
+        const now = yield* localNow;
+        const modelJson = yield* encodeModelSelectionJson(input.modelSelection).pipe(
+          Effect.mapError((cause) =>
+            taskError("Invalid schedule task model.", { taskId: input.id, cause }),
+          ),
+        );
+        const updated = yield* sql<{ task_id: string }>`
+          UPDATE scheduled_tasks
+          SET model_selection_json = ${modelJson}, updated_at = ${iso(now)}
+          WHERE task_id = ${input.id}
+          RETURNING task_id
+        `.pipe(
+          Effect.mapError((cause) =>
+            taskError("Could not update schedule task.", { taskId: input.id, cause }),
+          ),
+        );
+        if (updated.length === 0) {
+          return yield* taskError("Schedule task not found.", { taskId: input.id });
+        }
+        yield* notifyChanged;
+        return { task: yield* loadTask(input.id) };
+      });
+
     const deleteTask: ScheduledTaskService["Service"]["delete"] = (input) =>
       deleteRow(input.id).pipe(
         Effect.andThen(
@@ -1664,6 +1696,7 @@ export const layer = Layer.effect(
       subscribeList,
       upsert,
       setEnabled,
+      setModel,
       delete: deleteTask,
       runNow,
       rotateWebhookToken,
