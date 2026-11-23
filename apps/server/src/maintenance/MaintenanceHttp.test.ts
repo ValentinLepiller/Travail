@@ -13,6 +13,7 @@ import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as MaintenanceActivity from "./MaintenanceActivity.ts";
 import * as MaintenanceHttp from "./MaintenanceHttp.ts";
 import * as RuntimeAdmission from "./RuntimeAdmission.ts";
+import * as TravailUpdates from "./TravailUpdates.ts";
 
 const auth = Layer.succeed(EnvironmentAuth.EnvironmentAuth, {
   authenticateHttpRequest: (request: HttpServerRequest.HttpServerRequest) => {
@@ -54,6 +55,10 @@ const fixture = (
     activeVoice: 0,
     activeDesktops: 0,
   }),
+  updates: TravailUpdates.TravailUpdates["Service"] = {
+    status: Effect.succeed(null),
+    install: () => Effect.succeed(false),
+  },
 ) =>
   Effect.acquireRelease(
     Effect.sync(() =>
@@ -64,6 +69,7 @@ const fixture = (
               Layer.succeed(RuntimeAdmission.RuntimeAdmission, gate),
               Layer.succeed(MaintenanceActivity.MaintenanceActivity, { read }),
               auth,
+              Layer.succeed(TravailUpdates.TravailUpdates, updates),
             ),
           ),
         ),
@@ -162,4 +168,48 @@ it.effect("does not close an active voice call to make maintenance succeed", () 
     yield* releaseCall;
     expect((yield* Effect.promise(() => web.handler(request("quiesce", "op")))).status).toBe(200);
   }),
+);
+
+it.effect("only a maintenance session can request installation of a valid Travail revision", () =>
+  Effect.gen(function* () {
+    const revision = "a".repeat(40);
+    const requested: string[] = [];
+    const status = {
+      installed: "b".repeat(40),
+      available: revision,
+      installing: false,
+      failed: false,
+    };
+    const gate = yield* RuntimeAdmission.make;
+    const web = yield* fixture(gate, undefined, {
+      status: Effect.succeed(status),
+      install: (value) =>
+        Effect.sync(() => {
+          requested.push(value);
+          return true;
+        }),
+    });
+    const url = "http://localhost/api/harness/maintenance/travail-update";
+    const current = yield* Effect.promise(() =>
+      web.handler(
+        new Request(url, {
+          headers: { authorization: "Bearer maintain" },
+        }),
+      ),
+    );
+    expect(current.status).toBe(200);
+    expect(yield* Effect.promise(() => current.json())).toEqual(status);
+
+    for (const [credential, value, expected] of [
+      ["Bearer read-only", revision, 403],
+      ["Bearer maintain", "main", 400],
+      ["Bearer maintain", revision, 202],
+    ] as const) {
+      const response = yield* Effect.promise(() =>
+        web.handler(request("travail-update", "", credential, { revision: value })),
+      );
+      expect(response.status).toBe(expected);
+    }
+    expect(requested).toEqual([revision]);
+  }).pipe(Effect.scoped),
 );

@@ -1,4 +1,4 @@
-import { AuthEnvironmentMaintainScope } from "@t3tools/contracts";
+import { AuthEnvironmentMaintainScope, TravailUpdateRequest } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -10,6 +10,7 @@ import * as HttpServerRespondable from "effect/http/HttpServerRespondable";
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as AuthHttp from "../auth/http.ts";
 import * as MaintenanceActivity from "./MaintenanceActivity.ts";
+import * as TravailUpdates from "./TravailUpdates.ts";
 import * as RuntimeAdmission from "./RuntimeAdmission.ts";
 
 class MaintenanceRequestError extends Schema.TaggedError<MaintenanceRequestError>()(
@@ -21,6 +22,7 @@ const Request = Schema.Struct({
   operationId: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{1,128}$/)),
 });
 const decodeRequest = Schema.decodeUnknownEffect(Request);
+const decodeUpdateRequest = Schema.decodeUnknownEffect(TravailUpdateRequest);
 
 const handler = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
@@ -32,8 +34,10 @@ const handler = Effect.gen(function* () {
       : url.value.pathname === "/api/harness/maintenance/release"
         ? "release"
         : undefined;
-  if (!action) return HttpServerResponse.empty({ status: 404 });
-  if (request.method !== "POST") return HttpServerResponse.empty({ status: 405 });
+  const isTravailUpdate = url.value.pathname === "/api/harness/maintenance/travail-update";
+  if (!action && !isTravailUpdate) return HttpServerResponse.empty({ status: 404 });
+  if (request.method !== "POST" && !(isTravailUpdate && request.method === "GET"))
+    return HttpServerResponse.empty({ status: 405 });
   const auth = yield* EnvironmentAuth.EnvironmentAuth;
   const session = yield* auth.authenticateHttpRequest(request).pipe(
     Effect.catch((error) =>
@@ -50,6 +54,21 @@ const handler = Effect.gen(function* () {
   );
   if (!session.scopes.includes(AuthEnvironmentMaintainScope)) {
     return yield* AuthHttp.failEnvironmentScopeRequired(AuthEnvironmentMaintainScope);
+  }
+  if (isTravailUpdate) {
+    const updates = yield* TravailUpdates.TravailUpdates;
+    if (request.method === "GET") {
+      const status = yield* updates.status;
+      return HttpServerResponse.jsonUnsafe(status, { headers: { "cache-control": "no-store" } });
+    }
+    if (!request.headers["content-type"]?.startsWith("application/json")) {
+      return HttpServerResponse.empty({ status: 415 });
+    }
+    const { revision } = yield* request.json.pipe(
+      Effect.flatMap(decodeUpdateRequest),
+      Effect.mapError(() => new MaintenanceRequestError()),
+    );
+    return HttpServerResponse.empty({ status: (yield* updates.install(revision)) ? 202 : 404 });
   }
   if (!request.headers["content-type"]?.startsWith("application/json")) {
     return HttpServerResponse.empty({ status: 415 });
@@ -73,6 +92,10 @@ const handler = Effect.gen(function* () {
   );
 }).pipe(
   Effect.catchTags({
+    TravailUpdateError: (error) =>
+      Effect.logWarning("Travail update request failed", error.cause).pipe(
+        Effect.as(HttpServerResponse.empty({ status: 503 })),
+      ),
     MaintenanceRequestError: () => Effect.succeed(HttpServerResponse.empty({ status: 400 })),
     RuntimeAdmissionError: (error) =>
       Effect.succeed(

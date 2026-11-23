@@ -5,12 +5,10 @@
 This checkout is Valentin's MT Code derivative. Follow `SPECS.md`; preserve MT/T3 identity,
 licenses and existing Codex authentication. Use `node --run harness:start` after building, or
 `node --run harness:dev`, to keep MT state in this checkout's `.t3/harness`. Keep desktop control
-disabled until agent sessions are isolated. Do not publish, push, expose a public listener, or
-update the daily installation without authorization. For small requested changes, Valentin authorizes
-installation directly after verification, including a restart that interrupts ongoing discussions;
-those discussions are expected to resume afterward. Do not ask for confirmation again for these
-small installations. Record delivered slices and proof
-in the concise `IMPLEMENTATION.md` requested for this project.
+disabled until agent sessions are isolated. For Travail changes, agents verify and publish to
+`origin/main`. Valentin starts installations through **Installer les mises à jour** in Travail.
+Agents must not install, promote, or restart the daily installation for a code change. Record
+delivered slices and proof in `IMPLEMENTATION.md`.
 
 For Valentin's `ValentinLepiller/Travail` project, the decision of 2026-11-05 takes
 precedence over the PR workflow below: commit and push directly to `main`, without

@@ -262,11 +262,14 @@ export async function promote(
   candidate: string,
   validation: Validation,
   control: RuntimeControl,
+  expectedPrevious?: string,
 ) {
   return withLock(paths.operations, async () => {
     await assertValidated(candidate, validation);
     assertIdle(paths.home);
     const previous = await currentRelease(paths.operations);
+    if (expectedPrevious !== undefined && previous !== expectedPrevious)
+      throw new Error("The installed release changed during preparation");
     if (previous === candidate) throw new Error("Candidate is already running");
     const journalPath = NodePath.join(paths.operations, "promotion.json");
     // A prior failed rollback must be recovered before a new attempt can replace its journal.

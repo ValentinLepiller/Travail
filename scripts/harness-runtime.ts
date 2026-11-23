@@ -28,6 +28,13 @@ import {
   writeJson,
 } from "./lib/runtime-maintenance/state.ts";
 
+import {
+  installTravail,
+  latestRevision,
+  queueTravailUpdate,
+  travailStatus,
+} from "./lib/runtime-maintenance/travail.ts";
+
 const source = NodeURL.fileURLToPath(new URL("..", import.meta.url));
 const operations = NodePath.resolve(
   process.env.HARNESS_OPERATIONS ?? NodePath.join(source, ".t3", "harness-operations"),
@@ -363,6 +370,36 @@ async function main() {
     );
     return;
   }
+  if (mode === "travail-status") {
+    if (candidate !== config.home) throw new Error("Unexpected Travail base directory");
+    console.log(JSON.stringify(await travailStatus(config)));
+    return;
+  }
+  if (mode === "travail-bootstrap" || (mode === "travail-queue" && candidate)) {
+    return queueTravailUpdate(
+      config,
+      NodeURL.fileURLToPath(import.meta.url),
+      candidate ?? (await latestRevision(config)),
+    );
+  }
+  if (mode === "travail-install") {
+    return installTravail(config, candidate, async (release, previous) => {
+      const validation = await validate(config, release);
+      await promote(config, release, validation, control(config), previous);
+      // Keep the legacy upstream timer from promoting over the user-managed channel.
+      if (config.prepareUpdates || config.promoteValidated)
+        await writeJson(configPath, { ...config, prepareUpdates: false, promoteValidated: false });
+      await run(
+        {
+          program: process.execPath,
+          args: [NodePath.join(release, "scripts/harness-desktop.ts"), "install-launcher"],
+        },
+        release,
+        10_000,
+        { ...process.env, TRAVAIL_SOURCE: config.source },
+      );
+    });
+  }
   if (mode === "health") return health(config);
   if (mode === "idle") return assertIdle(config.home);
   if (mode === "host") return host(config);
@@ -471,7 +508,7 @@ async function main() {
     return;
   }
   throw new Error(
-    "Usage: harness-runtime.ts init|host|health|status|isolate-codex|pin-native|idle|daily|retry|validate PATH|promote PATH|recover|rollback",
+    "Usage: harness-runtime.ts init|host|health|status|isolate-codex|pin-native|idle|daily|retry|travail-bootstrap|validate PATH|promote PATH|recover|rollback",
   );
 }
 await main().catch((error: unknown) => {

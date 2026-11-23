@@ -15,6 +15,23 @@ Le timer inspecte les updates vers **04:00 Europe/Paris** (jusqu’à cinq minut
 
 La config privée `.t3/harness-operations/config.json` active séparément préparation, agent borné et promotion. Les sept usages doivent avoir des checks en environnement isolé, sans messages réels ni API payante. Après échec d’adaptation/validation, `retry` autorise une nouvelle tentative ; les candidats échoués restent inspectables. T3 est observé, MT est l’amont fusionné.
 
+### Mises à jour de Travail
+
+Les agents publient sur `Travail/main`. Le bouton bleu au-dessus d’**Usage** apparaît quand
+une nouvelle révision est disponible. Le clic lance la préparation et la validation isolées,
+puis l’activation si le service est inactif au sens de la maintenance (aucun travail en cours).
+Après installation, rouvrir Travail ou actualiser la page web.
+
+Pour activer ce canal sur une installation précédente, exécuter une fois depuis une copie à jour
+de `main`, en gardant cette copie jusqu’à la fin de l’installation :
+
+```sh
+HARNESS_OPERATIONS=/chemin/du/harness/.t3/harness-operations node scripts/harness-runtime.ts travail-bootstrap
+journalctl --user -u travail-install-update.service -f
+```
+
+Le premier déploiement bascule la maintenance amont en inspection seule.
+
 Le contrôleur copié fonctionne indépendamment du démarrage MT :
 
 ```sh

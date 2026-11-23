@@ -15,10 +15,12 @@ import { resolveElectronLaunchCommand } from "../apps/desktop/scripts/electron-l
 
 const root = NodeURL.fileURLToPath(new URL("..", import.meta.url));
 const desktop = NodePath.join(root, "apps/desktop");
-const home = NodePath.join(root, ".t3/travail-desktop");
+const source = process.env.TRAVAIL_SOURCE ?? root;
+const operations = NodePath.join(source, ".t3/harness-operations");
+const home = NodePath.join(source, ".t3/travail-desktop");
 const state = NodePath.join(home, "userdata");
 const client = NodePath.join(home, "client");
-const icon = NodePath.join(root, "assets/travail/icon.png");
+const icon = NodePath.join(source, "assets/travail/icon.png");
 const mode = process.argv[2] ?? "start";
 
 function build(program: string, args: string[], cwd: string) {
@@ -49,9 +51,7 @@ async function readJson(file: string) {
 }
 
 async function prepare() {
-  const config = decodeConfig(
-    await readJson(NodePath.join(root, ".t3/harness-operations/config.json")),
-  );
+  const config = decodeConfig(await readJson(NodePath.join(operations, "config.json")));
   await run({ program: "systemctl", args: ["--user", "start", "mt-harness.service"] }, root);
   const origin = `http://127.0.0.1:${config.port}`;
   // systemd Type=simple returns before the HTTP listener is ready on a cold boot.
@@ -129,6 +129,7 @@ async function prepare() {
     },
     credential: { _tag: "BearerConnectionCredential", token: session.token },
   });
+  return release;
 }
 
 async function install() {
@@ -150,7 +151,16 @@ async function installLauncher() {
   const node = await NodeFSP.realpath(process.execPath);
   await NodeFSP.writeFile(
     bin,
-    `#!/bin/sh\nexec ${shellQuote(node)} ${shellQuote(NodePath.join(root, "scripts/harness-desktop.ts"))} "$@"\n`,
+    [
+      "#!/bin/sh",
+      `export TRAVAIL_SOURCE=${shellQuote(source)}`,
+      `release=${shellQuote(NodePath.join(operations, "current"))}`,
+      `if [ -f "$release/.t3/travail-revision" ]; then`,
+      `  exec ${shellQuote(node)} "$release/scripts/harness-desktop.ts" "$@"`,
+      "fi",
+      `exec ${shellQuote(node)} ${shellQuote(NodePath.join(source, "scripts/harness-desktop.ts"))} "$@"`,
+      "",
+    ].join("\n"),
     { mode: 0o755 },
   );
   // The installation paths here are local absolute paths, never a shell command.
@@ -185,23 +195,30 @@ try {
   } else if (mode === "install-launcher") {
     await installLauncher();
   } else if (mode === "start" || mode === "prepare") {
-    await prepare();
+    const release = await prepare();
     if (mode === "start") {
+      const managed = await NodeFSP.access(NodePath.join(release, ".t3/travail-revision")).then(
+        () => true,
+        () => false,
+      );
+      const runtimeDesktop = managed ? NodePath.join(release, "apps/desktop") : desktop;
       const env: NodeJS.ProcessEnv = {
         ...process.env,
         T3CODE_HOME: home,
         T3CODE_DESKTOP_DISTRO: "travail",
-        T3CODE_DESKTOP_CLIENT_ASSETS: client,
+        T3CODE_DESKTOP_CLIENT_ASSETS: managed
+          ? NodePath.join(release, "apps/server/dist/client")
+          : client,
         T3CODE_DISABLE_AUTO_UPDATE: "true",
       };
       delete env.ELECTRON_RUN_AS_NODE;
       delete env.VITE_DEV_SERVER_URL;
       const command = resolveElectronLaunchCommand([
-        NodePath.join(desktop, "dist-electron/main.cjs"),
+        NodePath.join(runtimeDesktop, "dist-electron/main.cjs"),
         ...process.argv.slice(3),
       ]);
       const child = NodeChildProcess.spawn(command.electronPath, command.args, {
-        cwd: desktop,
+        cwd: runtimeDesktop,
         env,
         stdio: "inherit",
       });

@@ -79,6 +79,7 @@ import * as AgentDesktops from "./agentDesktops/AgentDesktops.ts";
 import * as AgentDesktopHttp from "./agentDesktops/AgentDesktopHttp.ts";
 import * as RuntimeAdmission from "./maintenance/RuntimeAdmission.ts";
 import * as HttpAdmission from "./maintenance/HttpAdmission.ts";
+import * as TravailUpdates from "./maintenance/TravailUpdates.ts";
 import * as MaintenanceHttp from "./maintenance/MaintenanceHttp.ts";
 import * as MaintenanceActivity from "./maintenance/MaintenanceActivity.ts";
 import * as DeviceHubProxy from "./device/DeviceHubProxy.ts";
@@ -755,7 +756,7 @@ const layerRuntimeDependenciesBase = layerRuntimeCoreDependencies.pipe(
   Layer.provideMerge(RuntimeAdmission.layer),
 );
 
-const layerRuntimeDependencies = MaintenanceActivity.layer.pipe(
+const layerRuntimeDependencies = Layer.merge(MaintenanceActivity.layer, TravailUpdates.layer).pipe(
   Layer.provideMerge(layerRuntimeDependenciesBase),
 );
 

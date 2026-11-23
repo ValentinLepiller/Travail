@@ -2,6 +2,8 @@
 
 Base [MT Code](https://github.com/munimtechnologies/mtcode) `63c035c5e5a0cfdcdd4dbabe798cc9efe06f9b93`, serveur/desktop `0.0.56`. Historique et licences conservés ; remote MT pour fetch, push désactivé. Conventions Effect/SQLite/React existantes conservées.
 
+Les mises à jour de `main` sont proposées au-dessus d’**Usage**. Vérifiés en isolation : compilation web/serveur/Electron, détection de la révision distante et 37 tests de maintenance.
+
 ## Fonctionnement vérifié
 
 - **Agents** : Codex natif avec abonnement ChatGPT, sous-agent, instructions/skills et projet racine. Authentification et installation Codex globales préservées ; le runtime possède aussi sa baseline dédiée.
@@ -14,7 +16,7 @@ Base [MT Code](https://github.com/munimtechnologies/mtcode) `63c035c5e5a0cfdcdd4
 
 ## Application Electron
 
-Installée le 27 octobre : **Travail** dans le menu Linux, ou `travail` dans un terminal. Recompiler/réinstaller : `node --run harness:desktop:install`. Client Electron MT complet, profil séparé, connexion automatique au serveur existant ; fermer la fenêtre laisse le service actif. Le dossier du dépôt et ses dépendances sont nécessaires à cette installation locale. Nom web également changé ; crédits/licences MT/T3 conservés.
+Installée le 27 octobre : **Travail** dans le menu Linux, ou `travail` dans un terminal. Mise à jour depuis Travail après [amorçage](ops/harness/README.md#mises-à-jour-de-travail). Client Electron MT complet, profil séparé, connexion automatique au serveur existant ; fermer la fenêtre laisse le service actif. Le dossier du dépôt et ses dépendances sont nécessaires à cette installation locale. Nom web également changé ; crédits/licences MT/T3 conservés.
 
 Vérifiés : fenêtre dans un affichage isolé, conversations existantes, connexion ChatGPT rétablie, lanceur visible, service conservé après arrêt du client ; tests ciblés et typecheck desktop sans erreur de type (suggestions amont). Preuves : `.logs/harness/desktop-travail/`. La voix n’a pas été retestée sur téléphone.
 

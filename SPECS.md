@@ -66,7 +66,7 @@ Le projet sera maintenu dans un dépôt Git. Ce document décrit les attentes ; 
 - Préparer les mises à jour sur une branche et dans un environnement séparé de la version utilisée.
 - Faire adapter nos modifications et corriger les régressions par un agent lorsque c’est possible.
 - Tester les usages importants : agents, délégation, connecteurs, voix, accès distant, sessions graphiques et planification. Les vérifications ne doivent pas envoyer de messages réels non autorisés.
-- Installer automatiquement une version validée à un moment qui n’interrompt pas les tâches actives.
+- Détecter les nouveaux commits sur `Travail/main` et proposer leur installation à Valentin, une fois les tâches actives terminées.
 - Conserver la version précédente, contrôler le fonctionnement après installation et permettre un retour arrière.
 - Signaler les échecs et les arbitrages nécessaires. Confier l’installation et la récupération à un mécanisme capable de fonctionner même si MT Code ne démarre plus.
 

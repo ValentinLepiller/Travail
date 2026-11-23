@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { Link, useLocation } from "@tanstack/react-router";
 import {
   BotIcon,
@@ -13,6 +14,7 @@ import {
   ChartNoAxesColumnIcon,
 } from "lucide-react";
 import type { EnvironmentId } from "@t3tools/contracts";
+import { useIsMobile } from "../../hooks/useMediaQuery";
 import { useEnvironmentSelection } from "../../hooks/useEnvironmentSelection";
 import { useEnvironmentQuery } from "../../state/query";
 import { agentRequests } from "../../state/agentRequests";
@@ -23,6 +25,8 @@ import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPr
 import { useSidebar } from "../ui/sidebar";
 import { cn } from "../../lib/utils";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+
+import { TravailUpdateButton } from "./TravailUpdateButton";
 
 const destinations = [
   { to: "/", label: "Discussions", Icon: HomeIcon },
@@ -110,6 +114,7 @@ function NavigationIcon({ to, Icon }: Pick<(typeof destinations)[number], "to" |
 
 export function AppNavigation() {
   const pullRequestsSupported = usePullRequestsSupported();
+  const isMobile = useIsMobile();
   const pathname = useLocation({ select: (location) => location.pathname });
   const taskTab = useLocation({
     select: (location) => (location.search.tab === "chantiers" ? "chantiers" : "tasks"),
@@ -117,7 +122,7 @@ export function AppNavigation() {
   return (
     <nav
       aria-label="Navigation principale"
-      className="fixed inset-y-0 left-0 z-40 hidden w-16 flex-col items-center gap-3 border-r border-sidebar-border bg-sidebar py-12 md:flex"
+      className="fixed inset-y-0 left-0 z-40 hidden w-16 flex-col items-center gap-3 overflow-y-auto scrollbar-gutter-both border-r border-sidebar-border bg-sidebar py-12 md:flex"
     >
       {destinations
         .filter(({ to }) => to !== "/pull-requests" || pullRequestsSupported)
@@ -140,7 +145,7 @@ export function AppNavigation() {
                 ].some((path) => pathname === path || pathname.startsWith(`${path}/`))
               : (pathname === to || pathname.startsWith(`${to}/`)) &&
                 (to !== "/tasks" || taskTab === destination.tab);
-          return (
+          const link = (
             <Tooltip key={label}>
               <TooltipTrigger
                 render={
@@ -150,8 +155,7 @@ export function AppNavigation() {
                     aria-label={label}
                     aria-current={active ? "page" : undefined}
                     className={cn(
-                      "flex w-14 flex-col items-center gap-1 rounded-lg py-2 text-3xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-                      to === "/usage" && "mt-auto",
+                      "flex w-14 shrink-0 flex-col items-center gap-1 rounded-lg py-2 text-3xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                       active
                         ? "bg-primary/15 text-primary"
                         : "text-sidebar-foreground/70 hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
@@ -165,12 +169,21 @@ export function AppNavigation() {
               <TooltipPopup side="right">{label}</TooltipPopup>
             </Tooltip>
           );
+          return to === "/usage" ? (
+            <div key={label} className="mt-auto flex shrink-0 flex-col items-center gap-3">
+              {!isMobile && <TravailUpdateButton />}
+              {link}
+            </div>
+          ) : (
+            link
+          );
         })}
     </nav>
   );
 }
 
 export function MobileAppNavigation() {
+  const isMobile = useIsMobile();
   const { setOpenMobile } = useSidebar();
   const pullRequestsSupported = usePullRequestsSupported();
   return (
@@ -184,21 +197,25 @@ export function MobileAppNavigation() {
           .map((destination) => {
             const { to, label, Icon } = destination;
             return (
-              <Link
-                key={label}
-                to={to}
-                search={navigationSearch(destination)}
-                activeOptions={{ exact: to === "/" }}
-                activeProps={{ className: "bg-primary/15 text-primary", "aria-current": "page" }}
-                inactiveProps={{
-                  className: "text-sidebar-foreground/70 hover:bg-sidebar-row-hover",
-                }}
-                onClick={() => setOpenMobile(false)}
-                className="flex min-h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-lg px-1 py-2 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-              >
-                <NavigationIcon to={to} Icon={Icon} />
-                <span>{label}</span>
-              </Link>
+              <Fragment key={label}>
+                {isMobile && to === "/usage" && (
+                  <TravailUpdateButton className="grid place-items-center" />
+                )}
+                <Link
+                  to={to}
+                  search={navigationSearch(destination)}
+                  activeOptions={{ exact: to === "/" }}
+                  activeProps={{ className: "bg-primary/15 text-primary", "aria-current": "page" }}
+                  inactiveProps={{
+                    className: "text-sidebar-foreground/70 hover:bg-sidebar-row-hover",
+                  }}
+                  onClick={() => setOpenMobile(false)}
+                  className="flex min-h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-lg px-1 py-2 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                >
+                  <NavigationIcon to={to} Icon={Icon} />
+                  <span>{label}</span>
+                </Link>
+              </Fragment>
             );
           })}
       </div>
