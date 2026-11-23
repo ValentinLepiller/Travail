@@ -1,6 +1,7 @@
 import {
   type AuthMcpClientAccess,
   type EnvironmentId,
+  type ProjectId,
   McpCapabilityUnavailableError,
   OrchestratorMcpFailure,
   PreviewAutomationUnavailableError,
@@ -60,7 +61,28 @@ export interface McpInvocationScope {
   readonly requestNamespace: string;
   readonly thread: McpThreadCaller | undefined;
   readonly client: McpClientCaller | undefined;
+  /** Set by authentication for Chef de Travail; null means no valid project binding. */
+  readonly threadReadProjectId?: ProjectId | null;
 }
+
+export const assertThreadReadProject = (
+  scope: McpInvocationScope,
+  projectId: ProjectId,
+  target: "project" | "thread",
+) =>
+  scope.threadReadProjectId === undefined || scope.threadReadProjectId === projectId
+    ? Effect.void
+    : Effect.fail(
+        target === "thread"
+          ? new OrchestratorMcpFailure({
+              code: "thread_not_found",
+              message: "The thread was not found.",
+            })
+          : new OrchestratorMcpFailure({
+              code: "capability_denied",
+              message: "This Chef can only browse discussions in its assigned project.",
+            }),
+      );
 
 export class McpInvocationContext extends Context.Service<
   McpInvocationContext,

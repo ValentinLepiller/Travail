@@ -122,6 +122,7 @@ it.effect("production mcp layer lists worktree tools over http", () =>
         Layer.provide(Layer.mock(Requests.AgentRequestService)({})),
         Layer.provide(Layer.mock(SlackTasks.SlackTaskCollector)({})),
         Layer.provide(McpSessionRegistry.layer),
+        Layer.provide(QualificationSqlite.layerMemory),
       );
       yield* HttpRouter.serve(layerRoutes, {
         disableListenLog: true,

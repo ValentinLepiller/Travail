@@ -10,12 +10,14 @@ import {
 import * as Effect from "effect/Effect";
 import { modelSelectionCommandType } from "@t3tools/shared/model";
 
+import { assertThreadReadProject } from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import {
   dispatchFailure,
   newCommandId,
   readCaller,
   readThread,
+  readThreadShell,
   unavailable,
 } from "../../threadAccess.ts";
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
@@ -99,19 +101,22 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
   ),
   t3_thread_search: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
-      const { caller } = yield* readCaller();
+      const context = yield* readCaller();
+      const { caller, scope } = context;
       const { projectId: requested, ...query } = input;
-      // Like the other project tools, an omitted project means the caller's own; a client
-      // outside a thread searches every project.
       const projectId = requested ?? caller?.projectId;
+      if (projectId !== undefined) yield* assertThreadReadProject(scope, projectId, "project");
+      if (scope.threadReadProjectId !== undefined && query.threadId !== undefined) {
+        yield* readThreadShell(context, query.threadId);
+      }
       const threadSearch = yield* ThreadSearch.ThreadSearch;
-      const result = yield* threadSearch.search(query).pipe(Effect.mapError(unavailable));
-      return {
-        matches:
-          projectId === undefined
-            ? result.matches
-            : result.matches.filter((match) => match.projectId === projectId),
-      };
+      return yield* threadSearch
+        .search({
+          ...query,
+          ...(projectId === undefined ? {} : { projectId }),
+          includeArchived: scope.threadReadProjectId !== undefined,
+        })
+        .pipe(Effect.mapError(unavailable));
     }),
   ),
   t3_thread_fork: writesThread((input) =>

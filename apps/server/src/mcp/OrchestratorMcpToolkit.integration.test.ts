@@ -2613,6 +2613,44 @@ describe("orchestrator MCP toolkit", () => {
               branch: null,
               worktreePath: cwd,
             });
+            const chefScope = { ...invocation, threadReadProjectId: projectId };
+            for (const [tool, args, code] of [
+              ["t3_thread_list", { projectId: "project:mcp-foreign" }, "capability_denied"],
+              [
+                "t3_thread_search",
+                { query: "Foreign", projectId: "project:mcp-foreign" },
+                "capability_denied",
+              ],
+              [
+                "t3_thread_search",
+                { query: "Foreign", threadId: foreignThreadId },
+                "thread_not_found",
+              ],
+              ["t3_thread_read", { threadId: foreignThreadId }, "thread_not_found"],
+              ["t3_thread_wait", { threadId: foreignThreadId }, "thread_not_found"],
+              ["t3_queue_list", { threadId: foreignThreadId }, "thread_not_found"],
+            ] as const) {
+              const refused = yield* invokeAs(chefScope, tool, args);
+              expect(declaredFailure(refused), tool).toMatchObject({
+                _tag: "OrchestratorMcpFailure",
+                code,
+              });
+              expect(refused.structuredContent, tool).toBeUndefined();
+            }
+            const unassignedChef = { ...invocation, threadReadProjectId: null };
+            const unassignedRead = yield* invokeAs(unassignedChef, "t3_thread_read", {
+              threadId: parentThreadId,
+            });
+            expect(declaredFailure(unassignedRead)).toMatchObject({ code: "thread_not_found" });
+            const chefList = yield* invokeAs(chefScope, "t3_thread_list", {});
+            expect(chefList.structuredContent).toMatchObject({ projectId });
+            const chefRead = yield* invokeAs(chefScope, "t3_thread_read", {
+              threadId: parentThreadId,
+            });
+            expect(chefRead.structuredContent).toMatchObject({
+              thread: { threadId: parentThreadId, projectId },
+            });
+
             // Targets reach the whole environment; the caller's modes still cap writes.
             const foreignOrganizeCall = yield* invoke("t3_thread_organize", {
               threadId: foreignThreadId,

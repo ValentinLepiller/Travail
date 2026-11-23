@@ -27,7 +27,12 @@ export class ThreadSearchError extends Schema.TaggedError<ThreadSearchError>()(
   }
 }
 
-const SearchRequest = Schema.Struct({ pattern: Schema.String, limit: Schema.Int });
+const SearchRequest = Schema.Struct({
+  pattern: Schema.String,
+  limit: Schema.Int,
+  projectId: Schema.NullOr(ProjectId),
+  includeArchived: Schema.Boolean,
+});
 const SearchRow = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
@@ -37,8 +42,7 @@ const SearchRow = Schema.Struct({
 });
 const ThreadMessageSearchRequest = Schema.Struct({
   threadId: ThreadId,
-  pattern: Schema.String,
-  limit: Schema.Int,
+  ...SearchRequest.fields,
 });
 const ThreadMessageSearchRow = Schema.Struct({
   ...SearchRow.fields,
@@ -71,15 +75,18 @@ function buildSearchSnippet(text: string, query: string): string {
 }
 
 /**
- * Searches the finished user and assistant messages of active V2 threads in
- * active projects. Legacy V1 transcripts that have not been imported yet are
+ * Searches finished user and assistant messages of V2 threads in active projects.
+ * Cross-thread search excludes archives by default. Legacy V1 transcripts that have not been imported yet are
  * not searched.
  */
 export class ThreadSearch extends Context.Service<
   ThreadSearch,
   {
     readonly search: (
-      input: OrchestrationSearchThreadsInput,
+      input: OrchestrationSearchThreadsInput & {
+        readonly projectId?: ProjectId;
+        readonly includeArchived?: boolean;
+      },
     ) => Effect.Effect<OrchestrationSearchThreadsResult, ThreadSearchError>;
   }
 >()("t3/orchestration-v2/ThreadSearch") {}
@@ -93,7 +100,7 @@ export const make = Effect.gen(function* () {
   const searchRows = SqlSchema.findAll({
     Request: SearchRequest,
     Result: SearchRow,
-    execute: ({ pattern, limit }) => sql`
+    execute: ({ pattern, limit, projectId, includeArchived }) => sql`
       WITH candidate AS (
         SELECT
           threads.thread_id,
@@ -109,7 +116,8 @@ export const make = Effect.gen(function* () {
         INNER JOIN projection_projects AS projects
           ON projects.project_id = threads.project_id
         WHERE threads.deleted_at IS NULL
-          AND threads.archived_at IS NULL
+          AND (${includeArchived} OR threads.archived_at IS NULL)
+          ${projectId === null ? sql`` : sql`AND threads.project_id = ${projectId}`}
           AND projects.deleted_at IS NULL
           AND messages.streaming = 0
           AND messages.role IN ('user', 'assistant')
@@ -151,7 +159,7 @@ export const make = Effect.gen(function* () {
   const searchThreadMessageRows = SqlSchema.findAll({
     Request: ThreadMessageSearchRequest,
     Result: ThreadMessageSearchRow,
-    execute: ({ threadId, pattern, limit }) => sql`
+    execute: ({ threadId, pattern, limit, projectId }) => sql`
       SELECT
         threads.thread_id AS "threadId",
         threads.project_id AS "projectId",
@@ -165,6 +173,7 @@ export const make = Effect.gen(function* () {
       INNER JOIN projection_projects AS projects
         ON projects.project_id = threads.project_id
       WHERE messages.thread_id = ${threadId}
+        ${projectId === null ? sql`` : sql`AND threads.project_id = ${projectId}`}
         AND threads.deleted_at IS NULL
         AND projects.deleted_at IS NULL
         AND messages.streaming = 0
@@ -180,6 +189,8 @@ export const make = Effect.gen(function* () {
       const request = {
         pattern: `%${escapeLikePattern(input.query)}%`,
         limit: input.limit ?? 50,
+        projectId: input.projectId ?? null,
+        includeArchived: input.includeArchived ?? false,
       };
       const rows: ReadonlyArray<typeof SearchRow.Type & { readonly messageId?: MessageId }> =
         yield* (

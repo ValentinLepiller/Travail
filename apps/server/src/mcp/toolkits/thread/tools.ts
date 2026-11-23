@@ -243,7 +243,7 @@ const ThreadTransfersTool = Tool.make("t3_thread_transfers", {
 const ThreadSearchTool = Tool.make("t3_thread_search", {
   ...commandTool,
   description:
-    "Search active thread titles and content with the app's existing bounded search. Matches are limited to one project (projectId, else the calling thread's project) out of the global top matches, so this may return fewer than limit. A caller outside a T3 thread that omits projectId searches every project. No pagination or exhaustive-result guarantee.",
+    "Search finished user and assistant messages in one project (projectId, else the calling thread's project). A client outside a T3 thread may omit projectId to search all projects. One best match per thread, or search matching messages in a single thread with threadId. Chef de Travail is restricted to its assigned project and its results include archived threads. Results are bounded and there is no pagination; use t3_thread_list with titleContains to search active thread titles.",
   parameters: Schema.Struct({
     ...OrchestrationSearchThreadsInput.fields,
     projectId: Schema.optional(ProjectId),

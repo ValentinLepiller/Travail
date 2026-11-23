@@ -172,12 +172,10 @@ const resolveThreadId = (context: Caller, threadId: ThreadId | undefined) =>
           }),
         );
 
-/** Load a target thread anywhere in the environment; an omitted id means the calling thread. */
-export const readThread = Effect.fn("mcp.readThread")(function* <
-  K extends ProjectionRecordField = never,
->(threadId?: ThreadId, fields: ReadonlyArray<K> = []) {
-  const context = yield* readCaller();
-  const targetId = yield* resolveThreadId(context, threadId);
+export const readThreadShell = Effect.fn("mcp.readThreadShell")(function* (
+  context: Pick<Caller, "scope" | "threads">,
+  targetId: ThreadId,
+) {
   const shell = yield* context.threads.getThreadShell(targetId).pipe(Effect.mapError(unavailable));
   if (shell === null || shell.deletedAt !== null) {
     return yield* new OrchestratorMcpFailure({
@@ -185,6 +183,17 @@ export const readThread = Effect.fn("mcp.readThread")(function* <
       message: "The thread was not found.",
     });
   }
+  yield* McpInvocationContext.assertThreadReadProject(context.scope, shell.projectId, "thread");
+  return shell;
+});
+
+/** Load a target thread; an omitted id means the calling thread. */
+export const readThread = Effect.fn("mcp.readThread")(function* <
+  K extends ProjectionRecordField = never,
+>(threadId?: ThreadId, fields: ReadonlyArray<K> = []) {
+  const context = yield* readCaller();
+  const targetId = yield* resolveThreadId(context, threadId);
+  const shell = yield* readThreadShell(context, targetId);
   const projection = yield* context.threads
     .getProjectThreadRecords({ projectId: shell.projectId, threadId: targetId }, fields, {
       turnItemTypes: ["user_input_request"],

@@ -87,6 +87,7 @@ import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import {
+  assertThreadReadProject,
   clientRuntimeModeCeiling,
   type McpInvocationScope,
   type McpThreadInvocationScope,
@@ -1102,15 +1103,22 @@ const make = Effect.gen(function* () {
       : Effect.void;
   };
 
-  const loadReadableThread = (scope: McpInvocationScope, threadId: ThreadId) =>
+  const loadReadableShell = (scope: McpInvocationScope, threadId: ThreadId) =>
     Effect.gen(function* () {
-      const { parent } = yield* loadCaller(scope);
       const shell = yield* threadManagement
         .getThreadShell(threadId)
         .pipe(Effect.mapError(threadManagementFailure));
       if (shell === null || shell.deletedAt !== null) {
-        return yield* failure("thread_not_found", `Thread ${threadId} is no longer available.`);
+        return yield* failure("thread_not_found", "The thread was not found.");
       }
+      yield* assertThreadReadProject(scope, shell.projectId, "thread");
+      return shell;
+    });
+
+  const loadReadableThread = (scope: McpInvocationScope, threadId: ThreadId) =>
+    Effect.gen(function* () {
+      const { parent } = yield* loadCaller(scope);
+      const shell = yield* loadReadableShell(scope, threadId);
       const target = yield* threadManagement
         .getProjectThreadRecords({ projectId: shell.projectId, threadId }, [
           "runs",
@@ -2399,6 +2407,7 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const { parent } = yield* loadCaller(scope);
         const projectId = yield* resolveProjectTarget(parent, input.projectId);
+        yield* assertThreadReadProject(scope, projectId, "project");
         const projectThreads = yield* threadManagement
           .listProjectThreads({
             projectId,
@@ -2590,10 +2599,14 @@ const make = Effect.gen(function* () {
       }),
     waitForThread: (scope, input) =>
       Effect.gen(function* () {
-        const { target } = yield* loadScopedThread(scope, input.threadId);
+        yield* requireCapability(scope);
+        if (scope.thread !== undefined) {
+          yield* loadReadableShell(scope, scope.thread.threadId);
+        }
+        const { projectId } = yield* loadReadableShell(scope, input.threadId);
         const result = yield* threadManagement
           .waitForThread({
-            projectId: target.thread.projectId,
+            projectId,
             threadId: input.threadId,
             ...(input.runId === undefined ? {} : { runId: input.runId }),
             timeoutMs: Math.min(

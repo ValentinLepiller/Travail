@@ -33,6 +33,7 @@ import * as Path from "effect/Path";
 import * as AgentDesktops from "../agentDesktops/AgentDesktops.ts";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
+import * as SqlClient from "effect/sql/SqlClient";
 import { McpSchema, McpServer, Tool, Toolkit } from "effect/ai";
 import {
   HttpBody,
@@ -805,6 +806,7 @@ it.effect("terminates HTTP MCP sessions with DELETE", () =>
         issuedAt: 1,
       };
       const layerServer = McpHttpServer.layerMcpTransport.pipe(
+        Layer.provide(QualificationSqlite.layerMemory),
         Layer.provide(
           Layer.mock(McpSessionRegistry.McpSessionRegistry)({
             resolve: (presented) =>
@@ -1095,6 +1097,7 @@ it.effect("HTTP tool discovery only advertises monitors to monitoring credential
     Effect.scoped,
     Effect.provide(
       Layer.mergeAll(
+        QualificationSqlite.layerMemory,
         McpSessionRegistry.layer,
         PreviewAutomationBroker.layer,
         MonitorSession.layer,
@@ -1148,6 +1151,7 @@ it.effect("HTTP tool discovery only advertises monitors to monitoring credential
 it.effect("admits provider and OAuth client credentials and points only clients at OAuth", () =>
   Effect.scoped(
     Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
       const providerToken = "providerTokenWithoutDots";
       const clientToken = "client-payload.client-signature";
       const providerScope: McpInvocationContext.McpInvocationScope = {
@@ -1243,8 +1247,26 @@ it.effect("admits provider and OAuth client credentials and points only clients 
         });
 
       expect((yield* call(providerToken)).status).toBe(200);
+      expect(seen[0]?.threadReadProjectId).toBeUndefined();
+      yield* sql`INSERT INTO autonomous_agents (id, payload_json)
+        VALUES ('chef-travail', '{"kind":"chef","projectId":"project-travail"}')`;
+      yield* sql`INSERT INTO autonomous_agent_runs (thread_id, agent_id, title, prompt, started_at)
+        VALUES ('thread-provider', 'chef-travail', '', '', '')`;
+      yield* sql`INSERT INTO orchestration_v2_projection_threads
+        (thread_id, project_id, title, default_provider, runtime_mode, interaction_mode,
+         created_at, updated_at, payload_json)
+        VALUES ('thread-provider', 'project-travail', '', 'codex', 'full-access', 'default', '', '', '{}')`;
+      expect((yield* call(providerToken)).status).toBe(200);
+      expect(seen[1]?.threadReadProjectId).toBe("project-travail");
+
+      yield* sql`UPDATE autonomous_agents SET payload_json = json_set(payload_json, '$.projectId', 'other')
+        WHERE id = 'chef-travail'`;
+      expect((yield* call(providerToken)).status).toBe(200);
+      expect(seen[2]?.threadReadProjectId).toBeNull();
       expect((yield* call(clientToken)).status).toBe(200);
       expect(seen.map((scope) => scope.requestNamespace)).toEqual([
+        "provider-session",
+        "provider-session",
         "provider-session",
         "client:session-1",
       ]);
@@ -1263,5 +1285,5 @@ it.effect("admits provider and OAuth client credentials and points only clients 
       expect(deadProvider.status).toBe(401);
       expect(deadProvider.headers["www-authenticate"]).toBe('Bearer error="invalid_token"');
     }),
-  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  ).pipe(Effect.provide(Layer.merge(NodeHttpServer.layerTest, QualificationSqlite.layerMemory))),
 );

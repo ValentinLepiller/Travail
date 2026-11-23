@@ -15,7 +15,8 @@ import * as Stream from "effect/Stream";
 import type * as Types from "effect/Types";
 import { AiError, McpProtocol, McpSchema, McpServer, Tool, type Toolkit } from "effect/ai";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
-import { OrchestratorMcpFailure, PreviewAutomationError } from "@t3tools/contracts";
+import * as SqlClient from "effect/sql/SqlClient";
+import { OrchestratorMcpFailure, PreviewAutomationError, type ProjectId } from "@t3tools/contracts";
 
 import packageJson from "../../package.json" with { type: "json" };
 import * as ServerConfig from "../config.ts";
@@ -165,6 +166,7 @@ const looksLikeProviderToken = (token: string) => token.length > 0 && !token.inc
 const makeMcpAuthMiddleware = Effect.gen(function* () {
   const registry = yield* McpSessionRegistry.McpSessionRegistry;
   const clients = yield* Effect.serviceOption(McpClientAuthenticator);
+  const sql = yield* SqlClient.SqlClient;
   return Effect.fn("McpHttpServer.authenticateRequest")(function* (httpEffect) {
     const request = yield* HttpServerRequest.HttpServerRequest;
     const authorization = request.headers.authorization;
@@ -190,8 +192,26 @@ const makeMcpAuthMiddleware = Effect.gen(function* () {
         offerOAuth: Option.isSome(clients) && !looksLikeProviderToken(token),
       });
     }
+    let scopedInvocation = invocation;
+    if (invocation.thread !== undefined) {
+      const binding = yield* sql<{ readonly projectId: ProjectId | null }>`
+        SELECT CASE WHEN json_extract(a.payload_json, '$.kind') = 'chef'
+          AND t.project_id = json_extract(a.payload_json, '$.projectId')
+          THEN t.project_id END AS "projectId"
+        FROM autonomous_agent_runs r
+        LEFT JOIN autonomous_agents a ON a.id = r.agent_id
+        LEFT JOIN orchestration_v2_projection_threads t ON t.thread_id = r.thread_id
+          AND t.deleted_at IS NULL
+        WHERE r.thread_id = ${invocation.thread.threadId} AND r.agent_id = 'chef-travail'
+      `.pipe(Effect.result);
+      if (binding._tag === "Failure") return HttpServerResponse.empty({ status: 503 });
+      const chef = binding.success[0];
+      if (chef !== undefined) {
+        scopedInvocation = { ...invocation, threadReadProjectId: chef.projectId };
+      }
+    }
     return yield* httpEffect.pipe(
-      Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
+      Effect.provideService(McpInvocationContext.McpInvocationContext, scopedInvocation),
       Effect.map(normalizeMcpHttpResponse),
     );
   }) satisfies McpAuthMiddleware;

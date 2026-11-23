@@ -175,6 +175,45 @@ it.layer(layerTest)("ThreadSearch", (it) => {
     }),
   );
 
+  it.effect("ranks only the requested project and can find its archived discussions", () =>
+    Effect.gen(function* () {
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const search = yield* ThreadSearch.ThreadSearch;
+      const work = ProjectId.make("work");
+      const other = ProjectId.make("other");
+      const archived = ThreadId.make("archived");
+      const foreign = ThreadId.make("foreign");
+      yield* createProject(work);
+      yield* createProject(other);
+      yield* Effect.forEach(
+        [
+          thread(foreign, other),
+          message(foreign, "foreign", "user", "qualification elsewhere"),
+          thread(archived, work, { archivedAt: at(2) }),
+          message(archived, "archived", "assistant", "qualification decision"),
+        ],
+        projections.apply,
+        { discard: true },
+      );
+
+      const query = { query: "qualification", limit: 1 };
+      assert.deepEqual(
+        (yield* search.search(query)).matches.map((match) => match.threadId),
+        [foreign],
+      );
+      assert.deepEqual(
+        (yield* search.search({ ...query, projectId: work, includeArchived: true })).matches.map(
+          (match) => match.threadId,
+        ),
+        [archived],
+      );
+      assert.deepEqual(
+        (yield* search.search({ ...query, projectId: work, threadId: foreign })).matches,
+        [],
+      );
+    }),
+  );
+
   it.effect("reports an unreadable match as a decode failure", () =>
     Effect.gen(function* () {
       const projections = yield* ProjectionStore.ProjectionStoreV2;
