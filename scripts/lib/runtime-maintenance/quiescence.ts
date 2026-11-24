@@ -2,6 +2,8 @@
 import { withProbeSession } from "./auth.ts";
 import type { RuntimeConfig } from "./config.ts";
 
+export class AdmissionUnavailable extends Error {}
+
 export async function admissionLease(
   config: RuntimeConfig,
   action: "quiesce" | "release",
@@ -17,6 +19,11 @@ export async function admissionLease(
         signal: AbortSignal.timeout(15_000),
       },
     );
+    if (action === "quiesce" && (response.status === 404 || response.status === 405)) {
+      throw new AdmissionUnavailable(
+        "This host has no compatible maintenance admission endpoint; installation requires an idle host with admission support.",
+      );
+    }
     if (!response.ok)
       throw new Error(`Admission ${action} refused (${response.status}); host was not stopped`);
     const proof = (await response.json()) as {

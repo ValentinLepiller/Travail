@@ -30,6 +30,8 @@ HARNESS_OPERATIONS=/chemin/du/harness/.t3/harness-operations node scripts/harnes
 journalctl --user -u travail-install-update.service -f
 ```
 
+L’amorçage utilise le contrôleur de cette copie à jour. Si le serveur précédent ne fournit pas
+l’API de quiescence, l’installation s’arrête avant la bascule et le serveur reste disponible.
 Le premier déploiement bascule la maintenance amont en inspection seule.
 
 Le contrôleur copié fonctionne indépendamment du démarrage MT :
@@ -39,4 +41,4 @@ node .t3/harness-operations/controller/harness-runtime.ts recover
 node .t3/harness-operations/controller/harness-runtime.ts rollback
 ```
 
-Après admission potentielle, `recover` rejoue l’activation sans arrêter les travaux. Un rollback qui restaurerait un état ayant évolué est refusé. Après arbitrage explicite, `rollback --restore-snapshot` restaure l’ancien home entier et conserve aussi une copie unique de l’état actuel dans `preserved/`. Les travaux externes déjà produits ne sont pas annulés par une restauration SQLite. Ne supprimer les snapshots qu’après contrôle de récupération.
+Après admission potentielle, `recover` rejoue l’activation sans arrêter les travaux. Un rollback qui restaurerait un état ayant évolué est refusé. Après arbitrage explicite, `rollback --restore-snapshot` conserve la base SQLite et les réglages actuels dans `preserved/`, puis restaure leurs versions sauvegardées. Les worktrees, archives et fichiers des agents restent en place. Ne supprimer les snapshots qu’après contrôle de récupération.

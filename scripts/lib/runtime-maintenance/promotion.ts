@@ -3,13 +3,17 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
-import * as NodeSqlite from "node:sqlite";
+import { AdmissionUnavailable } from "./quiescence.ts";
 import { runtimePackages } from "./dependencies.ts";
 import {
   assertIdle,
   currentRelease,
   switchRelease,
-  stateDigest,
+  lstatIfPresent,
+  snapshotState,
+  captureCommittedState,
+  matchesCommittedState,
+  restoreState,
   withLock,
   writeJson,
 } from "./state.ts";
@@ -36,6 +40,8 @@ export interface RuntimeControl {
   ready(updateId: string): Promise<void>;
   quiesce(operationId: string): Promise<void>;
   releaseQuiescence(operationId: string): Promise<void>;
+  /** Unknown running services must acquire admission before a recovery can stop them. */
+  guardRecoveryStop(operationId: string, requireStopped: boolean): Promise<void>;
 }
 export interface RuntimePaths {
   readonly operations: string;
@@ -45,6 +51,7 @@ interface Journal {
   id: string;
   rollbackLease?: string;
   committedState?: string;
+  stateSnapshotVersion?: 2;
   preservedStates?: string[];
   phase:
     | "quiescing"
@@ -83,12 +90,23 @@ export async function fingerprint(release: string): Promise<string> {
     "apps/server/dist",
     "apps/server/package.json",
     "scripts/harness.ts",
+    "scripts/harness-runtime.ts",
+    "scripts/lib/runtime-maintenance",
     "scripts/lib/harness-home.ts",
     "scripts/lib/codex-home.ts",
     "pnpm-lock.yaml",
     "apps/server/src/cloud/serviceProtocol.ts",
   ])
     await walk(entry);
+  // Server-only releases have no Electron bundle. When present, seal every preload and chunk.
+  const desktopBundle = "apps/desktop/dist-electron";
+  const desktop = await NodeFSP.lstat(NodePath.join(release, desktopBundle)).catch(
+    (error: unknown) => {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
+      throw error;
+    },
+  );
+  if (desktop) await walk(desktopBundle);
   for (const pkg of await runtimePackages(release)) {
     hash.update(pkg.name + "\0");
     await walk(".", pkg.directory);
@@ -132,41 +150,17 @@ async function restore(
   await control.stop();
   const journalPath = NodePath.join(paths.operations, "promotion.json");
   if (journal.phase !== "stopping") {
-    // Check backup readability before moving the current state out of the way.
-    const backupDb = new NodeSqlite.DatabaseSync(
-      NodePath.join(journal.backup, "userdata", "statev2.sqlite"),
-      { readOnly: true },
-    );
-    try {
-      if (backupDb.prepare("PRAGMA quick_check").get()?.quick_check !== "ok")
-        throw new Error("Backup SQLite is corrupt");
-    } finally {
-      backupDb.close();
-    }
     assertIdle(journal.backup);
-    const admitted = journal.phase === "activating";
-    const exists = await NodeFSP.stat(paths.home).then(
-      () => true,
-      (error: unknown) => {
-        if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
-        return false;
-      },
-    );
-    if (exists) {
+    if (journal.phase !== "restoring" && (await lstatIfPresent(paths.home))) {
       const preserved = NodePath.join(paths.operations, "preserved", NodeCrypto.randomUUID());
-      await NodeFSP.cp(paths.home, preserved, { recursive: true, preserveTimestamps: true });
+      await snapshotState(paths.home, preserved);
       journal.preservedStates = [...(journal.preservedStates ?? []), preserved];
       await writeJson(journalPath, journal);
-      if (admitted && !allowStateRestore)
-        throw new Error(
-          "Candidate admission may have occurred; state preserved. Explicit snapshot restoration required",
-        );
       if (
         journal.phase === "committed" &&
         !allowStateRestore &&
-        journal.committedState !== (await stateDigest(paths.home))
+        !(await matchesCommittedState(paths.home, journal.backup, journal.committedState))
       ) {
-        await control.start();
         throw new Error(
           "State changed since promotion; current state preserved. Explicit --restore-snapshot required",
         );
@@ -174,23 +168,15 @@ async function restore(
     }
     journal.phase = "restoring";
     await writeJson(journalPath, journal);
-    const restored = `${paths.home}.restored`;
-    await NodeFSP.rm(restored, { recursive: true, force: true });
-    await NodeFSP.cp(journal.backup, restored, { recursive: true, preserveTimestamps: true });
-    const failed = NodePath.join(
-      paths.operations,
-      "preserved",
-      `displaced-${NodeCrypto.randomUUID()}`,
+    await restoreState(
+      paths.home,
+      journal.backup,
+      journal.stateSnapshotVersion === 2,
+      journal.preservedStates?.at(-1),
     );
-    await NodeFSP.mkdir(NodePath.dirname(failed), { recursive: true, mode: 0o700 });
-    await NodeFSP.rename(paths.home, failed).catch((error: unknown) => {
-      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
-    });
-    await NodeFSP.rename(restored, paths.home);
+    await switchRelease(paths.operations, journal.previous);
   }
-  journal.phase = "restoring";
-  await writeJson(journalPath, journal);
-  await switchRelease(paths.operations, journal.previous);
+  // In stopping the previous release is still selected and its backup may be incomplete.
   journal.phase = "restored";
   await writeJson(journalPath, journal);
   await control.start();
@@ -200,6 +186,7 @@ async function restore(
   await control.activate();
   await control.ready(journal.id);
   journal.phase = "rolled-back";
+  delete journal.rollbackLease;
   await writeJson(journalPath, journal);
 }
 
@@ -208,27 +195,79 @@ export async function recover(paths: RuntimePaths, control: RuntimeControl) {
     await NodeFSP.readFile(NodePath.join(paths.operations, "promotion.json"), "utf8"),
   ) as Journal;
   if (journal.phase === "quiescing") {
+    if ((await currentRelease(paths.operations)) !== journal.previous)
+      throw new Error("Current release does not match the journal quiescence target");
     await control.releaseQuiescence(journal.id);
     journal.phase = "rolled-back";
     await writeJson(NodePath.join(paths.operations, "promotion.json"), journal);
     return;
   }
   if (journal.phase === "committed" || journal.phase === "rolled-back") {
-    if (journal.rollbackLease) await control.releaseQuiescence(journal.rollbackLease);
+    if (journal.rollbackLease) {
+      const expected = journal.phase === "committed" ? journal.candidate : journal.previous;
+      if ((await currentRelease(paths.operations)) !== expected)
+        throw new Error("Current release does not match the interrupted rollback");
+      // An explicit rollback can crash after stopping the admitted host and before restoring.
+      await control.start();
+      await control.releaseQuiescence(journal.rollbackLease);
+      delete journal.rollbackLease;
+      await writeJson(NodePath.join(paths.operations, "promotion.json"), journal);
+    }
     return;
   }
-  if (["activating", "rollback-activating"].includes(journal.phase)) {
-    const rollback = journal.phase === "rollback-activating";
+  // Old controllers briefly wrote "restoring" even when the first backup was interrupted.
+  // The previous release and an intact home already agree, so replay only its activation.
+  if (
+    journal.phase === "restoring" &&
+    journal.stateSnapshotVersion === undefined &&
+    (await currentRelease(paths.operations)) === journal.previous
+  ) {
+    const currentHome = await NodeFSP.stat(paths.home).catch((error: unknown) => {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
+      throw error;
+    });
+    if (currentHome?.isDirectory()) {
+      const database = await NodeFSP.stat(NodePath.join(paths.home, "userdata", "statev2.sqlite"));
+      if (!database.isFile()) throw new Error("Previous runtime database is missing");
+      journal.phase = "restored";
+      await writeJson(NodePath.join(paths.operations, "promotion.json"), journal);
+    }
+  }
+  if (
+    journal.phase === "activating" ||
+    journal.phase === "rollback-activating" ||
+    journal.phase === "restored"
+  ) {
+    const rollback = journal.phase !== "activating";
+    if (
+      (await currentRelease(paths.operations)) !== (rollback ? journal.previous : journal.candidate)
+    )
+      throw new Error("Current release does not match the journal activation target");
     // Activation was decided durably. Replay it without stopping a possibly busy host.
     await control.start();
     await control.check();
+    if (journal.phase === "restored") {
+      journal.phase = "rollback-activating";
+      await writeJson(NodePath.join(paths.operations, "promotion.json"), journal);
+    }
     await control.activate();
     await control.ready(journal.id);
-    journal.committedState = await stateDigest(paths.home);
     journal.phase = rollback ? "rolled-back" : "committed";
     await writeJson(NodePath.join(paths.operations, "promotion.json"), journal);
     return;
   }
+  const current = await currentRelease(paths.operations);
+  const expected = {
+    stopping: [journal.previous],
+    "backed-up": [journal.previous],
+    switching: [journal.previous, journal.candidate],
+    switched: [journal.candidate],
+    restoring: [journal.previous, journal.candidate],
+  }[journal.phase];
+  if (!expected?.includes(current))
+    throw new Error("Current release does not match the pending recovery phase");
+  if (journal.phase !== "restoring") assertIdle(paths.home);
+  await control.guardRecoveryStop(journal.id, journal.phase === "restoring");
   await restore(paths, journal, control);
 }
 
@@ -243,6 +282,8 @@ export async function rollback(
   ) as Journal;
   if (journal.phase !== "committed" && !(allowStateRestore && journal.phase === "activating"))
     throw new Error("No committed promotion to roll back");
+  if ((await currentRelease(paths.operations)) !== journal.candidate)
+    throw new Error("Current release does not match the rollback target");
   assertIdle(paths.home);
   journal.rollbackLease = NodeCrypto.randomUUID();
   await writeJson(NodePath.join(paths.operations, "promotion.json"), journal);
@@ -250,11 +291,16 @@ export async function rollback(
   await control.stop();
   try {
     assertIdle(paths.home);
+    await restore(paths, journal, control, allowStateRestore);
   } catch (error) {
-    await control.start();
+    if (journal.phase === "committed" || journal.phase === "activating") {
+      await control.start();
+      await control.releaseQuiescence(journal.rollbackLease);
+      delete journal.rollbackLease;
+      await writeJson(NodePath.join(paths.operations, "promotion.json"), journal);
+    }
     throw error;
   }
-  await restore(paths, journal, control, allowStateRestore);
 }
 
 export async function promote(
@@ -284,6 +330,7 @@ export async function promote(
     const journal: Journal = {
       id: NodeCrypto.randomUUID(),
       phase: "quiescing",
+      stateSnapshotVersion: 2,
       previous,
       candidate,
       backup,
@@ -297,7 +344,7 @@ export async function promote(
       await control.stop();
       // Close the admission race with messages and the persistent scheduler before backing up.
       assertIdle(paths.home);
-      await NodeFSP.cp(paths.home, backup, { recursive: true, preserveTimestamps: true });
+      await snapshotState(paths.home, backup);
       journal.phase = "backed-up";
       await writeJson(journalPath, journal);
       journal.phase = "switching";
@@ -307,16 +354,17 @@ export async function promote(
       await writeJson(journalPath, journal);
       await control.start();
       await control.check();
+      // After admission, even a readiness retry can observe work that rollback must preserve.
+      journal.committedState = await captureCommittedState(paths.home, journal.backup);
       journal.phase = "activating";
       await writeJson(journalPath, journal);
       await control.activate();
       await control.ready(journal.id);
-      journal.committedState = await stateDigest(paths.home);
       journal.phase = "committed";
       await writeJson(journalPath, journal);
     } catch (error) {
       if (journal.phase === "quiescing") {
-        await control.releaseQuiescence(journal.id);
+        if (!(error instanceof AdmissionUnavailable)) await control.releaseQuiescence(journal.id);
         journal.phase = "rolled-back";
         await writeJson(journalPath, journal);
       } else if (journal.phase !== "activating") await restore(paths, journal, control);

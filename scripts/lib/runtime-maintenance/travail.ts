@@ -103,6 +103,7 @@ export async function installTravail(
   config: RuntimeConfig,
   requestedRevision: string | undefined,
   activate: (candidate: string, previous: string) => Promise<void>,
+  preparedRelease?: string,
 ) {
   const revision = requestedRevision ?? (await latestRevision(config));
   if (!sha.test(revision)) throw new Error("Invalid Travail revision");
@@ -112,6 +113,23 @@ export async function installTravail(
       const installed = await installedRevision(previous);
       if (revision === installed) return null;
       await writeJson(statePath(config), { revision, phase: "installing" });
+      if (preparedRelease) {
+        const candidate = await NodeFSP.realpath(preparedRelease);
+        const head = await run({ program: "git", args: ["rev-parse", "HEAD"] }, candidate);
+        if (head !== revision || (await latestRevision(config)) !== revision)
+          throw new Error("The prepared release must match published Travail main");
+        await run({ program: "git", args: ["diff", "--quiet", "HEAD", "--"] }, candidate);
+        if (installed)
+          await run(
+            { program: "git", args: ["merge-base", "--is-ancestor", installed, head] },
+            candidate,
+          );
+        await NodeFSP.access(NodePath.join(candidate, "apps/desktop/dist-electron/main.cjs"));
+        await NodeFSP.access(NodePath.join(candidate, "apps/server/dist/bin.mjs"));
+        if ((await installedRevision(candidate)) !== revision)
+          throw new Error("The prepared build revision does not match its checkout");
+        return { candidate, previous };
+      }
       const candidate = NodePath.join(
         config.operations,
         "releases",

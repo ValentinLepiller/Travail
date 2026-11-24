@@ -3,6 +3,8 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import { afterEach, expect, it } from "vite-plus/test";
+import { run } from "./commands.ts";
+import { installTravail } from "./travail.ts";
 import { validate } from "./daily.ts";
 import { decodeConfig, type RuntimeConfig } from "./config.ts";
 import { requiredUsages } from "./promotion.ts";
@@ -20,6 +22,8 @@ async function fixture() {
     ["apps/server/package.json", '{"dependencies":{}}'],
     ["apps/server/dist/bin.mjs", "fixture"],
     ["apps/server/src/cloud/serviceProtocol.ts", "protocol"],
+    ["scripts/harness-runtime.ts", "controller"],
+    ["scripts/lib/runtime-maintenance/state.ts", "snapshot"],
     ["scripts/harness.ts", "fixture"],
     ["scripts/lib/codex-home.ts", "private bootstrap"],
     ["scripts/lib/harness-home.ts", "fixture"],
@@ -129,4 +133,35 @@ it("rejects a stale dedicated Codex runtime before launching the usage checks", 
     "Candidate Codex 0.159.3 is older than installed 0.165.0",
   );
   await expect(NodeFSP.access(NodePath.join(f.root, ".t3/validation.json"))).rejects.toThrow();
+});
+
+it("only admits a prepared Travail build at its clean, published revision", async () => {
+  const { root, config } = await fixture();
+  const git = (...args: string[]) => run({ program: "git", args }, root);
+  await git("init", "-b", "main");
+  await git("config", `url.${root}.insteadOf`, "https://github.com/ValentinLepiller/Travail.git");
+  await git("add", "scripts/harness.ts");
+  await git(
+    "-c",
+    "user.name=Test",
+    "-c",
+    "user.email=test@example.invalid",
+    "commit",
+    "-m",
+    "Fixture",
+  );
+  const revision = await git("rev-parse", "HEAD");
+  await NodeFSP.mkdir(NodePath.join(root, ".t3"), { recursive: true });
+  await NodeFSP.writeFile(NodePath.join(root, ".t3/travail-revision"), revision);
+  await NodeFSP.mkdir(NodePath.join(root, "apps/desktop/dist-electron"), { recursive: true });
+  await NodeFSP.writeFile(NodePath.join(root, "apps/desktop/dist-electron/main.cjs"), "fixture");
+  const admitted: string[] = [];
+  const activate = async (release: string) => {
+    admitted.push(release);
+  };
+  await installTravail(config, revision, activate, root);
+  expect(admitted).toEqual([root]);
+  await NodeFSP.appendFile(NodePath.join(root, "scripts/harness.ts"), "changed");
+  await expect(installTravail(config, revision, activate, root)).rejects.toThrow();
+  expect(admitted).toEqual([root]);
 });

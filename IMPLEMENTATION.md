@@ -6,6 +6,8 @@ Les mises à jour de `main` sont proposées au-dessus d’**Usage**. Vérifiés 
 
 La répartition automatique adopte un chantier sur place et conserve ses cartes et son orchestrateur. Vérifiés sur SQLite isolé : reprise des 105 cartes existantes, exécution parallèle des tâches approuvées, attente par carte et reprise des lancements interrompus.
 
+La maintenance sauvegarde SQLite et les réglages par copie reflink bornée. Les essais isolés couvrent le journal WAL, une sauvegarde incomplète et la reprise d’une activation ancienne avec des travaux en cours.
+
 ## Fonctionnement vérifié
 
 - **Agents** : Codex natif avec abonnement ChatGPT, sous-agent, instructions/skills et projet racine. Authentification et installation Codex globales préservées ; le runtime possède aussi sa baseline dédiée.

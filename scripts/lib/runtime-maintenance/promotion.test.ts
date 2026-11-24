@@ -4,6 +4,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeSqlite from "node:sqlite";
+import { AdmissionUnavailable } from "./quiescence.ts";
 import { afterEach, expect, it } from "vite-plus/test";
 import {
   fingerprint,
@@ -56,7 +57,11 @@ async function fixture() {
     for (const [relative, body] of [
       ["apps/server/package.json", '{"dependencies":{}}'],
       ["apps/server/dist/bin.mjs", name],
+      ["apps/desktop/dist-electron/main.cjs", name],
+      ["apps/desktop/dist-electron/chunks/preload.cjs", name],
       ["apps/server/src/cloud/serviceProtocol.ts", "protocol"],
+      ["scripts/harness-runtime.ts", "controller"],
+      ["scripts/lib/runtime-maintenance/state.ts", "snapshot"],
       ["scripts/harness.ts", "launcher"],
       ["scripts/lib/codex-home.ts", "private bootstrap"],
       ["scripts/lib/harness-home.ts", "bootstrap"],
@@ -82,6 +87,7 @@ async function fixture() {
   const control: RuntimeControl = {
     quiesce: async () => {},
     releaseQuiescence: async () => {},
+    guardRecoveryStop: async () => {},
     activate: async () => {},
     ready: async () => {},
     stop: async () => {
@@ -107,9 +113,13 @@ it("refuses incomplete validation before disturbing the host", async () => {
   expect(await currentRelease(f.operations)).toBe(f.previous);
 });
 
-it("rejects an executable changed after validation", async () => {
+it.each([
+  "apps/server/dist/bin.mjs",
+  "apps/desktop/dist-electron/main.cjs",
+  "apps/desktop/dist-electron/chunks/preload.cjs",
+])("rejects an executable changed after validation: %s", async (entry) => {
   const f = await fixture();
-  await NodeFSP.writeFile(NodePath.join(f.candidate, "apps/server/dist/bin.mjs"), "changed");
+  await NodeFSP.writeFile(NodePath.join(f.candidate, entry), "changed");
   await expect(promote(f, f.candidate, f.validation, f.control)).rejects.toThrow("changed after");
   expect(f.events).toEqual([]);
 });
@@ -199,6 +209,77 @@ it("restores the previous executable, settings and persisted tasks after a faile
   db.close();
 });
 
+it("resumes the previous release after an interrupted backup without ever restoring its partial files", async () => {
+  const f = await fixture();
+  const journalPath = NodePath.join(f.operations, "promotion.json");
+  const backup = NodePath.join(f.operations, "partial");
+  await NodeFSP.mkdir(NodePath.join(backup, "userdata"), { recursive: true });
+  await NodeFSP.writeFile(NodePath.join(backup, "userdata", "statev2.sqlite"), "partial");
+  await writeJson(journalPath, {
+    id: "backup-crash",
+    phase: "stopping",
+    previous: f.previous,
+    candidate: f.candidate,
+    backup,
+  });
+  // This temporary link would block a needless switch back to the already current release.
+  await NodeFSP.mkdir(NodePath.join(f.operations, "current.next"));
+  f.control.start = async () => {
+    throw new Error("interrupted start");
+  };
+  await expect(recover(f, f.control)).rejects.toThrow("interrupted start");
+  expect(JSON.parse(await NodeFSP.readFile(journalPath, "utf8")).phase).toBe("restored");
+  f.control.start = async () => {};
+  await recover(f, f.control);
+  assertIdle(f.home);
+  expect(JSON.parse(await NodeFSP.readFile(journalPath, "utf8")).phase).toBe("rolled-back");
+});
+
+it("reopens the intact previous home when an old stopping path wrote restoring before a crash", async () => {
+  const f = await fixture();
+  await NodeFSP.writeFile(f.settings, "user's latest work");
+  f.control.stop = async () => {
+    throw new Error("Unexpected stop");
+  };
+  const journalPath = NodePath.join(f.operations, "promotion.json");
+  await writeJson(journalPath, {
+    id: "old-stopping",
+    phase: "restoring",
+    previous: f.previous,
+    candidate: f.candidate,
+    backup: "incomplete",
+  });
+  await recover(f, f.control);
+  expect(JSON.parse(await NodeFSP.readFile(journalPath, "utf8")).phase).toBe("rolled-back");
+  expect(await NodeFSP.readFile(f.settings, "utf8")).toBe("user's latest work");
+});
+
+it("finishes a partial database replacement only after confirming the runtime remains stopped", async () => {
+  const f = await fixture();
+  const backup = NodePath.join(f.operations, "backup");
+  await NodeFSP.cp(f.home, backup, { recursive: true });
+  await writeJson(NodePath.join(f.operations, "promotion.json"), {
+    id: "restore-crash",
+    phase: "restoring",
+    previous: f.previous,
+    candidate: f.candidate,
+    backup,
+  });
+  await switchRelease(f.operations, f.candidate);
+  await NodeFSP.writeFile(f.database, "partial");
+  f.control.guardRecoveryStop = async (_, requireStopped) => {
+    expect(requireStopped).toBe(true);
+    throw new Error("running");
+  };
+  await expect(recover(f, f.control)).rejects.toThrow("running");
+  expect(f.events).toEqual([]);
+  f.control.guardRecoveryStop = async (_, requireStopped) => {
+    expect(requireStopped).toBe(true);
+  };
+  await recover(f, f.control);
+  assertIdle(f.home);
+});
+
 it("recovers an interrupted state restore without needing the new app to start", async () => {
   const f = await fixture();
   const backup = NodePath.join(f.operations, "backup");
@@ -228,6 +309,31 @@ it("refuses destructive restoration from an unreadable backup", async () => {
   });
   await expect(recover(f, f.control)).rejects.toThrow();
   expect(await NodeFSP.readFile(f.settings, "utf8")).toBe('{"preserve":"original"}');
+});
+
+it("reopens a host stopped by an interrupted explicit rollback before any restore", async () => {
+  const f = await fixture();
+  await switchRelease(f.operations, f.candidate);
+  const journalPath = NodePath.join(f.operations, "promotion.json");
+  await writeJson(journalPath, {
+    id: "promotion",
+    phase: "committed",
+    previous: f.previous,
+    candidate: f.candidate,
+    backup: "untouched",
+    rollbackLease: "rollback",
+  });
+  f.control.releaseQuiescence = async (id) => {
+    expect(id).toBe("rollback");
+    f.events.push("release");
+  };
+  await recover(f, f.control);
+  await recover(f, f.control);
+  expect(f.events).toEqual(["start", "release"]);
+  expect(await currentRelease(f.operations)).toBe(f.candidate);
+  expect(JSON.parse(await NodeFSP.readFile(journalPath, "utf8"))).not.toHaveProperty(
+    "rollbackLease",
+  );
 });
 
 it("supports explicit rollback after a completed promotion", async () => {
@@ -368,6 +474,68 @@ it("leaves admitted work running when readiness fails and replays activation wit
   expect(
     JSON.parse(await NodeFSP.readFile(NodePath.join(f.operations, "promotion.json"), "utf8")).phase,
   ).toBe("committed");
+  await expect(rollback(f, f.control)).rejects.toThrow("Explicit --restore-snapshot");
+  expect(await NodeFSP.readFile(f.settings, "utf8")).toBe('{"admitted":"preserved"}');
+});
+
+it("leaves queued work untouched when an old pre-activation journal asks for recovery", async () => {
+  const f = await fixture();
+  await switchRelease(f.operations, f.candidate);
+  await writeJson(NodePath.join(f.operations, "promotion.json"), {
+    phase: "switched",
+    id: "orphan",
+    previous: f.previous,
+    candidate: f.candidate,
+    backup: "old",
+  });
+  const db = new NodeSqlite.DatabaseSync(f.database);
+  db.exec("INSERT INTO orchestration_v2_projection_runs VALUES ('queued')");
+  db.close();
+  await expect(recover(f, f.control)).rejects.toThrow("Active or pending");
+  expect(f.events).toEqual([]);
+  expect(await currentRelease(f.operations)).toBe(f.candidate);
+});
+
+it("finishes a legacy rollback activation without stopping or restoring a busy previous host", async () => {
+  const f = await fixture();
+  const db = new NodeSqlite.DatabaseSync(f.database);
+  db.exec("INSERT INTO orchestration_v2_projection_runs VALUES ('running')");
+  db.close();
+  const journalPath = NodePath.join(f.operations, "promotion.json");
+  await writeJson(journalPath, {
+    id: "legacy",
+    phase: "rollback-activating",
+    previous: f.previous,
+    candidate: f.candidate,
+    backup: "unused",
+  });
+  f.control.ready = async (id) => {
+    expect(id).toBe("legacy");
+    f.events.push("ready");
+  };
+  await recover(f, f.control);
+  expect(f.events).toEqual(["start", "check", "ready"]);
+  expect(JSON.parse(await NodeFSP.readFile(journalPath, "utf8"))).toMatchObject({
+    phase: "rolled-back",
+  });
+  expect(() => assertIdle(f.home)).toThrow("Active or pending");
+});
+
+it("leaves an activation journal intact when current points to another release", async () => {
+  const f = await fixture();
+  const journalPath = NodePath.join(f.operations, "promotion.json");
+  const journal = {
+    id: "stale",
+    phase: "rollback-activating",
+    previous: f.previous,
+    candidate: f.candidate,
+    backup: "unused",
+  };
+  await writeJson(journalPath, journal);
+  await switchRelease(f.operations, f.candidate);
+  await expect(recover(f, f.control)).rejects.toThrow("activation target");
+  expect(f.events).toEqual([]);
+  expect(JSON.parse(await NodeFSP.readFile(journalPath, "utf8"))).toEqual(journal);
 });
 
 it("rejects an executable protocol source changed after validation", async () => {
@@ -390,6 +558,24 @@ it("never stops the host if admission quiescence is unavailable or busy", async 
   );
   expect(f.events).toEqual([]);
   expect(await currentRelease(f.operations)).toBe(f.previous);
+});
+
+it("rejects a legacy bootstrap without an admission endpoint and leaves the old host usable", async () => {
+  const f = await fixture();
+  f.control.quiesce = async () => {
+    throw new AdmissionUnavailable("Unsupported endpoint");
+  };
+  f.control.releaseQuiescence = async () => {
+    throw new Error("Unexpected release");
+  };
+  await expect(promote(f, f.candidate, f.validation, f.control)).rejects.toThrow(
+    "Unsupported endpoint",
+  );
+  expect(f.events).toEqual([]);
+  expect(await currentRelease(f.operations)).toBe(f.previous);
+  expect(
+    JSON.parse(await NodeFSP.readFile(NodePath.join(f.operations, "promotion.json"), "utf8")).phase,
+  ).toBe("rolled-back");
 });
 
 it("releases an orphaned acquisition without stopping active work", async () => {

@@ -81,6 +81,40 @@ function control(config: RuntimeConfig): RuntimeControl {
   return {
     quiesce: (id) => admissionLease(config, "quiesce", id),
     releaseQuiescence: (id) => admissionLease(config, "release", id),
+    guardRecoveryStop: async (id, requireStopped) => {
+      const output = await run(
+        {
+          program: "systemctl",
+          args: ["--user", "show", "mt-harness.service", "--property=MainPID,ActiveState"],
+        },
+        config.source,
+      );
+      const properties = Object.fromEntries(output.split("\n").map((line) => line.split("=")));
+      if (properties.ActiveState === "inactive" || properties.ActiveState === "failed") return;
+      if (requireStopped)
+        throw new Error(
+          "Runtime must still be stopped to complete interrupted snapshot restoration",
+        );
+      if (properties.ActiveState !== "active")
+        throw new Error("Runtime service is transitioning; retry recovery");
+      const prepared = await NodeFSP.readFile(
+        NodePath.join(config.operations, "trial-prepared.json"),
+        "utf8",
+      ).then(
+        (raw) => JSON.parse(raw) as { id: string; hostPid: number },
+        (error: unknown) => {
+          if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
+          throw error;
+        },
+      );
+      if (
+        prepared?.id === id &&
+        Number(properties.MainPID) > 0 &&
+        prepared.hostPid === Number(properties.MainPID)
+      )
+        return;
+      await admissionLease(config, "quiesce", id);
+    },
     stop: () => systemctl("stop"),
     start: async () => {
       await systemctl("start");
@@ -383,22 +417,36 @@ async function main() {
     );
   }
   if (mode === "travail-install") {
-    return installTravail(config, candidate, async (release, previous) => {
-      const validation = await validate(config, release);
-      await promote(config, release, validation, control(config), previous);
-      // Keep the legacy upstream timer from promoting over the user-managed channel.
-      if (config.prepareUpdates || config.promoteValidated)
-        await writeJson(configPath, { ...config, prepareUpdates: false, promoteValidated: false });
-      await run(
-        {
-          program: process.execPath,
-          args: [NodePath.join(release, "scripts/harness-desktop.ts"), "install-launcher"],
-        },
-        release,
-        10_000,
-        { ...process.env, TRAVAIL_SOURCE: config.source },
-      );
-    });
+    const preparedRelease = process.argv[4];
+    return installTravail(
+      config,
+      candidate,
+      async (release, previous) => {
+        const validation: Validation = preparedRelease
+          ? JSON.parse(
+              await NodeFSP.readFile(NodePath.join(release, ".t3/validation.json"), "utf8"),
+            )
+          : await validate(config, release);
+        await promote(config, release, validation, control(config), previous);
+        // Keep the legacy upstream timer from promoting over the user-managed channel.
+        if (config.prepareUpdates || config.promoteValidated)
+          await writeJson(configPath, {
+            ...config,
+            prepareUpdates: false,
+            promoteValidated: false,
+          });
+        await run(
+          {
+            program: process.execPath,
+            args: [NodePath.join(release, "scripts/harness-desktop.ts"), "install-launcher"],
+          },
+          release,
+          10_000,
+          { ...process.env, TRAVAIL_SOURCE: config.source },
+        );
+      },
+      preparedRelease,
+    );
   }
   if (mode === "health") return health(config);
   if (mode === "idle") return assertIdle(config.home);
