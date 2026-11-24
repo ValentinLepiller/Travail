@@ -1,3 +1,4 @@
+import { admissionMessageId, taskLaunchCommandId } from "./taskAdmission.ts";
 import { sha256Hex } from "@t3tools/shared/sha256";
 import {
   CommandId,
@@ -12,6 +13,7 @@ import {
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as RcMap from "effect/RcMap";
 import * as Semaphore from "effect/Semaphore";
 import * as Tasks from "./WorkTaskService.ts";
 import * as Launch from "../orchestration-v2/ThreadLaunchService.ts";
@@ -41,6 +43,99 @@ export const layer = Layer.effect(
     const tasks = yield* Tasks.WorkTaskService;
     const launcher = yield* Launch.ThreadLaunchService;
     const lock = yield* Semaphore.make(1);
+    const taskLocks = yield* RcMap.make({ lookup: (_id: string) => Semaphore.make(1) });
+    const launch = Effect.fn("WorkTaskAgentService.launch")(function* (
+      input: WorkTaskLaunchInput,
+      callerThreadId?: ThreadId,
+    ) {
+      const task = yield* tasks.read(input.id);
+      if (!task || task.version !== input.expectedVersion || isClosedWorkTaskStatus(task.status))
+        return yield* new WorkTaskError({ reason: "conflict" });
+      yield* tasks.assertCanStart(task, callerThreadId);
+      if (task.agentThreadId) return task;
+      if (task.status !== "ready" && !(task.status === "doing" && task.pendingLaunch))
+        return yield* new WorkTaskError({ reason: "preparation" });
+      if (!task.projectId) return yield* new WorkTaskError({ reason: "project" });
+      const chantier = task.chantierId ? yield* tasks.readChantier(task.chantierId) : null;
+      const automatic = chantier?.v2?.dispatchModelSelection !== undefined;
+      const review = chantier?.v2?.reviews.find((r) => r.taskId === task.id);
+      const config = yield* tasks.types();
+      const type = config.types.find((t) => t.id === task.typeId);
+      const messages = yield* tasks.messages(task.id);
+      const text = [
+        chantier?.generation === "v2"
+          ? `Tâche approuvée par Valentin. Pour du code : modifications locales, commits, push sur ta branche dédiée et ouverture de PR autorisés. Aucun merge ni déploiement sans le service Chantiers V2 et ses accords indépendants. Respecte les composants, l'organisation et les exigences du projet. Prototype de référence : ${chantier.v2?.prototype.url ?? "aucun"} ; code d'exemple : ${chantier.v2?.prototype.codeReference ?? "aucun"}. Lis le dossier au besoin, ne le recopie pas. Les consentements email/Slack restent applicables.`
+          : null,
+        type?.prompt,
+        task.title,
+        task.notes,
+        task.acceptanceCriteria ? `Critères de validation : ${task.acceptanceCriteria}` : null,
+        task.chantierId
+          ? `Cette tâche appartient au chantier ${task.chantierId}. Lis work_chantier_read avant de commencer pour retrouver le périmètre courant, les décisions et les prérequis. Ta discussion exécute uniquement la tâche ${task.id}. Signale les blocages et résultats dans ses notes et passe à review pour validation ; ne déclare pas les prérequis livrés sans preuve.`
+          : null,
+        task.chantierId
+          ? "Établis ton plan jusqu’à la destination demandée, avec déploiement et recette si applicables. Vérifie le résultat à destination. Pour une attente de CI ou de revue, utilise watch_pull_request et reprends sur événement. Pour une décision manquante, crée une Requête ciblée sur cette tâche et cet acte auprès du responsable. Respecte les pauses, propriétaires et accords existants."
+          : null,
+        task.chantierId ? chantierReviewInstructions : null,
+        ...messages.map((m) => `Slack · ${m.authorId}\n${m.text}`),
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+      const threadId = ThreadId.make(`task-${task.id}`);
+      // Admit execution before starting the provider, while checking the current prerequisites.
+      const reserved = task.pendingLaunch
+        ? task
+        : yield* tasks.reserveLaunch(
+            task,
+            automatic ? input.modelSelection : undefined,
+            callerThreadId,
+          );
+      yield* launcher
+        .launch({
+          commandId: taskLaunchCommandId(threadId),
+          threadId,
+          projectId: task.projectId,
+          title: task.title.slice(0, 200),
+          modelSelection: reserved.pendingLaunch ?? input.modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          workspaceStrategy:
+            chantier?.generation === "v2" && review?.kind === "code"
+              ? {
+                  type: "worktree",
+                  baseRef: "HEAD",
+                  branch: `chantier/${sha256Hex(task.id).slice(0, 24)}`,
+                }
+              : { type: "root" },
+          createdBy: "user",
+          creationSource: "web",
+          initialMessage: {
+            ...(automatic ? { messageId: admissionMessageId(threadId) } : {}),
+            text,
+            attachments: task.attachments ?? [],
+          },
+        })
+        .pipe(
+          Effect.catch(() =>
+            Effect.gen(function* () {
+              if (!automatic) {
+                yield* tasks.save({
+                  ...reserved,
+                  status: "ready",
+                  expectedVersion: reserved.version,
+                });
+              }
+              return yield* new WorkTaskError({ reason: "agent" });
+            }),
+          ),
+        );
+      return yield* tasks.save({
+        ...reserved,
+        status: "doing",
+        agentThreadId: threadId,
+        expectedVersion: reserved.version,
+      });
+    });
     return WorkTaskAgentService.of({
       launchChantier: (input) =>
         lock.withPermit(
@@ -86,91 +181,11 @@ export const layer = Layer.effect(
             });
           }),
         ),
-      launch: (input, callerThreadId) =>
-        lock.withPermit(
+      launch: (input, caller) =>
+        Effect.scoped(
           Effect.gen(function* () {
-            const task = yield* tasks.read(input.id);
-            if (
-              !task ||
-              task.version !== input.expectedVersion ||
-              isClosedWorkTaskStatus(task.status)
-            )
-              return yield* new WorkTaskError({ reason: "conflict" });
-            yield* tasks.assertCanStart(task, callerThreadId);
-            if (task.agentThreadId) return task;
-            if (task.status !== "ready") return yield* new WorkTaskError({ reason: "preparation" });
-            if (!task.projectId) return yield* new WorkTaskError({ reason: "project" });
-            const chantier = task.chantierId ? yield* tasks.readChantier(task.chantierId) : null;
-            const review = chantier?.v2?.reviews.find((r) => r.taskId === task.id);
-            const config = yield* tasks.types();
-            const type = config.types.find((t) => t.id === task.typeId);
-            const messages = yield* tasks.messages(task.id);
-            const text = [
-              chantier?.generation === "v2"
-                ? `Tâche approuvée par Valentin. Pour du code : modifications locales, commits, push sur ta branche dédiée et ouverture de PR autorisés. Aucun merge ni déploiement sans le service Chantiers V2 et ses accords indépendants. Respecte les composants, l'organisation et les exigences du projet. Prototype de référence : ${chantier.v2?.prototype.url ?? "aucun"} ; code d'exemple : ${chantier.v2?.prototype.codeReference ?? "aucun"}. Lis le dossier au besoin, ne le recopie pas. Les consentements email/Slack restent applicables.`
-                : null,
-              type?.prompt,
-              task.title,
-              task.notes,
-              task.acceptanceCriteria
-                ? `Critères de validation : ${task.acceptanceCriteria}`
-                : null,
-              task.chantierId
-                ? `Cette tâche appartient au chantier ${task.chantierId}. Lis work_chantier_read avant de commencer pour retrouver le périmètre courant, les décisions et les prérequis. Ta discussion exécute uniquement la tâche ${task.id}. Signale les blocages et résultats dans ses notes et passe à review pour validation ; ne déclare pas les prérequis livrés sans preuve.`
-                : null,
-              task.chantierId ? chantierReviewInstructions : null,
-              ...messages.map((m) => `Slack · ${m.authorId}\n${m.text}`),
-            ]
-              .filter(Boolean)
-              .join("\n\n");
-            const threadId = ThreadId.make(`task-${task.id}`);
-            // Admit execution before starting the provider, while checking the current prerequisites.
-            const reserved = yield* tasks.save({
-              ...task,
-              status: "doing",
-              agentThreadId: task.agentThreadId,
-              expectedVersion: task.version,
-            });
-            yield* launcher
-              .launch({
-                commandId: CommandId.make(`task-launch:${threadId}`),
-                threadId,
-                projectId: task.projectId,
-                title: task.title.slice(0, 200),
-                modelSelection: input.modelSelection,
-                runtimeMode: "full-access",
-                interactionMode: "default",
-                workspaceStrategy:
-                  chantier?.generation === "v2" && review?.kind === "code"
-                    ? {
-                        type: "worktree",
-                        baseRef: "HEAD",
-                        branch: `chantier/${sha256Hex(task.id).slice(0, 24)}`,
-                      }
-                    : { type: "root" },
-                createdBy: "user",
-                creationSource: "web",
-                initialMessage: { text, attachments: task.attachments ?? [] },
-              })
-              .pipe(
-                Effect.catch(() =>
-                  Effect.gen(function* () {
-                    // A retry reuses the stable ID if launch created the thread before failing.
-                    yield* tasks.save({
-                      ...reserved,
-                      status: "ready",
-                      expectedVersion: reserved.version,
-                    });
-                    return yield* new WorkTaskError({ reason: "agent" });
-                  }),
-                ),
-              );
-            return yield* tasks.save({
-              ...reserved,
-              status: "doing",
-              agentThreadId: threadId,
-              expectedVersion: reserved.version,
-            });
+            const taskLock = yield* RcMap.get(taskLocks, input.id);
+            return yield* taskLock.withPermit(launch(input, caller));
           }),
         ),
     });

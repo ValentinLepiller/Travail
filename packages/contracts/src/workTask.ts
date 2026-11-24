@@ -85,6 +85,7 @@ export const WorkTaskFields = Schema.Struct({
 });
 export const WorkTask = Schema.Struct({
   ...WorkTaskFields.fields,
+  pendingLaunch: Schema.optionalKey(ModelSelection),
   // Old databases remain readable; new commands only accept current statuses.
   status: Schema.Union([WorkTaskStatus, Schema.Literals(["unqualified", "todo"])]).pipe(
     Schema.decodeTo(

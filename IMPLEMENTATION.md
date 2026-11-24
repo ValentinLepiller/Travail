@@ -4,6 +4,8 @@ Base [MT Code](https://github.com/munimtechnologies/mtcode) `63c035c5e5a0cfdcdd4
 
 Les mises à jour de `main` sont proposées au-dessus d’**Usage**. Vérifiés en isolation : compilation web/serveur/Electron, détection de la révision distante et 37 tests de maintenance.
 
+La répartition automatique adopte un chantier sur place et conserve ses cartes et son orchestrateur. Vérifiés sur SQLite isolé : reprise des 105 cartes existantes, exécution parallèle des tâches approuvées, attente par carte et reprise des lancements interrompus.
+
 ## Fonctionnement vérifié
 
 - **Agents** : Codex natif avec abonnement ChatGPT, sous-agent, instructions/skills et projet racine. Authentification et installation Codex globales préservées ; le runtime possède aussi sa baseline dédiée.

@@ -62,22 +62,45 @@ it.effect.each([false, true])(
           types: [{ id: "fix", name: "Fix", prompt: "Diagnostique puis corrige." }],
         }),
       messages: () => Effect.succeed([]),
+      reserveLaunch: (reserved, model) =>
+        Effect.sync(
+          () =>
+            (task = {
+              ...reserved,
+              ...(model ? { pendingLaunch: model } : {}),
+              status: "doing",
+              version: reserved.version + 1,
+            }),
+        ),
       save: (input) =>
         Effect.sync(() => {
           task = { ...task, ...input, version: input.expectedVersion + 1 };
           return task;
         }),
     });
+    let firstAttempt = true;
     const launch = Layer.mock(Launch.ThreadLaunchService)({
-      launch: (input) =>
-        Effect.sync(() => {
+      launch: (input) => {
+        if (firstAttempt) {
+          firstAttempt = false;
+          return Effect.fail(
+            new Launch.ThreadLaunchError({
+              projectId: input.projectId,
+              commandId: input.commandId,
+              operation: "resolve-project",
+              cause: "unavailable",
+            }),
+          );
+        }
+        return Effect.sync(() => {
           launches.push(input);
           return {
             threadId: input.threadId!,
             resumed: false,
             projection: idleThreadProjection(liveThreadShell(input.threadId!)),
           };
-        }),
+        });
+      },
     });
     return Effect.gen(function* () {
       const service = yield* Agents.WorkTaskAgentService;
@@ -86,7 +109,10 @@ it.effect.each([false, true])(
         expectedVersion: 1,
         modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-test" },
       };
-      const result = yield* service.launch(input);
+      expect((yield* service.launch(input).pipe(Effect.flip)).reason).toBe("agent");
+      expect(task.status).toBe("ready");
+      expect(task.pendingLaunch).toBeUndefined();
+      const result = yield* service.launch({ ...input, expectedVersion: task.version });
       expect(result.status).toBe("doing");
       expect(result.agentThreadId).toBe(launches[0]?.threadId);
       expect(launches[0]?.runtimeMode).toBe("full-access");
@@ -98,6 +124,8 @@ it.effect.each([false, true])(
       expect(prompt.includes("$guided-review")).toBe(inChantier);
       expect(prompt.includes("compte de test à utiliser")).toBe(inChantier);
       if (inChantier) {
+        expect(prompt).toContain("watch_pull_request");
+        expect(prompt).toContain("destination demandée");
         expect(prompt).toContain("ne démarre ni ne laisse tourner");
         expect(prompt).toContain("t3_project_update");
         expect(prompt).toContain("autoOpenPreview: true");

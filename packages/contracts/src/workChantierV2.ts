@@ -1,5 +1,6 @@
 import * as Schema from "effect/Schema";
 import { NonNegativeInt, ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { ModelSelection } from "./modelSelection.ts";
 import { PreviewAnnotationPayloadSchema } from "./ipc.ts";
 
 const Text = Schema.String.check(Schema.isMaxLength(20000));
@@ -30,6 +31,7 @@ export const ChantierPrototype = Schema.Struct({
 export const ChantierStage = Schema.Struct({ id: Id, title: Id, criteria: Text });
 export const ChantierTaskReview = Schema.Struct({
   taskId: Id,
+  lastChangedVersion: Schema.optionalKey(NonNegativeInt),
   approvedDefinition: Schema.NullOr(Schema.String),
   kind: Schema.Literals(["code", "other"]),
   pmReference: Schema.String.check(Schema.isMaxLength(2000)),
@@ -46,6 +48,8 @@ export const ChantierTaskReview = Schema.Struct({
 });
 export const ChantierV2State = Schema.Struct({
   chefAgentId: Id,
+  dispatchModelSelection: Schema.optionalKey(ModelSelection),
+  reviewWindowStartVersion: Schema.optionalKey(NonNegativeInt),
   framingApproved: Schema.Boolean,
   completionCriteria: Text,
   interfaceExpected: Schema.Boolean,
@@ -58,10 +62,11 @@ export const ChantierV2State = Schema.Struct({
   reviews: Schema.Array(ChantierTaskReview).check(Schema.isMaxLength(1000)),
 });
 export type ChantierV2State = typeof ChantierV2State.Type;
+const maxParallelTasks = 20;
 export const ChantierProjectPolicy = Schema.Struct({
   projectId: ProjectId,
   expectedVersion: NonNegativeInt,
-  maxParallel: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 20 })),
+  maxParallel: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: maxParallelTasks })),
   intervalSeconds: Schema.Int.check(Schema.isBetween({ minimum: 30, maximum: 86400 })),
   trackingHabits: Text,
   sourceRules: Text,
@@ -69,6 +74,11 @@ export const ChantierProjectPolicy = Schema.Struct({
   delegations: Text,
 });
 export type ChantierProjectPolicy = typeof ChantierProjectPolicy.Type;
+export const chantierParallelism = (policy: ChantierProjectPolicy, state?: ChantierV2State) =>
+  state?.dispatchModelSelection && policy.expectedVersion === 0
+    ? maxParallelTasks
+    : policy.maxParallel;
+
 const Identity = {
   id: Id,
   expectedVersion: NonNegativeInt,
@@ -76,6 +86,7 @@ const Identity = {
 };
 const TaskIdentity = { ...Identity, taskId: Id, expectedTaskVersion: NonNegativeInt };
 export const ChantierV2Command = Schema.Union([
+  Schema.Struct({ ...Identity, type: Schema.Literal("adopt"), modelSelection: ModelSelection }),
   Schema.Struct({
     ...Identity,
     type: Schema.Literal("dossier"),

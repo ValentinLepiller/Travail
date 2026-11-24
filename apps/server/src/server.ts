@@ -596,12 +596,19 @@ const layerProviderInstallationRefresh = Layer.effectDiscard(
 );
 
 const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
-  ChantierCoordinator.layer.pipe(Layer.provide(layerPullRequestService)),
+  WorkTaskSettlementWorker.dispatchLayer.pipe(
+    Layer.provideMerge(ChantierCoordinator.layer),
+    Layer.provide(RuntimeLayer.layerEventSink),
+    Layer.provide(layerPullRequestService),
+  ),
   AgentAwarenessRelay.layer,
   // Asks T3 Connect to deliver webhooks it held while this environment was offline.
   HeldHooksWaker.layer,
   layerThreadSettlementWorker,
-  WorkTaskSettlementWorker.layer.pipe(Layer.provide(WorkTasks.layer)),
+  WorkTaskSettlementWorker.layer.pipe(
+    Layer.provide(WorkTasks.layer),
+    Layer.provide(RuntimeLayer.layerEventSink),
+  ),
   StorageCleanup.layer.pipe(Layer.provide(ProjectionStoreV2.layer)),
   layerThreadPullRequestWorker,
   // Fork: self-hosted push notifications for settled/attention threads.

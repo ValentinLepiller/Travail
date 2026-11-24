@@ -68,7 +68,7 @@ it.effect("reads recovery projections only for threads that need runtime recover
   const settledThreadIds = Array.from({ length: 1_000 }, (_, index) =>
     ThreadId.make(`thread_recovery_settled_${index}`),
   );
-  const recoveryThreadId = ThreadId.make("thread_recovery_candidate");
+  const recoveryThreadId = ThreadId.make("task-recovery-candidate");
   const projectionReads = vi.fn<(threadId: ThreadId) => void>();
   const layer = ProviderRuntimeRecovery.layer.pipe(
     Layer.provide(ServerSettings.layerTest()),
@@ -91,7 +91,14 @@ it.effect("reads recovery projections only for threads that need runtime recover
               providerSessions: [],
               providerThreads: [],
               providerTurns: [],
-              runs: [],
+              runs: [
+                {
+                  id: "run-preparing",
+                  status: "preparing",
+                  userMessageId: `chantier-admission:${threadId}`,
+                  workspacePreparation: { type: "root" },
+                },
+              ],
               attempts: [],
               nodes: [],
               subagents: [],
@@ -115,7 +122,8 @@ it.effect("reads recovery projections only for threads that need runtime recover
   );
 
   return Effect.gen(function* () {
-    yield* (yield* ProviderRuntimeRecovery.ProviderRuntimeRecoveryService).recover;
+    const summary = yield* (yield* ProviderRuntimeRecovery.ProviderRuntimeRecoveryService).recover;
+    assert.equal(summary.terminalizedRuns, 0);
     assert.deepEqual(
       projectionReads.mock.calls.map(([threadId]) => threadId),
       [recoveryThreadId],

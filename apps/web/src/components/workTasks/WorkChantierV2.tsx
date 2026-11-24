@@ -1,3 +1,4 @@
+import { chantierParallelism } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { openPreviewSession } from "../preview/openPreviewSession";
 import { PreviewPanel } from "../preview/PreviewPanel";
@@ -654,9 +655,9 @@ function ProjectPolicy({
   );
   return query.data ? (
     <PolicyForm
-      key={query.data.expectedVersion}
+      key={`${chantier.id}:${query.data.expectedVersion}:${!!chantier.v2?.dispatchModelSelection}`}
       environmentId={environmentId}
-      initial={query.data}
+      initial={{ ...query.data, maxParallel: chantierParallelism(query.data, chantier.v2) }}
     />
   ) : (
     <p>Chargement des habitudes du projet…</p>
