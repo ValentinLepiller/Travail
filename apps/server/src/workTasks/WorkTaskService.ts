@@ -15,7 +15,9 @@ import { GmailTaskMessage } from "./gmailTaskRules.ts";
 import {
   ChantierProjectPolicy,
   type ChantierV2Command,
+  chantierParallelism,
   WorkTask,
+  ModelSelection,
   ChatImageAttachment,
   WorkChantier,
   workTaskBlockers,
@@ -63,6 +65,10 @@ export class WorkTaskService extends Context.Service<
       input: ChantierV2Command,
       callerThreadId?: ThreadId,
     ) => Effect.Effect<WorkChantier, WorkTaskError>;
+    readonly changes: Stream.Stream<number>;
+    readonly dispatchTargets: (
+      threadId?: ThreadId,
+    ) => Effect.Effect<ReadonlyArray<{ id: string; model: ModelSelection }>, WorkTaskError>;
     readonly listChantiers: () => Effect.Effect<ReadonlyArray<WorkChantier>, WorkTaskError>;
     readonly subscribeChantiers: () => Stream.Stream<ReadonlyArray<WorkChantier>, WorkTaskError>;
     readonly readChantier: (id: string) => Effect.Effect<WorkChantier, WorkTaskError>;
@@ -79,6 +85,11 @@ export class WorkTaskService extends Context.Service<
       input: WorkChantierPlanInput,
       callerThreadId?: ThreadId,
     ) => Effect.Effect<WorkChantier, WorkTaskError>;
+    readonly reserveLaunch: (
+      task: WorkTask,
+      model: ModelSelection | undefined,
+      callerThreadId?: ThreadId,
+    ) => Effect.Effect<WorkTask, WorkTaskError>;
     readonly assertCanStart: (
       task: WorkTask,
       callerThreadId?: ThreadId,
@@ -92,7 +103,7 @@ export class WorkTaskService extends Context.Service<
     readonly types: () => Effect.Effect<WorkTaskTypesConfig, WorkTaskError>;
     readonly subscribeTypes: () => Stream.Stream<WorkTaskTypesConfig, WorkTaskError>;
     readonly saveTypes: (input: WorkTaskTypesConfig) => Effect.Effect<void, WorkTaskError>;
-    readonly list: () => Effect.Effect<ReadonlyArray<WorkTask>, WorkTaskError>;
+    readonly list: (chantierId?: string) => Effect.Effect<ReadonlyArray<WorkTask>, WorkTaskError>;
     readonly subscribe: () => Stream.Stream<ReadonlyArray<WorkTask>, WorkTaskError>;
     readonly messages: (
       id: string,
@@ -108,6 +119,7 @@ export class WorkTaskService extends Context.Service<
       input: WorkQualificationReserveInput,
       callerThreadId: ThreadId,
     ) => Effect.Effect<ReadonlyArray<WorkTaskClaimInput>, WorkTaskError>;
+    readonly recoverSettledTasks: () => Effect.Effect<void, WorkTaskError>;
     readonly completeForSettledThread: (threadId: ThreadId) => Effect.Effect<void, WorkTaskError>;
     readonly delete: (input: WorkTaskDeleteInput) => Effect.Effect<void, WorkTaskError>;
     readonly ingestGmail: (
@@ -121,6 +133,7 @@ export class WorkTaskService extends Context.Service<
 
 const isWorkTaskError = Schema.is(WorkTaskError);
 const isWorkTaskStatus = Schema.is(WorkTask.fields.status);
+const decodeDispatchModel = Schema.decodeUnknownEffect(Schema.fromJsonString(ModelSelection));
 const decodeImages = Schema.decodeUnknownEffect(Schema.Array(ChatImageAttachment));
 
 const make = Effect.gen(function* () {
@@ -155,7 +168,12 @@ const make = Effect.gen(function* () {
   });
 
   const assertV2Caller = Effect.fn(function* (chantier: WorkChantier, callerThreadId?: ThreadId) {
-    if (!callerThreadId || chantier.generation !== "v2") return;
+    if (
+      !callerThreadId ||
+      chantier.generation !== "v2" ||
+      callerThreadId === chantier.orchestratorThreadId
+    )
+      return;
     const rows = yield* sql`SELECT r.thread_id FROM autonomous_agent_runs r
       JOIN autonomous_agents a ON a.id=r.agent_id
       WHERE r.thread_id=${callerThreadId} AND a.id=${chantier.v2!.chefAgentId}
@@ -172,11 +190,11 @@ const make = Effect.gen(function* () {
     }>`SELECT payload_json FROM work_chantier_project_policies WHERE project_id=${projectId}`.pipe(
       Effect.mapError(storageError),
     );
-    return rows[0]
-      ? yield* Schema.decodeUnknownEffect(policyCodec)(rows[0].payload_json).pipe(
-          Effect.mapError(storageError),
-        )
-      : defaultChantierPolicy(projectId);
+    if (rows[0])
+      return yield* Schema.decodeUnknownEffect(policyCodec)(rows[0].payload_json).pipe(
+        Effect.mapError(storageError),
+      );
+    return defaultChantierPolicy(projectId);
   });
   const saveChantierPolicy = Effect.fn(function* (input: ChantierProjectPolicy) {
     return yield* sql
@@ -220,10 +238,12 @@ const make = Effect.gen(function* () {
     if (!rows.length) return yield* new WorkTaskError({ reason: "conflict" });
     yield* changed;
   });
-  const list = Effect.fn("WorkTaskService.list")(function* () {
+  const list = Effect.fn("WorkTaskService.list")(function* (chantierId?: string) {
     const rows = yield* sql<{
       payload_json: string;
-    }>`SELECT payload_json FROM work_tasks ORDER BY rowid DESC`.pipe(Effect.mapError(storageError));
+    }>`SELECT payload_json FROM work_tasks ${chantierId ? sql`WHERE json_extract(payload_json, '$.chantierId')=${chantierId}` : sql``} ORDER BY rowid DESC`.pipe(
+      Effect.mapError(storageError),
+    );
     return yield* Effect.forEach(rows, (row) =>
       decode(row.payload_json).pipe(Effect.mapError(storageError)),
     );
@@ -420,10 +440,17 @@ const make = Effect.gen(function* () {
     const policy = yield* chantierPolicy(chantier.projectId);
     const active = yield* sql<{ count: number }>`SELECT count(*) AS count FROM work_tasks t
       WHERE t.id != ${task.id} AND json_extract(t.payload_json,'$.projectId')=${chantier.projectId}
-      AND (json_extract(t.payload_json,'$.status')='doing' OR EXISTS (
-        SELECT 1 FROM orchestration_v2_projection_runs r WHERE r.thread_id=json_extract(t.payload_json,'$.agentThreadId') AND r.status IN ('preparing','queued','starting','running','waiting')
-      ))`.pipe(Effect.mapError(storageError));
-    if (active[0]!.count >= policy.maxParallel)
+      AND (EXISTS (
+        SELECT 1 FROM orchestration_v2_projection_runs r WHERE r.thread_id=json_extract(t.payload_json,'$.agentThreadId') AND r.status IN ('preparing','queued','starting','running')
+      ) OR (json_extract(t.payload_json,'$.status')='doing' AND NOT EXISTS (
+        SELECT 1 FROM orchestration_v2_projection_runs r WHERE r.thread_id=json_extract(t.payload_json,'$.agentThreadId') AND r.status='waiting'
+      ) AND NOT EXISTS (
+        SELECT 1 FROM orchestration_v2_projection_threads th JOIN json_each(th.payload_json,'$.pullRequests') link
+        WHERE th.thread_id=json_extract(t.payload_json,'$.agentThreadId') AND json_type(link.value,'$.watch')='object' AND json_extract(link.value,'$.source') IS NOT 'stack-dismissed'
+      ) AND NOT EXISTS (
+        SELECT 1 FROM agent_requests q WHERE json_extract(q.payload_json,'$.threadId')=json_extract(t.payload_json,'$.agentThreadId') AND json_extract(q.payload_json,'$.status')='pending'
+      )))`.pipe(Effect.mapError(storageError));
+    if (active[0]!.count >= chantierParallelism(policy, v2))
       return yield* new WorkTaskError({ reason: "parallelism" });
   });
   const assertCanStart = Effect.fn("WorkTaskService.assertCanStart")(function* (
@@ -526,6 +553,13 @@ const make = Effect.gen(function* () {
       .withTransaction(
         Effect.gen(function* () {
           const current = yield* readChantier(input.id);
+          if (
+            input.type === "adopt" &&
+            callerThreadId &&
+            current.generation !== "v2" &&
+            callerThreadId !== current.orchestratorThreadId
+          )
+            return yield* new WorkTaskError({ reason: "chantierScope" });
           yield* assertV2Caller(current, callerThreadId);
           const decided = decideChantierV2(
             current,
@@ -560,6 +594,7 @@ const make = Effect.gen(function* () {
     input: WorkTaskSaveInput,
     callerThreadId?: ThreadId,
     plannedTasks?: ReadonlyArray<WorkTaskSaveInput>,
+    pendingLaunch?: WorkTask["pendingLaunch"],
   ) {
     if (!isWorkTaskStatus(input.status)) return yield* new WorkTaskError({ reason: "status" });
     const claimedPaths: string[] = [];
@@ -617,8 +652,14 @@ const make = Effect.gen(function* () {
           const now = DateTime.formatIso(yield* DateTime.now);
           const automationMode = input.automationMode ?? previous?.automationMode;
           const inboxSubjectIds = input.inboxSubjectIds ?? previous?.inboxSubjectIds;
+          const admittedModel =
+            pendingLaunch ??
+            (input.status === "doing" && !input.agentThreadId
+              ? previous?.pendingLaunch
+              : undefined);
           const next: WorkTask = {
             id: input.id,
+            ...(admittedModel ? { pendingLaunch: admittedModel } : {}),
             ...(automationMode ? { automationMode } : {}),
             ...(inboxSubjectIds ? { inboxSubjectIds } : {}),
             typeId: input.typeId ?? null,
@@ -727,9 +768,7 @@ const make = Effect.gen(function* () {
       ? Effect.fail(new WorkTaskError({ reason: "status" }))
       : saveInternal(input, callerThreadId);
 
-  const completeForSettledThread = Effect.fn("WorkTaskService.completeForSettledThread")(function* (
-    threadId: ThreadId,
-  ) {
+  const settleTasks = Effect.fn(function* (threadId?: ThreadId) {
     const now = DateTime.formatIso(yield* DateTime.now);
     const rows = yield* sql
       .withTransaction(
@@ -737,7 +776,15 @@ const make = Effect.gen(function* () {
           const rows = yield* sql<{ id: string }>`UPDATE work_tasks
       SET version = version + 1,
         payload_json = json_set(payload_json, '$.status', CASE WHEN json_extract(payload_json, '$.chantierId') IS NULL THEN 'done' ELSE 'review' END, '$.version', version + 1, '$.updatedAt', ${now})
-      WHERE json_extract(payload_json, '$.agentThreadId') = ${threadId}
+      WHERE ${
+        threadId !== undefined
+          ? sql`json_extract(payload_json,'$.agentThreadId') = ${threadId}`
+          : sql`json_extract(work_tasks.payload_json,'$.chantierId') IN (SELECT c.id FROM work_chantiers c WHERE json_extract(c.payload_json,'$.v2.dispatchModelSelection') IS NOT NULL AND json_extract(c.payload_json,'$.status')='active')
+          AND EXISTS (SELECT 1 FROM orchestration_v2_projection_threads t
+            WHERE t.thread_id=json_extract(work_tasks.payload_json,'$.agentThreadId')
+            AND json_extract(t.payload_json,'$.settledOverride')='settled'
+            AND json_extract(t.payload_json,'$.settledAt') >= json_extract(work_tasks.payload_json,'$.updatedAt'))`
+      }
         AND (json_extract(payload_json, '$.status') IN ('todo', 'ready', 'doing') OR (json_extract(payload_json, '$.status') = 'review' AND json_extract(payload_json, '$.chantierId') IS NULL))
       RETURNING id`;
           if (rows.length)
@@ -813,16 +860,36 @@ const make = Effect.gen(function* () {
     chantierPolicy,
     saveChantierPolicy,
     commandChantierV2,
+    changes: SubscriptionRef.changes(revision),
+    dispatchTargets: Effect.fn(function* (threadId?: ThreadId) {
+      const rows = yield* sql<{
+        id: string;
+        model: string;
+      }>`SELECT id,json_extract(payload_json,'$.v2.dispatchModelSelection') AS model FROM work_chantiers WHERE json_extract(payload_json,'$.status')='active' AND json_extract(payload_json,'$.v2.dispatchModelSelection') IS NOT NULL
+        ${threadId ? sql`AND json_extract(payload_json,'$.projectId') IN (SELECT json_extract(t.payload_json,'$.projectId') FROM work_tasks t WHERE json_extract(t.payload_json,'$.agentThreadId')=${threadId})` : sql``}
+        ORDER BY id`;
+      return yield* Effect.forEach(rows, (row) =>
+        decodeDispatchModel(row.model).pipe(Effect.map((model) => ({ id: row.id, model }))),
+      );
+    }, Effect.mapError(storageError)),
     listChantiers,
     readChantier,
     saveChantier,
     claimChantier,
     applyPlan,
+    reserveLaunch: (task, model, caller) =>
+      saveInternal(
+        { ...task, status: "doing", expectedVersion: task.version },
+        caller,
+        undefined,
+        model,
+      ),
     assertCanStart,
     subscribeChantiers: () =>
       SubscriptionRef.changes(revision).pipe(Stream.mapEffect(listChantiers)),
     read,
-    completeForSettledThread,
+    completeForSettledThread: (threadId) => settleTasks(threadId),
+    recoverSettledTasks: () => settleTasks(),
     claim,
     types,
     saveTypes,
@@ -831,7 +898,7 @@ const make = Effect.gen(function* () {
     messages,
     subscribeMessages: (id) =>
       SubscriptionRef.changes(revision).pipe(Stream.mapEffect(() => messages(id))),
-    subscribe: () => SubscriptionRef.changes(revision).pipe(Stream.mapEffect(list)),
+    subscribe: () => SubscriptionRef.changes(revision).pipe(Stream.mapEffect(() => list())),
     save,
     reserveQualification,
     delete: deleteTask,

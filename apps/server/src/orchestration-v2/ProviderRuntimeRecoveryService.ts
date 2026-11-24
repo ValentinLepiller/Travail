@@ -1,3 +1,4 @@
+import { admissionMessageId } from "../workTasks/taskAdmission.ts";
 import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import {
@@ -195,6 +196,14 @@ export const make = Effect.gen(function* () {
       const now = yield* DateTime.now;
       const runs = [] as Array<OrchestrationV2ThreadProjection["runs"][number]>;
       for (const run of nonterminalRuns(projection)) {
+        // The chantier dispatcher reclaims its first preparation from durable task admission.
+        if (
+          run.status === "preparing" &&
+          run.workspacePreparation &&
+          run.userMessageId === admissionMessageId(projection.thread.id) &&
+          projection.thread.id.startsWith("task-")
+        )
+          continue;
         if (run.status === "waiting") {
           const checkpointEffects = yield* outbox
             .listByCommandId(CommandId.make(`command:effect:checkpoint.capture:${run.id}`))

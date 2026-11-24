@@ -245,6 +245,7 @@ it.effect(
         return Launch.ThreadLaunchService.of({
           checkWorktreeBase: () => Effect.die("unused"),
           retryPreparation: () => Effect.die("unused"),
+          resumePreparation: () => Effect.die("unused"),
           launch: (input) =>
             Effect.gen(function* () {
               launched.push(input);

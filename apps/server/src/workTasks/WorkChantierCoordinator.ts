@@ -5,14 +5,19 @@ import {
   type ChantierNotifySubjectInput,
   type ChantierApprovalInput,
   CommandId,
+  type RunId,
   MessageId,
   ThreadId,
   WorkTaskError,
   type WorkChantier,
+  type WorkTask,
   type WorkChantierLaunchInput,
   ChantierV2Command,
   ChantierNotifyInput,
   type PullRequestRef,
+  type ModelSelection,
+  workTaskBlockers,
+  chantierParallelism,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -20,6 +25,10 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as SqlClient from "effect/sql/SqlClient";
+import * as ThreadLaunch from "../orchestration-v2/ThreadLaunchService.ts";
+import * as TaskAgents from "./WorkTaskAgentService.ts";
+import { admissionMessagePrefix, taskLaunchCommandId } from "./taskAdmission.ts";
+import { canApplyIndependentApproval, taskDefinition } from "./chantierV2Policy.ts";
 import * as Tasks from "./WorkTaskService.ts";
 import * as Agents from "../autonomousAgents/AutonomousAgentService.ts";
 import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
@@ -45,6 +54,10 @@ function pullRequestRef(chantier: WorkChantier, url: string): PullRequestRef | n
 export class WorkChantierCoordinator extends Context.Service<
   WorkChantierCoordinator,
   {
+    readonly dispatchReady: (
+      id: string,
+      modelSelection: ModelSelection,
+    ) => Effect.Effect<void, WorkTaskError>;
     readonly requestApproval: (
       input: ChantierApprovalInput,
       callerThreadId: ThreadId,
@@ -62,6 +75,8 @@ export class WorkChantierCoordinator extends Context.Service<
 >()("t3/workTasks/WorkChantierCoordinator") {}
 const make = Effect.gen(function* () {
   const tasks = yield* Tasks.WorkTaskService;
+  const threadLauncher = yield* ThreadLaunch.ThreadLaunchService;
+  const taskAgents = yield* TaskAgents.WorkTaskAgentService;
   const agents = yield* Agents.AutonomousAgentService;
   const threads = yield* Threads.ThreadManagementService;
   const requests = yield* Requests.AgentRequestService;
@@ -69,6 +84,107 @@ const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const lock = yield* Semaphore.make(1);
   const failure = () => new WorkTaskError({ reason: "agent" });
+  const dispatchReady = Effect.fn("WorkChantierCoordinator.dispatchReady")(function* (
+    id: string,
+    modelSelection: ModelSelection,
+  ) {
+    const chantier = yield* tasks.readChantier(id);
+    if (chantier.status !== "active" || !chantier.v2?.framingApproved || chantier.v2.stopped)
+      return;
+    const cards = yield* tasks.list(id);
+    const approvals = new Map(
+      chantier.v2.reviews.map((review) => [review.taskId, review.approvedDefinition]),
+    );
+    const approvedAndUnblocked = (card: WorkTask) => {
+      const definition = approvals.get(card.id);
+      return (
+        definition != null &&
+        definition === taskDefinition(card) &&
+        !workTaskBlockers(card, cards, chantier.externalDependencies).length
+      );
+    };
+    let transientFailure: WorkTaskError | undefined;
+    if (chantier.v2.dispatchModelSelection) {
+      const preparing = yield* sql<{ task_id: string; run_id: RunId }>`
+        SELECT t.id AS task_id, r.run_id FROM work_tasks t
+        JOIN orchestration_v2_projection_runs r ON r.thread_id=json_extract(t.payload_json,'$.agentThreadId')
+        WHERE json_extract(t.payload_json,'$.chantierId')=${id}
+        AND json_extract(t.payload_json,'$.status')='doing' AND r.status='preparing'
+        AND r.thread_id='task-' || t.id
+        AND json_extract(r.payload_json,'$.userMessageId')=${admissionMessagePrefix} || r.thread_id`.pipe(
+        Effect.mapError(failure),
+      );
+      yield* Effect.forEach(
+        preparing,
+        ({ task_id, run_id }) =>
+          Effect.gen(function* () {
+            const card = cards.find((c) => c.id === task_id);
+            if (!card?.agentThreadId || !approvedAndUnblocked(card)) return;
+            yield* threadLauncher
+              .resumePreparation({
+                commandId: taskLaunchCommandId(card.agentThreadId),
+                threadId: card.agentThreadId,
+                runId: run_id,
+              })
+              .pipe(
+                Effect.catch((cause) => {
+                  transientFailure = failure();
+                  return Effect.logWarning("Recovering chantier task preparation failed", {
+                    taskId: task_id,
+                    cause,
+                  });
+                }),
+              );
+          }),
+        { concurrency: "unbounded", discard: true },
+      );
+    }
+    const candidates = cards.filter(
+      (card) =>
+        !card.agentThreadId &&
+        (card.status === "ready" || (card.status === "doing" && card.pendingLaunch)) &&
+        approvedAndUnblocked(card),
+    );
+    if (!candidates.length) {
+      if (transientFailure) return yield* Effect.fail(transientFailure);
+      return;
+    }
+    const policy = yield* tasks.chantierPolicy(chantier.projectId);
+    // Recover previously admitted work first. Admission checks the live project limit transactionally.
+    candidates.sort(
+      (a, b) =>
+        Number(Boolean(b.pendingLaunch)) - Number(Boolean(a.pendingLaunch)) ||
+        (a.id < b.id ? -1 : 1),
+    );
+    yield* Effect.forEach(
+      candidates,
+      (card) =>
+        taskAgents
+          .launch({
+            id: card.id,
+            expectedVersion: card.version,
+            modelSelection: card.pendingLaunch ?? modelSelection,
+          })
+          .pipe(
+            Effect.catch((error) => {
+              if (error.reason === "agent" || error.reason === "storage") transientFailure = error;
+              if (
+                ["parallelism", "conflict", "approval", "dependencies", "preparation"].includes(
+                  error.reason,
+                )
+              )
+                return Effect.void;
+              return Effect.logWarning("Chantier task dispatch failed", {
+                chantierId: id,
+                taskId: card.id,
+                reason: error.reason,
+              });
+            }),
+          ),
+      { concurrency: chantierParallelism(policy, chantier.v2), discard: true },
+    );
+    if (transientFailure) return yield* Effect.fail(transientFailure);
+  });
   const launch = Effect.fn(function* (input: WorkChantierLaunchInput) {
     const chantier = yield* tasks.readChantier(input.id);
     if (chantier.generation !== "v2" || !chantier.v2)
@@ -81,7 +197,7 @@ const make = Effect.gen(function* () {
     const existing = (yield* agents.list(true).pipe(Effect.mapError(failure))).find(
       (a) => a.id === chantier.v2!.chefAgentId,
     );
-    if (existing) return chantier;
+    if (existing || chantier.orchestratorThreadId) return chantier;
     yield* agents
       .command({
         type: "save",
@@ -117,7 +233,7 @@ const make = Effect.gen(function* () {
       (a) => a.id === c.v2?.chefAgentId && a.currentThreadId === callerThreadId,
     );
     if (
-      !chef ||
+      (!chef && (c.generation !== "v2" || c.orchestratorThreadId !== callerThreadId)) ||
       ![
         "approveFraming",
         "approveTask",
@@ -157,7 +273,8 @@ const make = Effect.gen(function* () {
       deploymentGo: "le déploiement dans l’environnement indiqué",
     };
     const material = yield* encodeCommand(input.command).pipe(Effect.mapError(failure));
-    const details = `Objectif : ${c.objective}\nPérimètre : ${c.scope}\nCritères : ${c.v2?.completionCriteria ?? ""}\n${task ? `Tâche : ${task.title}\n${task.notes}\nCritères : ${task.acceptanceCriteria ?? ""}` : ""}\nBilan : ${c.v2?.finalReview ?? ""}\nPR et révision : ${"taskId" in input.command ? (c.v2?.reviews.find((r) => r.taskId === task?.id)?.pullRequestUrl ?? "") : ""}\nAccord précis : ${material}`;
+    const review = c.v2?.reviews.find((r) => r.taskId === task?.id);
+    const details = `Objectif : ${c.objective}\nPérimètre : ${c.scope}\nCritères : ${c.v2?.completionCriteria ?? ""}\n${task ? `Tâche : ${task.title}\n${task.notes}\nCritères : ${task.acceptanceCriteria ?? ""}` : ""}\nBilan : ${c.v2?.finalReview ?? ""}\nPR et révision : ${[review?.pullRequestUrl, review?.head].filter(Boolean).join(" ")}\nAccord précis : ${material}`;
     if (details.length > 50000) return yield* new WorkTaskError({ reason: "approval" });
     return yield* requests
       .create(callerThreadId, {
@@ -196,6 +313,7 @@ const make = Effect.gen(function* () {
         return yield* new WorkTaskError({ reason: "approval" });
     }
     let actor = callerThreadId;
+    let validatedCommand = input;
     if (callerThreadId && input.approvalRequestId) {
       const request = (yield* requests.list().pipe(Effect.mapError(failure))).find(
         (r) => r.id === input.approvalRequestId,
@@ -211,9 +329,12 @@ const make = Effect.gen(function* () {
           (yield* encodeCommand(approvedCommand).pipe(Effect.mapError(failure)))
       )
         return yield* new WorkTaskError({ reason: "approval" });
+      if (canApplyIndependentApproval(current, bound)) {
+        validatedCommand = { ...input, expectedVersion: current.version };
+      }
       actor = undefined;
     }
-    let next = yield* tasks.commandChantierV2(input, actor);
+    let next = yield* tasks.commandChantierV2(validatedCommand, actor);
     const chefId = next.v2!.chefAgentId;
     const chef = (yield* agents.list(true).pipe(Effect.mapError(failure))).find(
       (a) => a.id === chefId,
@@ -293,7 +414,7 @@ const make = Effect.gen(function* () {
     if (stored.delivered) return;
     const key = `chantier-notify:${input.id}:${input.notificationId}`;
     const text = `Information ponctuelle, sans autorisation nouvelle ; conserve pauses et validations en attente.\n${input.text}`;
-    if (chantier.generation === "v2") {
+    if (chantier.generation === "v2" && !chantier.orchestratorThreadId) {
       if (
         !(yield* agents.list().pipe(Effect.mapError(failure))).some(
           (a) => a.id === chantier.v2!.chefAgentId,
@@ -382,6 +503,7 @@ const make = Effect.gen(function* () {
     );
   });
   return WorkChantierCoordinator.of({
+    dispatchReady,
     notifySubject: (input) => notifySubject(input).pipe(lock.withPermits(1)),
     requestApproval: (input, caller) => requestApproval(input, caller).pipe(lock.withPermits(1)),
     launch: (input) => launch(input).pipe(lock.withPermits(1)),

@@ -26,6 +26,7 @@ import {
   workTasks,
   saveWorkChantier,
   launchWorkChantier,
+  commandWorkChantierV2,
 } from "../../state/workTasks";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -75,6 +76,8 @@ export function WorkChantiersView({
     EMPTY_SERVER_PROVIDERS;
   const save = useAtomCommand(saveWorkChantier);
   const launch = useAtomCommand(launchWorkChantier);
+  const command = useAtomCommand(commandWorkChantierV2);
+  const canAdopt = useAtomValue(commandWorkChantierV2.permissionAtom(environmentId));
   const canSave = useAtomValue(saveWorkChantier.permissionAtom(environmentId));
   const canLaunch = useAtomValue(launchWorkChantier.permissionAtom(environmentId));
   const [draft, setDraft] = useState<WorkChantierSaveInput | null>(null);
@@ -108,7 +111,7 @@ export function WorkChantiersView({
       externalDependencies: [],
     });
   };
-  const launchDiscussion = async (item: WorkChantier) => {
+  const runChantierAction = async (item: WorkChantier, action: "launch" | "adopt") => {
     const project = projects.find((p) => p.id === item.projectId);
     if (!project) {
       setError("Le projet du chantier est indisponible.");
@@ -138,10 +141,14 @@ export function WorkChantiersView({
     setBusy(true);
     setError(null);
     try {
-      const result = await launch({
-        environmentId,
-        input: { id: item.id, expectedVersion: item.version, modelSelection },
-      });
+      const input = { id: item.id, expectedVersion: item.version };
+      const result =
+        action === "adopt"
+          ? await command({
+              environmentId,
+              input: { ...input, type: "adopt", modelSelection: defaultModelSelection },
+            })
+          : await launch({ environmentId, input: { ...input, modelSelection } });
       if (result._tag === "Failure") setError(String(squashAtomCommandFailure(result)));
       else await open(item.id);
     } finally {
@@ -159,7 +166,7 @@ export function WorkChantiersView({
       }
       setDraft(null);
       await open(result.value.id, start ? "discussion" : "context");
-      if (start) await launchDiscussion(result.value);
+      if (start) await runChantierAction(result.value, "launch");
     } finally {
       setBusy(false);
     }
@@ -221,17 +228,26 @@ export function WorkChantiersView({
               );
             })}
           </div>
-          {chantier.generation === "v2" && (view === "discussion" || view === "context") && (
-            <WorkChantierV2
-              environmentId={environmentId}
-              chantier={chantier}
-              tasks={tasks}
-              discussion={view === "discussion"}
-              onLaunch={() => void launchDiscussion(chantier)}
-            />
+          {view === "context" && !chantier.v2?.dispatchModelSelection && (
+            <Button
+              disabled={busy || !canAdopt}
+              onClick={() => void runChantierAction(chantier, "adopt")}
+            >
+              Activer la répartition automatique des tâches approuvées
+            </Button>
           )}
+          {chantier.generation === "v2" &&
+            ((view === "discussion" && !chantier.orchestratorThreadId) || view === "context") && (
+              <WorkChantierV2
+                environmentId={environmentId}
+                chantier={chantier}
+                tasks={tasks}
+                discussion={view === "discussion"}
+                onLaunch={() => void runChantierAction(chantier, "launch")}
+              />
+            )}
           {view === "discussion" &&
-            chantier.generation !== "v2" &&
+            (chantier.generation !== "v2" || chantier.orchestratorThreadId) &&
             (chantier.orchestratorThreadId ? (
               <ChantierDiscussion environmentId={environmentId} chantier={chantier} tasks={tasks} />
             ) : (
@@ -243,7 +259,7 @@ export function WorkChantiersView({
                 </p>
                 <Button
                   disabled={busy || !canLaunch}
-                  onClick={() => void launchDiscussion(chantier)}
+                  onClick={() => void runChantierAction(chantier, "launch")}
                 >
                   Ouvrir la discussion avec l’orchestrateur
                 </Button>
@@ -258,50 +274,51 @@ export function WorkChantiersView({
               onDiscuss={() => void open(chantier.id)}
             />
           )}
-          {view === "context" && chantier.generation !== "v2" && (
-            <div className="grid gap-4 md:grid-cols-2">
-              {[
-                ["Objectif", chantier.objective],
-                ["Périmètre et responsabilités", chantier.scope],
-                ["Décisions et questions ouvertes", chantier.decisions],
-              ].map(([title, text]) => (
-                <section key={title} className="space-y-2 rounded-xl border bg-card p-5">
-                  <h3 className="font-medium">{title}</h3>
-                  <p className="whitespace-pre-wrap text-sm text-muted-foreground">
-                    {text || "À préciser avec l’orchestrateur."}
-                  </p>
+          {view === "context" &&
+            (chantier.generation !== "v2" || chantier.orchestratorThreadId) && (
+              <div className="grid gap-4 md:grid-cols-2">
+                {[
+                  ["Objectif", chantier.objective],
+                  ["Périmètre et responsabilités", chantier.scope],
+                  ["Décisions et questions ouvertes", chantier.decisions],
+                ].map(([title, text]) => (
+                  <section key={title} className="space-y-2 rounded-xl border bg-card p-5">
+                    <h3 className="font-medium">{title}</h3>
+                    <p className="whitespace-pre-wrap text-sm text-muted-foreground">
+                      {text || "À préciser avec l’orchestrateur."}
+                    </p>
+                  </section>
+                ))}
+                <section className="space-y-3 rounded-xl border bg-card p-5">
+                  <h3 className="font-medium">Sources</h3>
+                  {chantier.sources.map((source, i) => (
+                    <p key={i} className="text-sm">
+                      {source.url ? (
+                        <a
+                          href={source.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-primary hover:underline"
+                        >
+                          {source.label}
+                        </a>
+                      ) : (
+                        source.label
+                      )}
+                    </p>
+                  ))}
+                  {!chantier.sources.length && (
+                    <p className="text-sm text-muted-foreground">Aucune source ajoutée.</p>
+                  )}
+                  <h3 className="font-medium">Attentes externes</h3>
+                  {chantier.externalDependencies.map((e) => (
+                    <p key={e.id} className="text-sm">
+                      {e.done ? "✓" : "◷"} {e.title} · {e.owner || "Responsable à préciser"}
+                    </p>
+                  ))}
                 </section>
-              ))}
-              <section className="space-y-3 rounded-xl border bg-card p-5">
-                <h3 className="font-medium">Sources</h3>
-                {chantier.sources.map((source, i) => (
-                  <p key={i} className="text-sm">
-                    {source.url ? (
-                      <a
-                        href={source.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-primary hover:underline"
-                      >
-                        {source.label}
-                      </a>
-                    ) : (
-                      source.label
-                    )}
-                  </p>
-                ))}
-                {!chantier.sources.length && (
-                  <p className="text-sm text-muted-foreground">Aucune source ajoutée.</p>
-                )}
-                <h3 className="font-medium">Attentes externes</h3>
-                {chantier.externalDependencies.map((e) => (
-                  <p key={e.id} className="text-sm">
-                    {e.done ? "✓" : "◷"} {e.title} · {e.owner || "Responsable à préciser"}
-                  </p>
-                ))}
-              </section>
-            </div>
-          )}
+              </div>
+            )}
         </>
       ) : search.chantier ? (
         <p>

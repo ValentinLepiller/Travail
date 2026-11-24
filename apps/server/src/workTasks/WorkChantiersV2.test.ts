@@ -57,6 +57,7 @@ const task = (id = "task", chantierId = "v2"): WorkTaskSaveInput => ({
 
 const fixture = Effect.gen(function* () {
   const launched: Launch.ThreadLaunchInput[] = [];
+  const preparations: Launch.ThreadLaunchRetryInput[] = [];
   const sent: Parameters<Threads.ThreadManagementService["Service"]["sendToThread"]>[0][] = [];
   const interrupted: ThreadId[] = [];
   const merges: Parameters<PullRequests.PullRequestService["Service"]["runAction"]>[0][] = [];
@@ -87,6 +88,10 @@ const fixture = Effect.gen(function* () {
       return Launch.ThreadLaunchService.of({
         checkWorktreeBase: () => Effect.die("unused"),
         retryPreparation: () => Effect.die("unused"),
+        resumePreparation: (input) =>
+          Effect.sync(() => {
+            preparations.push(input);
+          }),
         launch: (input) =>
           Effect.gen(function* () {
             launched.push(input);
@@ -124,6 +129,7 @@ const fixture = Effect.gen(function* () {
     ),
   );
   const layer = Coordinator.layer.pipe(
+    Layer.provide(launcher.pipe(Layer.provide(db))),
     Layer.provideMerge(agents),
     Layer.provideMerge(requests),
     Layer.provide(threads),
@@ -152,7 +158,7 @@ const fixture = Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     yield* sql`INSERT INTO projection_projects(project_id,title,workspace_root,scripts_json,created_at,updated_at) VALUES('project','Project','/tmp/project','[]','now','now')`;
   }).pipe(Effect.provide(context));
-  return { context, launched, sent, interrupted, merges, remote };
+  return { context, launched, sent, interrupted, merges, remote, preparations };
 });
 
 const framed = Effect.gen(function* () {
@@ -726,6 +732,258 @@ it.effect("pause lets owned agents finish preparation; stop interrupts only this
           )
           .pipe(Effect.flip)).reason,
       ).toBe("chantierScope");
+    }).pipe(Effect.provide(f.context));
+  }),
+);
+
+it.effect(
+  "dispatches independent approved cards and preserves waits and owners across reconciliation",
+  () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      yield* Effect.gen(function* () {
+        const tasks = yield* Tasks.WorkTaskService;
+        const coordinator = yield* Coordinator.WorkChantierCoordinator;
+        let c = yield* framed;
+        const policy = yield* tasks.chantierPolicy(projectId);
+        yield* tasks.saveChantierPolicy({ ...policy, maxParallel: 2 });
+        const a = yield* tasks.save(task("a"));
+        const b = yield* tasks.save(task("b"));
+        const dependent = yield* tasks.save({ ...task("dependent"), dependsOn: ["a"] });
+        yield* tasks.save(task("unapproved"));
+        for (const card of [a, b, dependent]) {
+          c = yield* tasks.commandChantierV2({
+            id: c.id,
+            expectedVersion: c.version,
+            taskId: card.id,
+            expectedTaskVersion: card.version,
+            type: "approveTask",
+            kind: "other",
+            pmReference: "",
+          });
+        }
+        yield* coordinator.dispatchReady(c.id, modelSelection);
+        expect(f.launched.map((entry) => entry.threadId).sort()).toEqual(["task-a", "task-b"]);
+        expect((yield* tasks.read("dependent")).status).toBe("ready");
+        expect((yield* tasks.read("unapproved")).status).toBe("ready");
+        yield* coordinator.dispatchReady(c.id, modelSelection);
+        expect(f.launched).toHaveLength(2);
+        expect((yield* tasks.read("a")).agentThreadId).toBe("task-a");
+
+        const third = yield* tasks.save(task("third"));
+        yield* tasks.commandChantierV2({
+          id: c.id,
+          expectedVersion: c.version,
+          taskId: third.id,
+          expectedTaskVersion: third.version,
+          type: "approveTask",
+          kind: "other",
+          pmReference: "",
+        });
+        yield* coordinator.dispatchReady(c.id, modelSelection);
+        expect(f.launched).toHaveLength(2);
+        const requests = yield* Requests.AgentRequestService;
+        yield* requests.create(ThreadId.make("task-a"), {
+          id: "decision-a",
+          context: "Task A",
+          question: "Which option?",
+          details: "",
+          kind: "text",
+          action: null,
+        });
+        const revision = yield* requests.respond({
+          id: "decision-a",
+          expectedVersion: 1,
+          decision: "revise",
+          text: "Narrow the scope",
+        });
+        expect((yield* tasks.assertCanStart(third).pipe(Effect.flip)).reason).toBe("parallelism");
+        yield* requests.drain();
+        yield* requests.update(ThreadId.make("task-a"), {
+          id: revision.id,
+          expectedVersion: revision.version,
+          context: "Task A",
+          question: "Which narrowed option?",
+          details: "",
+          action: null,
+          kind: "text",
+          withdraw: false,
+        });
+        yield* coordinator.dispatchReady(c.id, modelSelection);
+        expect((yield* tasks.read(third.id)).agentThreadId).toBe("task-third");
+        expect((yield* tasks.read(dependent.id)).agentThreadId).toBeNull();
+        const fourth = yield* tasks.save(task("fourth"));
+        const latest = yield* tasks.readChantier(c.id);
+        yield* tasks.commandChantierV2({
+          id: c.id,
+          expectedVersion: latest.version,
+          taskId: fourth.id,
+          expectedTaskVersion: fourth.version,
+          type: "approveTask",
+          kind: "other",
+          pmReference: "",
+        });
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`UPDATE orchestration_v2_projection_threads SET payload_json=json_set(payload_json, '$.pullRequests',json('[{"watch":{}}]')) WHERE thread_id='task-b'`;
+        yield* coordinator.dispatchReady(c.id, modelSelection);
+        expect((yield* tasks.read(fourth.id)).agentThreadId).toBe("task-fourth");
+        expect((yield* requests.list()).find((r) => r.id === "decision-a")?.status).toBe("pending");
+      }).pipe(Effect.provide(f.context));
+    }),
+);
+
+it.effect(
+  "adopts the existing dossier and cards without starting work or replacing its owner",
+  () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      yield* Effect.gen(function* () {
+        const tasks = yield* Tasks.WorkTaskService;
+        const coordinator = yield* Coordinator.WorkChantierCoordinator;
+        const owner = ThreadId.make("legacy-owner");
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`INSERT INTO orchestration_v2_projection_threads(thread_id,project_id,title,default_provider,runtime_mode,interaction_mode,created_at,updated_at,payload_json) VALUES(${owner},'project','Existing owner','codex','full-access','default','now','now','{}')`;
+        const initial = yield* tasks.applyPlan({
+          chantier: { ...chantier("old"), generation: "legacy", status: "paused" },
+          tasks: [task("first", "old"), { ...task("later", "old"), dependsOn: ["first"] }],
+        });
+        const old = yield* tasks.claimChantier(owner, {
+          id: initial.id,
+          expectedVersion: initial.version,
+        });
+        const cards = yield* tasks.list();
+        const adopt = {
+          id: old.id,
+          expectedVersion: old.version,
+          type: "adopt" as const,
+          modelSelection,
+        };
+        expect(
+          (yield* coordinator.command(adopt, ThreadId.make("other")).pipe(Effect.flip)).reason,
+        ).toBe("chantierScope");
+        const adopted = yield* coordinator.command(adopt, owner);
+        expect(adopted).toMatchObject({
+          ...old,
+          generation: "v2",
+          version: old.version + 1,
+          updatedAt: adopted.updatedAt,
+          v2: { dispatchModelSelection: modelSelection, reviews: [] },
+        });
+        expect(yield* tasks.list()).toEqual(cards);
+        expect(f.launched).toHaveLength(0);
+        expect((yield* coordinator.command(adopt, owner).pipe(Effect.flip)).reason).toBe(
+          "conflict",
+        );
+      }).pipe(Effect.provide(f.context));
+    }),
+);
+
+it.effect(
+  "applies accepted sibling decisions independently and rejects replays, changed cards and changed framing",
+  () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      yield* Effect.gen(function* () {
+        const tasks = yield* Tasks.WorkTaskService;
+        const coordinator = yield* Coordinator.WorkChantierCoordinator;
+        const agents = yield* Agents.AutonomousAgentService;
+        const requests = yield* Requests.AgentRequestService;
+        let c = yield* framed;
+        yield* coordinator.launch({ id: c.id, expectedVersion: c.version, modelSelection });
+        yield* agents.tick();
+        const caller = (yield* agents.list()).find(
+          (agent) => agent.id === c.v2!.chefAgentId,
+        )!.currentThreadId!;
+        const accept = Effect.fn(function* (id: string) {
+          const card = yield* tasks.save(task(id));
+          const command = {
+            type: "approveTask" as const,
+            id: c.id,
+            expectedVersion: c.version,
+            taskId: id,
+            expectedTaskVersion: card.version,
+            kind: "other" as const,
+            pmReference: "",
+          };
+          const request = yield* coordinator.requestApproval({ requestId: id, command }, caller);
+          yield* requests.respond({
+            id,
+            expectedVersion: request.version,
+            decision: "accept",
+            text: "",
+          });
+          return { ...command, approvalRequestId: id };
+        });
+        const a = yield* accept("a");
+        const b = yield* accept("b");
+        const edited = yield* accept("edited");
+        const beforePause = yield* accept("before-pause");
+        yield* coordinator.command(a, caller);
+        c = yield* coordinator.command(b, caller);
+        expect(c.v2!.reviews.map((r) => r.taskId).sort()).toEqual(["a", "b"]);
+        expect((yield* coordinator.command(a, caller).pipe(Effect.flip)).reason).toBe("conflict");
+        const card = yield* tasks.read(edited.taskId);
+        yield* tasks.save({ ...card, notes: "Changed scope", expectedVersion: card.version });
+        expect((yield* coordinator.command(edited, caller).pipe(Effect.flip)).reason).toBe(
+          "conflict",
+        );
+        c = yield* coordinator.command({ id: c.id, expectedVersion: c.version, type: "pause" });
+        yield* coordinator.command({ id: c.id, expectedVersion: c.version, type: "resume" });
+        expect((yield* coordinator.command(beforePause, caller).pipe(Effect.flip)).reason).toBe(
+          "conflict",
+        );
+      }).pipe(Effect.provide(f.context));
+    }),
+);
+
+it.effect("replays a durable admission and resumes only its own unfinished preparation", () =>
+  Effect.gen(function* () {
+    const f = yield* fixture;
+    yield* Effect.gen(function* () {
+      const tasks = yield* Tasks.WorkTaskService;
+      const coordinator = yield* Coordinator.WorkChantierCoordinator;
+      const c = yield* framed;
+      const adopted = yield* coordinator.command({
+        id: c.id,
+        expectedVersion: c.version,
+        type: "adopt",
+        modelSelection,
+      });
+      const card = yield* tasks.save(task("recover"));
+      yield* tasks.commandChantierV2({
+        id: c.id,
+        expectedVersion: adopted.version,
+        taskId: card.id,
+        expectedTaskVersion: card.version,
+        type: "approveTask",
+        kind: "other",
+        pmReference: "",
+      });
+      const model = { ...modelSelection, model: "original-model" };
+      // A process died after committing admission, before linking a thread.
+      const reserved = yield* tasks.reserveLaunch(card, model);
+      const edited = yield* tasks.save({
+        ...card,
+        status: "doing",
+        dueDate: "2027-01-04",
+        expectedVersion: reserved.version,
+      });
+      expect(edited.pendingLaunch).toEqual(model);
+      yield* coordinator.dispatchReady(c.id, modelSelection);
+      const associated = yield* tasks.read(card.id);
+      expect(associated.agentThreadId).toBe("task-recover");
+      expect(associated.pendingLaunch).toBeUndefined();
+      expect(f.launched.map((l) => l.modelSelection)).toEqual([model]);
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`INSERT INTO orchestration_v2_projection_runs(run_id, thread_id, ordinal, provider, status, requested_at, payload_json)
+        VALUES('initial-run','task-recover',1,'codex','preparing','now',${JSON.stringify({ userMessageId: f.launched[0]!.initialMessage!.messageId })}),
+              ('other-run','task-recover',2,'codex','preparing','now','{"userMessageId":"manual"}')`;
+      yield* coordinator.dispatchReady(c.id, modelSelection);
+      expect(f.preparations).toEqual([
+        { runId: "initial-run", threadId: "task-recover", commandId: "task-launch:task-recover" },
+      ]);
+      expect(f.launched).toHaveLength(1);
+      expect(yield* tasks.read(card.id)).toEqual(associated);
     }).pipe(Effect.provide(f.context));
   }),
 );

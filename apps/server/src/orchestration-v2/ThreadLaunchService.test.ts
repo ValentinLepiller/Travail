@@ -198,16 +198,13 @@ function makeHarness(options: HarnessOptions = {}) {
         folderForThread: () => Effect.succeed(Option.none()),
       }),
   );
-  const layerLaunch = ThreadLaunch.layer.pipe(
-    Layer.provide(
-      Layer.mergeAll(
-        layerExternalServices,
-        layerThreadManagement,
-        layerReceipts,
-        IdAllocator.layer,
-      ),
-    ),
+  const launchDependencies = Layer.mergeAll(
+    layerExternalServices,
+    layerThreadManagement,
+    layerReceipts,
+    IdAllocator.layer,
   );
+  const layerLaunch = ThreadLaunch.layer.pipe(Layer.provide(launchDependencies));
   const layerProjectedProjects = Layer.mock(ProjectStore.ProjectStoreV2)({
     get: (requestedProjectId) =>
       Effect.succeed(
@@ -235,6 +232,7 @@ function makeHarness(options: HarnessOptions = {}) {
     ),
   );
   return {
+    launchDependencies,
     layer: Layer.mergeAll(
       layerLaunch,
       layerThreadManagement,
@@ -2263,6 +2261,7 @@ it.effect("shared intake preserves durable attachment bytes after a lost launch 
           ),
         checkWorktreeBase: launches.checkWorktreeBase,
         retryPreparation: launches.retryPreparation,
+        resumePreparation: launches.resumePreparation,
       }),
       Effect.flip,
     );
@@ -2705,3 +2704,64 @@ it.effect("replays an accepted message.dispatch after the project disables the i
     }
   }).pipe(Effect.provide(Layer.mergeAll(harness.layer, layerFiles)));
 });
+
+it.effect("a fresh launcher finishes the admitted run after shutdown during setup", () =>
+  Effect.gen(function* () {
+    const entered = yield* Deferred.make<void>();
+    let firstSetup = true;
+    const harness = makeHarness({
+      runSetup: () => {
+        if (firstSetup) {
+          firstSetup = false;
+          return Deferred.succeed(entered, undefined).pipe(Effect.andThen(Effect.never));
+        }
+        return Effect.succeed({ status: "no-script" as const });
+      },
+    });
+    const dependencies = yield* Layer.build(harness.launchDependencies);
+    yield* Effect.gen(function* () {
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const tracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
+      const input = launchInput({
+        command: "task-launch:task-restart",
+        thread: "task-restart",
+        workspace: { type: "worktree", baseRef: "main", branch: "chantier/restart" },
+      });
+      const launched = yield* Effect.gen(function* () {
+        const service = yield* ThreadLaunch.ThreadLaunchService;
+        const result = yield* service.launch({
+          ...input,
+          initialMessage: {
+            messageId: MessageId.make("chantier-admission:task-restart"),
+            text: "Recover this task",
+            attachments: [],
+          },
+        });
+        yield* Deferred.await(entered);
+        return result;
+      }).pipe(Effect.provide(ThreadLaunch.layer));
+      const before = yield* threads.getThreadProjection(launched.threadId);
+      assert.equal(before.runs[0]?.status, "preparing");
+      const runId = before.runs[0]!.id;
+      yield* Effect.gen(function* () {
+        const fresh = yield* ThreadLaunch.ThreadLaunchService;
+        const resume = { threadId: launched.threadId, runId, commandId: input.commandId };
+        yield* Effect.all([fresh.resumePreparation(resume), fresh.resumePreparation(resume)], {
+          concurrency: 2,
+        });
+        yield* tracker.stream(launched.threadId).pipe(
+          Stream.filter((s) => s?.phase === "done"),
+          Stream.runHead,
+        );
+      }).pipe(Effect.provide(ThreadLaunch.layer));
+      const after = yield* threads.getThreadProjection(launched.threadId);
+      assert.deepEqual(
+        after.runs.map((run) => [run.id, run.status]),
+        [[runId, "starting"]],
+      );
+      assert.equal(after.messages.length, 1);
+      assert.equal(harness.createWorktree.mock.calls.length, 1);
+      assert.equal(harness.runSetup.mock.calls.length, 2);
+    }).pipe(Effect.provide(dependencies));
+  }),
+);

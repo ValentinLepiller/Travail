@@ -55,6 +55,23 @@ export const defaultChantierPolicy = (
   delegations: "",
 });
 
+// A gap means that a dossier edit, pause or another chantier-wide change was committed.
+function reviewWindowStart(chantier: WorkChantier) {
+  const v2 = chantier.v2;
+  return v2?.reviews.some((review) => review.lastChangedVersion === chantier.version)
+    ? (v2.reviewWindowStartVersion ?? chantier.version)
+    : chantier.version;
+}
+
+export function canApplyIndependentApproval(chantier: WorkChantier, command: ChantierV2Command) {
+  if (!("taskId" in command) || command.expectedVersion >= chantier.version) return false;
+  const review = chantier.v2?.reviews.find((item) => item.taskId === command.taskId);
+  return (
+    command.expectedVersion >=
+    Math.max(reviewWindowStart(chantier), review?.lastChangedVersion ?? 0)
+  );
+}
+
 export function decideChantierV2(
   chantier: WorkChantier,
   command: ChantierV2Command,
@@ -63,6 +80,23 @@ export function decideChantierV2(
   policy: ChantierProjectPolicy,
 ): { chantier: WorkChantier; task?: WorkTask } | WorkTaskError {
   const fail = () => new WorkTaskError({ reason: "approval" });
+  if (command.type === "adopt") {
+    if (chantier.version !== command.expectedVersion)
+      return new WorkTaskError({ reason: "conflict" });
+    const existing = chantier.v2 ?? {
+      ...initialChantierV2(chantier.id),
+      framingApproved:
+        chantier.status !== "draft" && !!chantier.objective.trim() && !!chantier.scope.trim(),
+      completionCriteria: chantier.objective,
+    };
+    return {
+      chantier: {
+        ...chantier,
+        generation: "v2",
+        v2: { ...existing, dispatchModelSelection: command.modelSelection },
+      },
+    };
+  }
   if (chantier.generation !== "v2" || !chantier.v2)
     return new WorkTaskError({ reason: "generation" });
   if (chantier.version !== command.expectedVersion)
@@ -268,7 +302,11 @@ export function decideChantierV2(
           };
           break;
       }
-      v2.reviews = [...v2.reviews.filter((r) => r.taskId !== review.taskId), review];
+      v2.reviewWindowStartVersion = reviewWindowStart(chantier);
+      v2.reviews = [
+        ...v2.reviews.filter((r) => r.taskId !== review.taskId),
+        { ...review, lastChangedVersion: chantier.version + 1 },
+      ];
     }
   }
   return {

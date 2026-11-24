@@ -45,7 +45,7 @@ export const WorkTasksToolkit = Toolkit.make(
   }),
   Tool.make("work_chantier_v2_command", {
     description:
-      "Update your V2 chantier dossier/memory, review the latest PR head or record proven completion. Human framing/task/merge/deployment approvals cannot be granted by an agent. Uses expected versions; does not alter legacy chantiers. Two independent head approvals trigger merge, without a third consent. Deployment is separate.",
+      "Update your V2 chantier dossier/memory, review the latest PR head or record proven completion. Human framing/task/merge/deployment approvals cannot be granted by an agent. Uses expected versions. The adopt command enables deterministic dispatch in place for a V2 chantier or a legacy chantier claimed by your thread, preserving cards and granting no task approvals. Two independent head approvals trigger merge, without a third consent. Deployment is separate.",
     parameters: Schema.Struct({ command: ChantierV2Command }),
     success: WorkChantier,
     failure: Schema.Union([WorkTaskError, OrchestratorMcpFailure]),

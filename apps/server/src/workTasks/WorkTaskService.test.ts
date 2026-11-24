@@ -1,6 +1,8 @@
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
-import { ChatAttachmentId } from "@t3tools/contracts";
+import * as TestClock from "effect/testing/TestClock";
+import { initialChantierV2 } from "./chantierV2Policy.ts";
+import { ChatAttachmentId, WorkTaskError } from "@t3tools/contracts";
 import * as ServerConfig from "../config.ts";
 import {
   createPendingAttachmentId,
@@ -12,7 +14,9 @@ import * as Deferred from "effect/Deferred";
 import * as Stream from "effect/Stream";
 import { EventId, type OrchestrationV2DomainEvent } from "@t3tools/contracts";
 import * as SettlementWorker from "./WorkTaskSettlementWorker.ts";
-import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
+import * as Requests from "../agentRequests/AgentRequestService.ts";
+import * as Coordinator from "./WorkChantierCoordinator.ts";
+import * as EventSink from "../orchestration-v2/EventSink.ts";
 import { idleThreadProjection, liveThreadShell } from "../mcp/McpToolAccess.testkit.ts";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -348,6 +352,22 @@ it.effect(
         updatedAt: "before",
       };
       yield* sql`INSERT INTO work_tasks (id, version, payload_json) VALUES ('other', 1, ${JSON.stringify(other)})`;
+      const offline = {
+        ...other,
+        id: "offline",
+        chantierId: "adopted",
+        projectId: ProjectId.make("p"),
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      };
+      yield* sql`INSERT INTO work_tasks (id,version,payload_json) VALUES ('offline',1,${JSON.stringify(offline)})`;
+      yield* sql`INSERT INTO work_chantiers (id,version,payload_json) VALUES ('adopted',1,'{"projectId":"p","status":"active","v2":{"dispatchModelSelection":{"instanceId":"codex","model":"test"}}}')`;
+      yield* sql`INSERT INTO orchestration_v2_projection_threads
+        (thread_id, project_id, title, default_provider, runtime_mode, interaction_mode, created_at, updated_at, payload_json)
+        VALUES ('other-agent','p','offline','codex','full-access','default','before','after','{"settledOverride":"settled","settledAt":"2026-01-02T00:00:00.000Z"}')`;
+      expect(
+        (yield* service.dispatchTargets(ThreadId.make("other-agent"))).map((target) => target.id),
+      ).toEqual(["adopted"]);
+      expect(yield* service.dispatchTargets(ThreadId.make("unrelated-thread"))).toEqual([]);
       const finished = yield* Deferred.make<void>();
       const thread = idleThreadProjection(liveThreadShell(ThreadId.make("agent"))).thread;
       const event: OrchestrationV2DomainEvent = {
@@ -357,12 +377,19 @@ it.effect(
         occurredAt: thread.updatedAt,
         payload: { ...thread, settledOverride: "settled", settledAt: thread.updatedAt },
       };
-      const events = Stream.fromIterable([event, event]).pipe(
+      const events = Stream.fromIterable(
+        [1, 2].map((sequence) => ({ sequence, event, commandId: null })),
+      ).pipe(
         Stream.concat(Stream.fromEffect(Deferred.succeed(finished, undefined)).pipe(Stream.drain)),
       );
       yield* Layer.build(
         SettlementWorker.layer.pipe(
-          Layer.provide(Layer.mock(Orchestrator.OrchestratorV2)({ streamDomainEvents: events })),
+          Layer.provide(
+            Layer.mock(EventSink.EventSinkV2)({
+              latestSequence: () => Effect.succeed(0),
+              stream: () => events,
+            }),
+          ),
         ),
       );
       yield* Deferred.await(finished);
@@ -374,6 +401,9 @@ it.effect(
         expect(task.notes).toBe("Keep notes");
       }
       expect(yield* service.read("other")).toEqual(other);
+      expect(yield* service.read("offline")).toMatchObject({ status: "review", version: 2 });
+      yield* service.recoverSettledTasks();
+      expect((yield* service.read("offline")).version).toBe(2);
       const once = yield* service.list();
       yield* service.completeForSettledThread(ThreadId.make("agent"));
       expect(yield* service.list()).toEqual(once);
@@ -624,4 +654,72 @@ it.effect("a passive Chef dossier cannot become a task execution discussion", ()
       Tasks.layer.pipe(Layer.provide(taskImageTestLayer), Layer.provideMerge(Sqlite.layerMemory)),
     ),
   ),
+);
+
+it.effect("dispatches on a decision and retries a transient failure without another event", () =>
+  Effect.gen(function* () {
+    const initial = yield* Deferred.make<void>();
+    const decisionChanged = yield* Deferred.make<number>();
+    const failed = yield* Deferred.make<void>();
+    const resumed = yield* Deferred.make<void>();
+    const model = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-test" };
+    let passes = 0;
+    yield* Layer.build(
+      SettlementWorker.dispatchLayer.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            Layer.mock(Tasks.WorkTaskService)({
+              changes: Stream.make(0),
+              readChantier: (id) =>
+                Effect.succeed({
+                  id,
+                  version: 1,
+                  title: "Adopted",
+                  projectId: ProjectId.make("p"),
+                  status: "active",
+                  v2: { ...initialChantierV2(id), dispatchModelSelection: model },
+                  createdAt: "",
+                  updatedAt: "",
+                  objective: "",
+                  scope: "",
+                  decisions: "",
+                  targetPeriod: "",
+                  sources: [],
+                  externalDependencies: [],
+                  orchestratorThreadId: null,
+                }),
+              dispatchTargets: () => Effect.succeed([{ id: "adopted", model }]),
+            }),
+            Layer.mock(Requests.AgentRequestService)({
+              changes: Stream.fromEffect(Deferred.await(decisionChanged)),
+            }),
+            Layer.mock(EventSink.EventSinkV2)({
+              latestSequence: () => Effect.succeed(0),
+              stream: () => Stream.empty,
+            }),
+            Layer.mock(Coordinator.WorkChantierCoordinator)({
+              dispatchReady: (id, selected) =>
+                Effect.gen(function* () {
+                  expect(id).toBe("adopted");
+                  expect(selected).toEqual(model);
+                  passes++;
+                  if (passes === 2) {
+                    yield* Deferred.succeed(failed, undefined);
+                    return yield* new WorkTaskError({ reason: "storage" });
+                  }
+                  yield* Deferred.succeed(passes === 1 ? initial : resumed, undefined);
+                }),
+            }),
+          ),
+        ),
+      ),
+    );
+    yield* Deferred.await(initial);
+    yield* Deferred.succeed(decisionChanged, 1);
+    yield* Deferred.await(failed);
+    yield* TestClock.adjust("5 seconds");
+    yield* Deferred.await(resumed);
+    yield* TestClock.adjust("2 minutes");
+    expect(passes).toBe(3);
+  }),
 );
