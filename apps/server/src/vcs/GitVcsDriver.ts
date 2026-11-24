@@ -151,6 +151,8 @@ export interface CreateWorktreeProgress {
 }
 
 export interface CreateWorktreeOptions {
+  /** Identifies an admitted task across process loss between Git checkout and thread association. */
+  readonly admission?: { readonly id: string; readonly recovering: boolean };
   readonly progress?: CreateWorktreeProgress;
   /**
    * The project-over-environment `worktreeSubmodules` setting. Null (or

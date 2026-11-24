@@ -108,6 +108,7 @@ type PreparationInput = Pick<
    * records the workspace, and a branch rename may still be running.
    */
   readonly reusedWorktree?: { readonly baseRef: string };
+  readonly recovering?: boolean;
 };
 
 export interface ThreadLaunchRetryInput {
@@ -469,6 +470,14 @@ const make = Effect.gen(function* () {
               path: null,
             },
             {
+              ...(input.initialMessage?.messageId === admissionMessageId(threadId)
+                ? {
+                    admission: {
+                      id: input.initialMessage.messageId,
+                      recovering: input.recovering === true,
+                    },
+                  }
+                : {}),
               progress: {
                 onWorktreeClaimed: (path) =>
                   Effect.sync(() => {
@@ -942,10 +951,11 @@ const make = Effect.gen(function* () {
         const projection = yield* threads
           .getThreadProjection(threadId)
           .pipe(Effect.mapError(mapError(input, "create-thread", threadId)));
-        const runIsPreparing =
-          runId !== null &&
-          projection.runs.some((run) => run.id === runId && run.status === "preparing");
-        const shouldSchedule = runId === null ? Option.isNone(launchReceipt) : runIsPreparing;
+        const preparingRun =
+          runId === null
+            ? undefined
+            : projection.runs.find((run) => run.id === runId && run.status === "preparing");
+        const shouldSchedule = runId === null ? Option.isNone(launchReceipt) : !!preparingRun;
         // A retried root launch prepares the folder its first attempt bound, so
         // a Scratch thread keeps its own. Other root launches bind no folder.
         const boundWorktreePath = projection.thread.worktreePath;
@@ -959,10 +969,16 @@ const make = Effect.gen(function* () {
                 branch: workspaceStrategy.branch,
               }
             : workspaceStrategy;
-        if (runIsPreparing && messageWasAlreadyAccepted && runId !== null) {
-          yield* resumePreparation({ commandId: input.commandId, threadId, runId }).pipe(
-            Effect.mapError(mapError(input, "update-thread", threadId)),
-          );
+        if (
+          messageWasAlreadyAccepted &&
+          preparingRun?.workspacePreparation &&
+          preparingRun.userMessageId === admissionMessageId(threadId)
+        ) {
+          yield* resumePreparation({
+            commandId: input.commandId,
+            threadId,
+            runId: preparingRun.id,
+          }).pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
         } else if (shouldSchedule) {
           const ownsPreparation = yield* reservePreparation(input.commandId);
           if (ownsPreparation) {
@@ -1063,6 +1079,7 @@ const make = Effect.gen(function* () {
       {
         commandId: input.commandId,
         projectId: projection.thread.projectId,
+        recovering: true,
         workspaceStrategy: reuse?.strategy ?? workspacePreparation,
         ...(reuse === null ? {} : { reusedWorktree: reuse.reusedWorktree }),
         ...(message === undefined

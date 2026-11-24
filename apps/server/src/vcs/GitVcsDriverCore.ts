@@ -34,6 +34,7 @@ import { dedupeRemoteBranchesWithLocalMatches, normalizeGitRemoteUrl } from "@t3
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { compactTraceAttributes } from "@t3tools/shared/observability";
 import { decodeJsonResult } from "@t3tools/shared/schemaJson";
+import { sha256Hex } from "@t3tools/shared/sha256";
 import { isSshRemoteUrl } from "@t3tools/shared/sourceControl";
 import {
   buildSshChildEnvironment,
@@ -3859,29 +3860,78 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     const progress = options?.progress;
     const onCheckoutProgress = progress?.onCheckoutProgress;
 
-    const checkoutWorkers = (yield* readConfigValue(input.cwd, "checkout.workers")) ?? "0";
-    yield* executeGit(
-      "GitVcsDriver.createWorktree",
-      input.cwd,
-      ["-c", `checkout.workers=${checkoutWorkers}`, ...args],
-      {
-        fallbackErrorDetail: "git worktree add failed",
-        timeoutMs: WORKTREE_ADD_TIMEOUT_MS,
-        ...(onCheckoutProgress
-          ? {
-              // Git only prints checkout progress when stderr is a tty or the
-              // delay elapsed. GIT_PROGRESS_DELAY=0 forces it through the pipe.
-              env: { GIT_PROGRESS_DELAY: "0", LC_ALL: "C" },
-              progress: {
-                onStderrLine: (line) => {
-                  const parsed = parseGitCheckoutProgressLine(line);
-                  return parsed ? onCheckoutProgress(parsed) : Effect.void;
+    const admission = options?.admission;
+    const reflogAction = admission ? `travail-admission-${sha256Hex(admission.id)}` : undefined;
+    const recovering =
+      admission?.recovering &&
+      (yield* fileSystem.exists(worktreePath).pipe(Effect.orElseSucceed(() => false)));
+    if (recovering) {
+      // Git writes the action to the checkout's HEAD reflog as part of worktree add.
+      // The branch and path alone cannot establish ownership of an existing checkout.
+      const operation = "GitVcsDriver.createWorktree.recover";
+      const registered = yield* runGitStdout(operation, input.cwd, [
+        "worktree",
+        "list",
+        "--porcelain",
+        "-z",
+      ]);
+      const conflict = (reason: string) =>
+        new GitCommandError({
+          operation,
+          command: "git worktree add",
+          cwd: input.cwd,
+          detail: `Cannot recover worktree ${worktreePath} for ${targetBranch}: ${reason}.`,
+        });
+      const registeredPath = parseWorktreeBranchPaths(registered).get(targetBranch);
+      if (!registeredPath) return yield* conflict("the branch has no registered checkout");
+      const [expectedPath, checkoutPath] = yield* Effect.all(
+        [fileSystem.realPath(worktreePath), fileSystem.realPath(registeredPath)],
+        { concurrency: 2 },
+      ).pipe(Effect.mapError(() => conflict("the registered checkout path cannot be resolved")));
+      if (path.relative(expectedPath, checkoutPath) !== "")
+        return yield* conflict("the branch is not registered at the expected path");
+      const [entry, status] = yield* Effect.all(
+        [
+          runGitStdout(operation, worktreePath, ["reflog", "show", "-1", "--format=%gs", "HEAD"]),
+          runGitStdout(operation, worktreePath, [
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=normal",
+          ]),
+        ],
+        { concurrency: 2 },
+      );
+      if (entry.trimEnd() !== `${reflogAction}: updating HEAD`)
+        return yield* conflict("the HEAD reflog does not identify this task");
+      if (status.length) return yield* conflict("the checkout has changes");
+    } else {
+      const checkoutWorkers = (yield* readConfigValue(input.cwd, "checkout.workers")) ?? "0";
+      yield* executeGit(
+        "GitVcsDriver.createWorktree",
+        input.cwd,
+        ["-c", `checkout.workers=${checkoutWorkers}`, ...args],
+        {
+          fallbackErrorDetail: "git worktree add failed",
+          timeoutMs: WORKTREE_ADD_TIMEOUT_MS,
+          env: {
+            ...(reflogAction ? { GIT_REFLOG_ACTION: reflogAction } : {}),
+            ...(onCheckoutProgress ? { GIT_PROGRESS_DELAY: "0", LC_ALL: "C" } : {}),
+          },
+          ...(onCheckoutProgress
+            ? {
+                // Git only prints checkout progress when stderr is a tty or the
+                // delay elapsed. GIT_PROGRESS_DELAY=0 forces it through the pipe.
+                progress: {
+                  onStderrLine: (line) => {
+                    const parsed = parseGitCheckoutProgressLine(line);
+                    return parsed ? onCheckoutProgress(parsed) : Effect.void;
+                  },
                 },
-              },
-            }
-          : {}),
-      },
-    );
+              }
+            : {}),
+        },
+      );
+    }
 
     if (progress?.onWorktreeClaimed) {
       yield* progress.onWorktreeClaimed(worktreePath);

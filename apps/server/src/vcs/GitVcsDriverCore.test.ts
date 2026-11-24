@@ -3311,6 +3311,49 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
       }),
     );
 
+    it.effect(
+      "recovers a clean admitted checkout after Git created it but before the thread recorded it",
+      () =>
+        Effect.gen(function* () {
+          const cwd = yield* makeTmpDir();
+          const { initialBranch } = yield* initRepoWithCommit(cwd);
+          const driver = yield* GitVcsDriver.GitVcsDriver;
+          const fs = yield* FileSystem.FileSystem;
+          const pathService = yield* Path.Path;
+          const physicalDirectory = yield* makeTmpDir("admitted-worktrees-");
+          let worktreesDirectory = physicalDirectory;
+          if ((yield* HostProcess.Platform) !== "win32") {
+            worktreesDirectory = pathService.join(yield* makeTmpDir(), "linked-worktrees");
+            yield* fs.symlink(physicalDirectory, worktreesDirectory);
+          }
+          const input = { cwd, path: null, refName: initialBranch, newRefName: "chantier/recover" };
+          const admission = { id: "first-task", recovering: false };
+          const created = yield* driver.createWorktree(input, { worktreesDirectory, admission });
+          // Restart with just the admitted task and the saved Git state.
+          const retry = (id: string) =>
+            driver.createWorktree(input, {
+              worktreesDirectory,
+              admission: { id, recovering: true },
+            });
+          assert.deepEqual(yield* retry(admission.id), created);
+          assert.match(
+            (yield* retry("another-task").pipe(Effect.flip)).detail,
+            /reflog does not identify/,
+          );
+          const path = created.worktree.path;
+          const untracked = pathService.join(path, "untracked.txt");
+          yield* fs.writeFileString(untracked, "preserve my edits");
+          assert.match((yield* retry(admission.id).pipe(Effect.flip)).detail, /has changes/);
+          assert.equal(yield* fs.readFileString(untracked), "preserve my edits");
+          yield* fs.remove(untracked);
+          yield* git(path, ["reflog", "expire", "--expire=now", "HEAD"]);
+          assert.match(
+            (yield* retry(admission.id).pipe(Effect.flip)).detail,
+            /reflog does not identify/,
+          );
+        }),
+    );
+
     it.effect("creates worktrees under the configured worktrees directory", () =>
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
