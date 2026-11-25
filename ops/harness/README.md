@@ -19,7 +19,8 @@ La config privée `.t3/harness-operations/config.json` active séparément prép
 
 Les agents publient sur `Travail/main`. Le bouton bleu au-dessus d’**Usage** apparaît quand
 une nouvelle révision est disponible. Le clic lance la préparation et la validation isolées,
-puis l’activation si le service est inactif au sens de la maintenance (aucun travail en cours).
+puis ferme les admissions et redémarre le serveur. Les fils interrompus reprennent selon leurs
+réglages. Une session vocale, un bureau privé ou un terminal actif bloque la bascule.
 Après installation, rouvrir Travail ou actualiser la page web.
 
 Pour activer ce canal sur une installation précédente, exécuter une fois depuis une copie à jour
