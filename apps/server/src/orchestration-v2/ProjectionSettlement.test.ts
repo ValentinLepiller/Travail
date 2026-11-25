@@ -20,6 +20,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Statement from "effect/sql/Statement";
+// @effect-diagnostics-next-line nodeBuiltinImport:off - Observe a native event loop callback between SQLite reads.
 import * as NodeTimers from "node:timers";
 
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
