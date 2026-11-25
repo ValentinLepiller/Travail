@@ -59,6 +59,7 @@ const fixture = (
     status: Effect.succeed(null),
     install: () => Effect.succeed(false),
   },
+  readForAgentRestart = read,
 ) =>
   Effect.acquireRelease(
     Effect.sync(() =>
@@ -67,7 +68,7 @@ const fixture = (
           Layer.provideMerge(
             Layer.mergeAll(
               Layer.succeed(RuntimeAdmission.RuntimeAdmission, gate),
-              Layer.succeed(MaintenanceActivity.MaintenanceActivity, { read }),
+              Layer.succeed(MaintenanceActivity.MaintenanceActivity, { read, readForAgentRestart }),
               auth,
               Layer.succeed(TravailUpdates.TravailUpdates, updates),
             ),
@@ -150,9 +151,34 @@ it.effect("fails closed for missing hooks, busy work and malformed requests", ()
     );
     expect(
       (yield* Effect.promise(() =>
-        web.handler(request("quiesce", "op", "Bearer maintain", { version: 2 })),
+        web.handler(request("quiesce", "op", "Bearer maintain", { version: 3 })),
       )).status,
     ).toBe(400);
+  }),
+);
+
+it.effect("an explicit agent restart admits the update while agents are running", () =>
+  Effect.gen(function* () {
+    const gate = yield* RuntimeAdmission.make;
+    yield* Effect.forEach(RuntimeAdmission.REQUIRED_HOOKS, (name) => gate.registerHook(name));
+    const web = yield* fixture(
+      gate,
+      Effect.succeed({ activeWork: 4, activeVoice: 0, activeDesktops: 0 }),
+      undefined,
+      Effect.succeed({ activeWork: 0, activeVoice: 0, activeDesktops: 0 }),
+    );
+    const quiesce = (version: number) =>
+      Effect.promise(() =>
+        web.handler(request("quiesce", "update", "Bearer maintain", { version })),
+      );
+    expect((yield* quiesce(1)).status).toBe(409);
+    const prepared = yield* quiesce(2);
+    expect(prepared.status).toBe(200);
+    expect(yield* Effect.promise(() => prepared.json())).toMatchObject({
+      version: 2,
+      quiesced: true,
+    });
+    expect((yield* gate.admit(Effect.void).pipe(Effect.flip)).code).toBe("maintenance_active");
   }),
 );
 
@@ -162,7 +188,11 @@ it.effect("does not close an active voice call to make maintenance succeed", () 
     yield* Effect.forEach(RuntimeAdmission.REQUIRED_HOOKS, (name) => gate.registerHook(name));
     const releaseCall = yield* gate.reserve("voice");
     const web = yield* fixture(gate);
-    expect((yield* Effect.promise(() => web.handler(request("quiesce", "op")))).status).toBe(409);
+    expect(
+      (yield* Effect.promise(() =>
+        web.handler(request("quiesce", "op", "Bearer maintain", { version: 2 })),
+      )).status,
+    ).toBe(409);
     expect((yield* gate.snapshot).activeVoice).toBe(1);
     expect((yield* gate.snapshot).operationId).toBeNull();
     yield* releaseCall;

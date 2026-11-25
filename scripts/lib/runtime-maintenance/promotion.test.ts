@@ -548,6 +548,37 @@ it("rejects an executable protocol source changed after validation", async () =>
   expect(f.events).toEqual([]);
 });
 
+it.each([false, true])(
+  "preserves durable work across a planned agent restart, including rollback (failed start: %s)",
+  async (failedStart) => {
+    const f = await fixture();
+    const db = new NodeSqlite.DatabaseSync(f.database);
+    db.exec("INSERT INTO orchestration_v2_projection_runs VALUES ('running')");
+    db.close();
+    f.control.quiesce = async (_id, restartAgents) => {
+      expect(restartAgents).toBe(true);
+    };
+    const check = f.control.check;
+    f.control.check = async () => {
+      if (failedStart && (await currentRelease(f.operations)) === f.candidate)
+        throw new Error("Candidate failed to initialize");
+      await check();
+    };
+    const install = promote(f, f.candidate, f.validation, f.control, f.previous, true);
+    if (failedStart) await expect(install).rejects.toThrow("Candidate failed");
+    else await install;
+    expect(await currentRelease(f.operations)).toBe(failedStart ? f.previous : f.candidate);
+    const persisted = new NodeSqlite.DatabaseSync(f.database, { readOnly: true });
+    try {
+      expect(
+        persisted.prepare("SELECT status FROM orchestration_v2_projection_runs").get()?.status,
+      ).toBe("running");
+    } finally {
+      persisted.close();
+    }
+  },
+);
+
 it("never stops the host if admission quiescence is unavailable or busy", async () => {
   const f = await fixture();
   f.control.quiesce = async () => {

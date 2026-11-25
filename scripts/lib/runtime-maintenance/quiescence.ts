@@ -8,18 +8,25 @@ export async function admissionLease(
   config: RuntimeConfig,
   action: "quiesce" | "release",
   operationId: string,
+  restartAgents = false,
 ) {
+  const version = restartAgents ? 2 : 1;
   return withProbeSession(config, "environment:maintain", async (token) => {
     const response = await fetch(
       `http://127.0.0.1:${config.port}/api/harness/maintenance/${action}`,
       {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ version: 1, operationId }),
+        body: JSON.stringify({ version, operationId }),
         signal: AbortSignal.timeout(15_000),
       },
     );
-    if (action === "quiesce" && (response.status === 404 || response.status === 405)) {
+    if (
+      action === "quiesce" &&
+      (response.status === 404 ||
+        response.status === 405 ||
+        (restartAgents && response.status === 400))
+    ) {
       throw new AdmissionUnavailable(
         "This host has no compatible maintenance admission endpoint; installation requires an idle host with admission support.",
       );
@@ -35,7 +42,7 @@ export async function admissionLease(
       activeVoice?: unknown;
       activeDesktops?: unknown;
     };
-    if (proof.version !== 1 || proof.operationId !== operationId)
+    if (proof.version !== version || proof.operationId !== operationId)
       throw new Error("Admission lease identity mismatch");
     if (action === "release" && proof.released !== true)
       throw new Error("Admission was not released");

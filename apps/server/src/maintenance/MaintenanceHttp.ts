@@ -18,7 +18,7 @@ class MaintenanceRequestError extends Schema.TaggedError<MaintenanceRequestError
   {},
 ) {}
 const Request = Schema.Struct({
-  version: Schema.Literal(1),
+  version: Schema.Literals([1, 2]),
   operationId: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{1,128}$/)),
 });
 const decodeRequest = Schema.decodeUnknownEffect(Request);
@@ -84,10 +84,12 @@ const handler = Effect.gen(function* () {
       ? yield* admission.release(input.operationId)
       : yield* Effect.gen(function* () {
           const activity = yield* MaintenanceActivity.MaintenanceActivity;
-          return yield* admission.quiesce(input.operationId, () => activity.read);
+          return yield* admission.quiesce(input.operationId, () =>
+            input.version === 2 ? activity.readForAgentRestart : activity.read,
+          );
         });
   return HttpServerResponse.jsonUnsafe(
-    { version: 1, ...result },
+    { version: input.version, ...result },
     { headers: { "cache-control": "no-store" } },
   );
 }).pipe(

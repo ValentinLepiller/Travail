@@ -108,7 +108,7 @@ function ConnectedTravailUpdateButton({
     try {
       if (
         !(await requestConfirmDialog(
-          "Installer la mise à jour de Travail ?\nLe serveur redémarrera après la validation.",
+          "Installer la mise à jour de Travail ?\nAprès la validation, Travail interrompra les agents en cours et reprendra leurs fils selon leurs réglages.",
         ))
       )
         return;

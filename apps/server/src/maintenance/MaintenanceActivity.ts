@@ -23,7 +23,13 @@ export class MaintenanceActivityError extends Schema.TaggedError<MaintenanceActi
 
 export class MaintenanceActivity extends Context.Service<
   MaintenanceActivity,
-  { readonly read: Effect.Effect<RuntimeAdmission.Activity, MaintenanceActivityError> }
+  {
+    readonly read: Effect.Effect<RuntimeAdmission.Activity, MaintenanceActivityError>;
+    readonly readForAgentRestart: Effect.Effect<
+      RuntimeAdmission.Activity,
+      MaintenanceActivityError
+    >;
+  }
 >()("t3/maintenance/MaintenanceActivity") {}
 
 const isMaintenanceActivityError = Schema.is(MaintenanceActivityError);
@@ -46,7 +52,7 @@ const make = Effect.gen(function* () {
         Effect.sync(() => {
           if (event.type === "snapshot") {
             // Even an idle shell can start background work after a process check.
-            // V1 refuses every live PTY; closed history does not keep the host busy.
+            // Both maintenance modes refuse every live PTY; closed history does not keep the host busy.
             count = event.terminals.filter(
               (terminal) => terminal.status !== "exited" && terminal.status !== "error",
             ).length;
@@ -62,7 +68,7 @@ const make = Effect.gen(function* () {
       (unsubscribe) => Effect.sync(unsubscribe),
     );
   });
-  const read = Effect.gen(function* () {
+  const readForAgentRestart = Effect.gen(function* () {
     // API WebRTC calls bypass the host after credential minting. Until that path
     // has a lifetime lease, configured API voice makes an idle proof unavailable.
     const apiVoice = yield* voice.getCredentialStatus;
@@ -71,6 +77,18 @@ const make = Effect.gen(function* () {
         cause: "Untracked external API voice is configured.",
       });
     }
+    const state = yield* admission.snapshot;
+    const activeDesktops = yield* desktops.activeCount;
+    if (!Number.isSafeInteger(activeDesktops) || activeDesktops < 0)
+      return yield* new MaintenanceActivityError({ cause: activeDesktops });
+    return {
+      activeWork: yield* terminalCount,
+      activeVoice: state.activeVoice,
+      activeDesktops: Math.max(activeDesktops, state.activeDesktops),
+    };
+  });
+  const read = Effect.gen(function* () {
+    const protectedActivity = yield* readForAgentRestart;
     // Count all persisted work before allowing a stop. Terminal whitelists keep
     // unknown future statuses busy; absent tables or invalid counts fail closed.
     // Historical plans cannot execute work after their turn has ended.
@@ -105,25 +123,25 @@ const make = Effect.gen(function* () {
     `;
     const counts = yield* decodeCount(rows);
     if (counts.length !== 1) return yield* new MaintenanceActivityError({ cause: counts });
-    const state = yield* admission.snapshot;
-    const activeDesktops = yield* desktops.activeCount;
-    if (!Number.isSafeInteger(activeDesktops) || activeDesktops < 0)
-      return yield* new MaintenanceActivityError({ cause: activeDesktops });
     return {
+      ...protectedActivity,
       activeWork:
         counts[0]!.activeWork +
-        (yield* terminalCount) +
+        protectedActivity.activeWork +
         (yield* providerSessions.pendingBackgroundWork),
-      activeVoice: state.activeVoice,
-      activeDesktops: Math.max(activeDesktops, state.activeDesktops),
     };
-  }).pipe(
-    Effect.timeout("10 seconds"),
-    Effect.mapError((cause) =>
-      isMaintenanceActivityError(cause) ? cause : new MaintenanceActivityError({ cause }),
-    ),
-  );
-  return MaintenanceActivity.of({ read });
+  });
+  const bounded = <R>(probe: Effect.Effect<RuntimeAdmission.Activity, unknown, R>) =>
+    probe.pipe(
+      Effect.timeout("10 seconds"),
+      Effect.mapError((cause) =>
+        isMaintenanceActivityError(cause) ? cause : new MaintenanceActivityError({ cause }),
+      ),
+    );
+  return MaintenanceActivity.of({
+    read: bounded(read),
+    readForAgentRestart: bounded(readForAgentRestart),
+  });
 });
 
 export const layer = Layer.effect(MaintenanceActivity, make);

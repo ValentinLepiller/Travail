@@ -93,6 +93,7 @@ it.effect(
       yield* sql`INSERT INTO orchestration_v2_projection_runs(status) VALUES ('queued')`;
       yield* sql`INSERT INTO orchestration_v2_effect_outbox(status) VALUES ('pending')`;
       expect((yield* activity.read).activeWork).toBe(2);
+      expect((yield* activity.readForAgentRestart).activeWork).toBe(0);
     }).pipe(Effect.provide(layer)),
 );
 
@@ -134,7 +135,7 @@ it.effect("refuses maintenance for an open idle PTY and ignores exited terminal 
   Effect.gen(function* () {
     const activity = yield* MaintenanceActivity.MaintenanceActivity;
     yield* createTables;
-    expect((yield* activity.read).activeWork).toBe(1);
+    expect((yield* activity.readForAgentRestart).activeWork).toBe(1);
   }).pipe(Effect.provide(layerForVoice(false, ["running", "exited", "error"]))),
 );
 

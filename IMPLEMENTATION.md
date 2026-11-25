@@ -337,3 +337,5 @@ Slack : transferts relus avant collecte avec leur auteur et fichiers ; images jo
 Chef de Travail (23/11) — recherche MCP filtrée par projet avant classement, archives incluses. Les outils de consultation des discussions refusent les cibles hors projet. Tests locaux ciblés et revue simplify.
 
 Stabilité des connexions (25/11). La liste des fils est lue par lots dans une même transaction SQLite, avec une pause entre les lots pour servir les connexions. Sur une copie de 1 811 fils, résultats identiques et blocage maximal de 2,8 s, contre 10,8 s auparavant à froid lors du premier essai. Tests ciblés et revue simplify.
+
+Mise à jour Travail. Le bouton ferme l’admission avant le redémarrage, conserve l’état des agents interrompus et s’appuie sur la reprise native au démarrage. Les sessions vocales, bureaux et terminaux actifs restent protégés. Tests ciblés sur l’installation, le retour arrière et la reprise.

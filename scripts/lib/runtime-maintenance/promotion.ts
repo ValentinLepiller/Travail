@@ -38,10 +38,14 @@ export interface RuntimeControl {
   check(): Promise<void>;
   activate(): Promise<void>;
   ready(updateId: string): Promise<void>;
-  quiesce(operationId: string): Promise<void>;
+  quiesce(operationId: string, restartAgents?: boolean): Promise<void>;
   releaseQuiescence(operationId: string): Promise<void>;
   /** Unknown running services must acquire admission before a recovery can stop them. */
-  guardRecoveryStop(operationId: string, requireStopped: boolean): Promise<void>;
+  guardRecoveryStop(
+    operationId: string,
+    requireStopped: boolean,
+    restartAgents?: boolean,
+  ): Promise<void>;
 }
 export interface RuntimePaths {
   readonly operations: string;
@@ -52,6 +56,7 @@ interface Journal {
   rollbackLease?: string;
   committedState?: string;
   stateSnapshotVersion?: 2;
+  restartAgents?: true;
   preservedStates?: string[];
   phase:
     | "quiescing"
@@ -150,7 +155,7 @@ async function restore(
   await control.stop();
   const journalPath = NodePath.join(paths.operations, "promotion.json");
   if (journal.phase !== "stopping") {
-    assertIdle(journal.backup);
+    if (!journal.restartAgents) assertIdle(journal.backup);
     if (journal.phase !== "restoring" && (await lstatIfPresent(paths.home))) {
       const preserved = NodePath.join(paths.operations, "preserved", NodeCrypto.randomUUID());
       await snapshotState(paths.home, preserved);
@@ -266,8 +271,8 @@ export async function recover(paths: RuntimePaths, control: RuntimeControl) {
   }[journal.phase];
   if (!expected?.includes(current))
     throw new Error("Current release does not match the pending recovery phase");
-  if (journal.phase !== "restoring") assertIdle(paths.home);
-  await control.guardRecoveryStop(journal.id, journal.phase === "restoring");
+  if (journal.phase !== "restoring" && !journal.restartAgents) assertIdle(paths.home);
+  await control.guardRecoveryStop(journal.id, journal.phase === "restoring", journal.restartAgents);
   await restore(paths, journal, control);
 }
 
@@ -309,10 +314,11 @@ export async function promote(
   validation: Validation,
   control: RuntimeControl,
   expectedPrevious?: string,
+  restartAgents = false,
 ) {
   return withLock(paths.operations, async () => {
     await assertValidated(candidate, validation);
-    assertIdle(paths.home);
+    if (!restartAgents) assertIdle(paths.home);
     const previous = await currentRelease(paths.operations);
     if (expectedPrevious !== undefined && previous !== expectedPrevious)
       throw new Error("The installed release changed during preparation");
@@ -331,19 +337,20 @@ export async function promote(
       id: NodeCrypto.randomUUID(),
       phase: "quiescing",
       stateSnapshotVersion: 2,
+      ...(restartAgents ? { restartAgents: true } : {}),
       previous,
       candidate,
       backup,
     };
     await writeJson(journalPath, journal);
     try {
-      await control.quiesce(journal.id);
-      assertIdle(paths.home);
+      await control.quiesce(journal.id, restartAgents);
+      if (!restartAgents) assertIdle(paths.home);
       journal.phase = "stopping";
       await writeJson(journalPath, journal);
       await control.stop();
       // Close the admission race with messages and the persistent scheduler before backing up.
-      assertIdle(paths.home);
+      if (!restartAgents) assertIdle(paths.home);
       await snapshotState(paths.home, backup);
       journal.phase = "backed-up";
       await writeJson(journalPath, journal);

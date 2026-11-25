@@ -79,9 +79,9 @@ function control(config: RuntimeConfig): RuntimeControl {
       config.source,
     ).then(() => undefined);
   return {
-    quiesce: (id) => admissionLease(config, "quiesce", id),
+    quiesce: (id, restartAgents) => admissionLease(config, "quiesce", id, restartAgents),
     releaseQuiescence: (id) => admissionLease(config, "release", id),
-    guardRecoveryStop: async (id, requireStopped) => {
+    guardRecoveryStop: async (id, requireStopped, restartAgents) => {
       const output = await run(
         {
           program: "systemctl",
@@ -113,7 +113,7 @@ function control(config: RuntimeConfig): RuntimeControl {
         prepared.hostPid === Number(properties.MainPID)
       )
         return;
-      await admissionLease(config, "quiesce", id);
+      await admissionLease(config, "quiesce", id, restartAgents);
     },
     stop: () => systemctl("stop"),
     start: async () => {
@@ -427,7 +427,7 @@ async function main() {
               await NodeFSP.readFile(NodePath.join(release, ".t3/validation.json"), "utf8"),
             )
           : await validate(config, release);
-        await promote(config, release, validation, control(config), previous);
+        await promote(config, release, validation, control(config), previous, true);
         // Keep the legacy upstream timer from promoting over the user-managed channel.
         if (config.prepareUpdates || config.promoteValidated)
           await writeJson(configPath, {
