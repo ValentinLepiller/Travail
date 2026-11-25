@@ -335,3 +335,5 @@ Chef : attribution de projet réexaminable et corrigée sans validation humaine,
 Slack : transferts relus avant collecte avec leur auteur et fichiers ; images jointes à l’analyse du Chef, limites et lectures impossibles explicites, attribution des échanges cités clarifiée. Installé le 13/11 avec sauvegarde ; simplify local, 107 tests ciblés, typage/lint, build et démarrage isolé validés, transfert et vision vérifiés sur Slack réel. Sources, tâches et clients conservés, aucune migration. Preuves privées : `slack-forward-images-20261113`.
 
 Chef de Travail (23/11) — recherche MCP filtrée par projet avant classement, archives incluses. Les outils de consultation des discussions refusent les cibles hors projet. Tests locaux ciblés et revue simplify.
+
+Stabilité des connexions (25/11). La liste des fils est lue par lots dans une même transaction SQLite, avec une pause entre les lots pour servir les connexions. Sur une copie de 1 811 fils, résultats identiques et blocage maximal de 2,8 s, contre 10,8 s auparavant à froid lors du premier essai. Tests ciblés et revue simplify.

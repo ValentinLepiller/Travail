@@ -20,6 +20,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Statement from "effect/sql/Statement";
+import * as NodeTimers from "node:timers";
 
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
@@ -526,4 +527,39 @@ it.effect("shell failure lookups stay on the thread's own turn items", () =>
     assert.lengthOf(secretLookups, 1);
     assert.include(secretLookups[0]!.detail, "turn_items_thread_run_idx");
   }).pipe(Effect.provide(layerSql)),
+);
+
+it.effect(
+  "large shell snapshots let the server handle other callbacks without losing threads",
+  () =>
+    Effect.gen(function* () {
+      const store = yield* ProjectionStore.ProjectionStoreV2;
+      const ids: ThreadId[] = [];
+      for (let index = 79; index >= 0; index--) {
+        ids.push(yield* createThread(String(index).padStart(2, "0")));
+      }
+      yield* createThread("archived", { archivedAt: now });
+
+      let batchCount = 0;
+      let otherCallbackRan = false;
+      const observe: Statement.Transformer = (statement) =>
+        Effect.sync(() => {
+          if (statement.compile()[0].includes("AS blocking_failure_payload_json")) {
+            batchCount++;
+            if (batchCount === 1) NodeTimers.setImmediate(() => (otherCallbackRan = true));
+            else assert.isTrue(otherCallbackRan);
+          }
+          return statement;
+        });
+      const shell = yield* store
+        .getShellSnapshot({ location: "active" })
+        .pipe(Effect.provideService(Statement.CurrentTransformer, observe));
+
+      assert.isAbove(batchCount, 1);
+      assert.deepEqual(
+        shell.threads.map((thread) => thread.id),
+        ids.toReversed(),
+      );
+      assert.isEmpty(shell.archivedThreads);
+    }).pipe(Effect.provide(layerSql)),
 );

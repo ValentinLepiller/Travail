@@ -70,6 +70,7 @@ import {
   isOrchestrationV2SupersededInterrupt,
 } from "@t3tools/shared/orchestrationV2Timeline";
 import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
+import * as Arr from "effect/Array";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -1003,6 +1004,8 @@ type ShellRunRow = {
   readonly run_id: string;
   readonly ordinal: number;
 };
+
+const SHELL_THREAD_READ_BATCH_SIZE = 32;
 
 type SettlementThreadRow = Pick<
   ShellThreadRow,
@@ -5159,10 +5162,29 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           ),
         );
 
-    const selectShellThreadRows = (
-      threadId?: ThreadId,
-      { location, projectId, unsettledOnly = false }: ShellSnapshotOptions = {},
-    ) =>
+    const selectShellThreadIds = ({
+      location,
+      projectId,
+      unsettledOnly = false,
+    }: ShellSnapshotOptions = {}) =>
+      sql<{ readonly thread_id: ThreadId }>`
+        SELECT t.thread_id
+        FROM orchestration_v2_projection_threads t
+        WHERE t.deleted_at IS NULL${projectId === undefined ? sql`` : sql` AND t.project_id = ${projectId}`}${
+          location === "active"
+            ? sql` AND json_extract(t.payload_json, '$.archivedAt') IS NULL`
+            : location === "archive"
+              ? sql` AND json_extract(t.payload_json, '$.archivedAt') IS NOT NULL`
+              : sql``
+        }${
+          unsettledOnly
+            ? sql` AND json_extract(t.payload_json, '$.settledAt') IS NULL AND json_extract(t.payload_json, '$.settledOverride') IS NOT 'settled'`
+            : sql``
+        }
+        ORDER BY t.updated_at ASC, t.thread_id ASC
+      `;
+
+    const selectShellThreadRows = (threadIds: ReadonlyArray<ThreadId>) =>
       sql<ShellThreadRow>`
             SELECT
               t.thread_id,
@@ -5337,19 +5359,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 candidate.ordinal DESC, candidate.run_id DESC
               LIMIT 1
             ) AND blocked.status = 'failed'
-            WHERE t.deleted_at IS NULL${threadId === undefined ? sql`` : sql` AND t.thread_id = ${threadId}`}${
-              projectId === undefined ? sql`` : sql` AND t.project_id = ${projectId}`
-            }${
-              location === "active"
-                ? sql` AND json_extract(t.payload_json, '$.archivedAt') IS NULL`
-                : location === "archive"
-                  ? sql` AND json_extract(t.payload_json, '$.archivedAt') IS NOT NULL`
-                  : sql``
-            }${
-              unsettledOnly
-                ? sql` AND json_extract(t.payload_json, '$.settledAt') IS NULL AND json_extract(t.payload_json, '$.settledOverride') IS NOT 'settled'`
-                : sql``
-            }
+            WHERE t.deleted_at IS NULL AND t.thread_id IN ${sql.in(threadIds)}
             ORDER BY t.updated_at ASC, t.thread_id ASC
           `;
 
@@ -5763,10 +5773,15 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
 
     const readShellSnapshotRows = (options: ShellSnapshotOptions | undefined) =>
       Effect.gen(function* () {
-        const targetThreadRows = yield* selectShellThreadRows(undefined, options);
-        const targetThreadIds = new Set(
-          targetThreadRows.map((row) => ThreadId.make(row.thread_id)),
-        );
+        const ids = (yield* selectShellThreadIds(options)).map((row) => row.thread_id);
+        const targetThreadIds = new Set(ids);
+        const targetThreadRows: ShellThreadRow[] = [];
+        for (const batch of Arr.chunksOf(ids, SHELL_THREAD_READ_BATCH_SIZE)) {
+          targetThreadRows.push(...(yield* selectShellThreadRows(batch)));
+          // SQLite is synchronous. Let the event loop serve sockets between reads
+          // while the transaction keeps the snapshot on one database revision.
+          yield* Effect.yieldNow;
+        }
         const rowsByThreadId = new Map(
           targetThreadRows.map((row) => [ThreadId.make(row.thread_id), row] as const),
         );
@@ -5778,7 +5793,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         while (pendingSourceIds.length > 0) {
           const sourceId = pendingSourceIds.pop();
           if (sourceId === undefined || rowsByThreadId.has(sourceId)) continue;
-          const source = (yield* selectShellThreadRows(sourceId))[0];
+          const source = (yield* selectShellThreadRows([sourceId]))[0];
           if (source === undefined) continue;
           rowsByThreadId.set(sourceId, source);
           if (source.forked_from_run_source_thread_id !== null) {
@@ -5888,7 +5903,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               if (nextId === undefined || rowsByThreadId.has(nextId)) {
                 continue;
               }
-              const rows = yield* selectShellThreadRows(nextId);
+              const rows = yield* selectShellThreadRows([nextId]);
               const row = rows[0];
               if (row === undefined) {
                 continue;
