@@ -55,6 +55,7 @@ export class RuntimeAdmission extends Context.Service<
     readonly quiesce: <E, R>(
       operationId: string,
       probe: () => Effect.Effect<Activity, E, R>,
+      restartAgents?: boolean,
     ) => Effect.Effect<
       { operationId: string; quiesced: true; activeWork: 0; activeVoice: 0; activeDesktops: 0 },
       E | RuntimeAdmissionError,
@@ -89,7 +90,8 @@ export const make = Effect.gen(function* () {
           Option.isSome(lease) &&
           lease.value.owner === owner &&
           current.tokens.has(lease.value.token);
-        if (current.operationId !== null && !inherited) return [false, current] as const;
+        if (current.operationId !== null && (!inherited || key !== "inFlight"))
+          return [false, current] as const;
         const tokens = new Set(current.tokens);
         tokens.add(token);
         return [true, { ...current, [key]: current[key] + 1, tokens }] as const;
@@ -138,7 +140,7 @@ export const make = Effect.gen(function* () {
           kind === "voice" ? "activeVoice" : kind === "desktop" ? "activeDesktops" : "inFlight",
         ),
       ).pipe(Effect.map(({ release }) => release)),
-    quiesce: (operationId, probe) =>
+    quiesce: (operationId, probe, restartAgents = false) =>
       maintenance.withPermit(
         Effect.uninterruptibleMask((restore) =>
           Effect.gen(function* () {
@@ -163,7 +165,9 @@ export const make = Effect.gen(function* () {
             } as const;
             if (current.operationId === operationId) return result;
             const closedAdmission = yield* SubscriptionRef.modify(state, (value) =>
-              value.inFlight > 0 || value.activeVoice > 0 || value.activeDesktops > 0
+              (!restartAgents && value.inFlight > 0) ||
+              value.activeVoice > 0 ||
+              value.activeDesktops > 0
                 ? ([false, value] as const)
                 : ([true, { ...value, operationId }] as const),
             );

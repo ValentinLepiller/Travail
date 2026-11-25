@@ -62,6 +62,29 @@ it.effect(
     }),
 );
 
+it.effect(
+  "a planned agent restart closes admission even while admitted work is still running",
+  () =>
+    Effect.gen(function* () {
+      const gate = yield* RuntimeAdmission.make;
+      yield* registerHooks(gate);
+      const release = yield* gate.reserve("work");
+      yield* gate.admit(
+        Effect.gen(function* () {
+          yield* gate.quiesce("planned-restart", idle, true);
+          expect((yield* gate.snapshot).inFlight).toBe(2);
+          for (const kind of ["voice", "desktop"] as const) {
+            expect((yield* gate.reserve(kind).pipe(Effect.flip)).code).toBe("maintenance_active");
+          }
+        }),
+      );
+      expect((yield* gate.admit(Effect.void).pipe(Effect.flip)).code).toBe("maintenance_active");
+      yield* gate.release("planned-restart");
+      yield* release;
+      yield* gate.admit(Effect.void);
+    }),
+);
+
 it.effect("blocks new work during the durable probe, then reopens on busy or invalid results", () =>
   Effect.scoped(
     Effect.gen(function* () {

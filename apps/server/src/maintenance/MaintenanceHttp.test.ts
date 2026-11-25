@@ -171,8 +171,10 @@ it.effect("an explicit agent restart admits the update while agents are running"
       Effect.promise(() =>
         web.handler(request("quiesce", "update", "Bearer maintain", { version })),
       );
+    const endWork = yield* gate.reserve("work");
     expect((yield* quiesce(1)).status).toBe(409);
     const prepared = yield* quiesce(2);
+    yield* endWork;
     expect(prepared.status).toBe(200);
     expect(yield* Effect.promise(() => prepared.json())).toMatchObject({
       version: 2,

@@ -84,8 +84,11 @@ const handler = Effect.gen(function* () {
       ? yield* admission.release(input.operationId)
       : yield* Effect.gen(function* () {
           const activity = yield* MaintenanceActivity.MaintenanceActivity;
-          return yield* admission.quiesce(input.operationId, () =>
-            input.version === 2 ? activity.readForAgentRestart : activity.read,
+          const restartAgents = input.version === 2;
+          return yield* admission.quiesce(
+            input.operationId,
+            () => (restartAgents ? activity.readForAgentRestart : activity.read),
+            restartAgents,
           );
         });
   return HttpServerResponse.jsonUnsafe(

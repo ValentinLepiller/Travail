@@ -127,7 +127,7 @@ function control(config: RuntimeConfig): RuntimeControl {
           config.source,
         ),
       );
-      for (let attempt = 0; attempt < 150; attempt++) {
+      for (let attempt = 0; attempt < 450; attempt++) {
         try {
           const journal = JSON.parse(
             await NodeFSP.readFile(NodePath.join(config.operations, "promotion.json"), "utf8"),
@@ -158,7 +158,7 @@ function control(config: RuntimeConfig): RuntimeControl {
         } catch {}
         await NodeTimersPromises.setTimeout(200);
       }
-      throw new Error("Host did not become ready within 30 seconds");
+      throw new Error("Host did not become ready within 90 seconds");
     },
     check: async () => {
       const hostPid = Number(
@@ -193,8 +193,18 @@ function control(config: RuntimeConfig): RuntimeControl {
       } else await health(config);
     },
     ready: async (id) => {
-      await awaitReady(config, id);
-      await health(config);
+      // The installed child can emit ready before its tunnel or probe session is usable.
+      const deadline = Date.now() + 90_000;
+      for (;;) {
+        try {
+          await awaitReady(config, id);
+          await health(config);
+          return;
+        } catch (error) {
+          if (Date.now() >= deadline) throw error;
+          await NodeTimersPromises.setTimeout(1000);
+        }
+      }
     },
     activate: async () => {
       const journal = JSON.parse(
